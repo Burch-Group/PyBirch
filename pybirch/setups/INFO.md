@@ -1,0 +1,1 @@
+Setups folder has the instruments for each setup, as well as any relevant movement and measurement classes. The scan procedure will pull from these files automatically to give users an option of instruments to use.
