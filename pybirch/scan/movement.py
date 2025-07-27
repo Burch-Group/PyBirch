@@ -1,11 +1,16 @@
+import numpy as np
+import pandas as pd
+from pymeasure.instruments import Instrument
+
 class Movement:
-    # Base class for movement in the PyBirch framework
+    """Base class for movement tools in the PyBirch framework."""
 
     def __init__(self, name, instrument):
         self.name = name
         self.instrument = instrument
-        self.position_shape = None
+        self.position_dimensions = None
         self.position_units = None
+        self.position_columns = None
 
     @property
     def position(self):

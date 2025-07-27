@@ -3,7 +3,7 @@ import pandas as pd
 from pymeasure.instruments import Instrument
 
 class Measurement:
-    # Base class for measurements in the PyBirch framework
+    """Base class for measurement tools in the PyBirch framework."""
     
     def __init__(self, name, instrument):
         self.name = name

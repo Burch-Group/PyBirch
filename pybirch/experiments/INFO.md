@@ -1,0 +1,1 @@
+The experiments folder will have analysis & plotting tools specific to each type of experiment. The scan procedure will read from these automatically as necessary.
