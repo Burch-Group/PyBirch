@@ -5,33 +5,37 @@ from pymeasure.instruments import Instrument
 class Movement:
     """Base class for movement tools in the PyBirch framework."""
 
-    def __init__(self, name, instrument):
+    def __init__(self, name: str, instrument: Instrument):
         self.name = name
         self.instrument = instrument
-        self.position_dimensions = None
-        self.position_units = None
-        self.position_columns = None
+        self.position_units: str = ''
+        self.position_column: str = ''
+
+    def position_df(self) -> pd.DataFrame:
+        # Return the current position as a pandas DataFrame
+        column = f"{self.position_column} ({self.position_units})"
+        return pd.DataFrame({column: [self.position]})
 
     @property
-    def position(self):
+    def position(self) -> float:
         # Get the current position of the instrument
         raise NotImplementedError("Subclasses should implement this method.")
 
     @position.setter
-    def position(self, value):
+    def position(self, value: float):
         # Set the position of the instrument
         raise NotImplementedError("Subclasses should implement this method.")
 
     @property
-    def settings(self):
+    def settings(self) -> dict:
         # Get the current settings of the instrument, as a dictionary
         raise NotImplementedError("Subclasses should implement this method.")
     
     @settings.setter
-    def settings(self, dict):
+    def settings(self, settings: dict):
         # Set the settings of the instrument, from a dictionary
         raise NotImplementedError("Subclasses should implement this method.")
-    
+
     def connect(self):
         # Connect to the instrument
         raise NotImplementedError("Subclasses should implement this method.")
@@ -43,3 +47,6 @@ class Movement:
     def shutdown(self):
         # Shutdown the movement equipment
         pass
+
+    def __str__(self):
+        return f"Movement(name={self.name}, instrument={self.instrument.name})"

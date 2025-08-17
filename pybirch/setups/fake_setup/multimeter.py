@@ -6,14 +6,14 @@ import pandas as pd
 from pymeasure.adapters import FakeAdapter
 from pymeasure.instruments import Instrument, fakes
 
-from pybirch.scan.measurement import Measurement
-from pybirch.scan.movement import Movement
+from pybirch.scan.measurements import Measurement
+from pybirch.scan.movements import Movement
 
 
 class FakeMultimeter(fakes.FakeInstrument):
     """A fake multimeter for simulating a multimeter instrument."""
 
-    def __init__(self, name="Mock Multimeter", wait=.1, **kwargs):
+    def __init__(self, name: str ="Mock Multimeter", wait: float = 0, **kwargs):
         super().__init__(
             name=name,
             includeSCPI=False,
@@ -32,10 +32,7 @@ class FakeMultimeter(fakes.FakeInstrument):
     @current.setter
     def current(self, value):
         time.sleep(self._wait)
-        if value >= 0:
-            self._current = value
-        else:
-            raise ValueError("Current must be non-negative")
+        self._current = value
     
     @property
     def voltage(self):
@@ -45,18 +42,16 @@ class FakeMultimeter(fakes.FakeInstrument):
     @voltage.setter
     def voltage(self, value):
         time.sleep(self._wait)
-        if value >= 0:
-            self._voltage = value
-        else:
-            raise ValueError("Voltage must be non-negative")
+        self._voltage = value
+
 
 # define a measurement subclass for the voltage_meter of the multimeter
 # instrument is a placeholder; will be replaced with actual instrument instance at runtime
 class VoltageMeterMeasurement(Measurement):
-    def __init__(self, name, instrument):
+    def __init__(self, name: str, instrument: FakeMultimeter):
         super().__init__(name, instrument)
         self.data_dimensions = (2,1)  # 1 column for current, 1 column for voltage
-        self.data_units = np.array(["amperes","volts"])
+        self.data_units = np.array(["A","V"])
         self.data_columns = np.array(["current", "voltage"])
         self.num_data_points = 10
 
@@ -69,8 +64,8 @@ class VoltageMeterMeasurement(Measurement):
             currents.append(self.instrument.current)
             voltages.append(self.instrument.voltage + np.random.normal(0, 0.01))
             
-        data = np.array([[currents, voltages]])
-        return pd.DataFrame(data, columns=self.data_columns)
+        data = np.array([currents, voltages]).T
+        return data
 
     def connect(self):
         # Connect to the multimeter
@@ -88,6 +83,7 @@ class VoltageMeterMeasurement(Measurement):
     def shutdown(self):
         return
     
+    @property
     def settings(self):
         # Get the current settings of the instrument, as a dictionary
         return {
@@ -98,27 +94,28 @@ class VoltageMeterMeasurement(Measurement):
         }
     
     @settings.setter
-    def settings(self, settings_dict):
+    def settings(self, settings):
         # Set the settings of the instrument, from a dictionary
         time.sleep(self.instrument._wait)
-        if "current" in settings_dict:
-            self.instrument.current = settings_dict["current"]
-        if "voltage" in settings_dict:
-            self.instrument.voltage = settings_dict["voltage"]
-        if "units" in settings_dict:
-            self.instrument._units = np.array(settings_dict["units"])
-        if "wait" in settings_dict:
-            self.instrument._wait = settings_dict["wait"]
+        if "current" in settings:
+            self.instrument.current = settings["current"]
+        if "voltage" in settings:
+            self.instrument.voltage = settings["voltage"]
+        if "units" in settings:
+            self.instrument._units = np.array(settings["units"])
+        if "wait" in settings:
+            self.instrument._wait = settings["wait"]
 
 
 
 
 # next a movement subclass for the current source of the multimeter
 class CurrentSourceMovement(Movement):
-    def __init__(self, name, instrument):
+    def __init__(self, name: str, instrument: FakeMultimeter):
         super().__init__(name, instrument)
         self.position_shape = (1,)  # 1D position
-        self.position_units = "amperes"
+        self.position_units = "A"
+        self.position_column = "current"
 
     @property
     def position(self):
@@ -128,10 +125,7 @@ class CurrentSourceMovement(Movement):
     @position.setter
     def position(self, value):
         time.sleep(self.instrument._wait)
-        if value >= 0:
-            self.instrument.current = value
-        else:
-            raise ValueError("Current must be non-negative")
+        self.instrument.current = value
     
     def connect(self):
         # Connect to the multimeter
@@ -147,6 +141,7 @@ class CurrentSourceMovement(Movement):
     def shutdown(self):
         return
     
+    @property
     def settings(self):
         # Get the current settings of the instrument, as a dictionary
         return {
@@ -156,15 +151,16 @@ class CurrentSourceMovement(Movement):
         }
     
     @settings.setter
-    def settings(self, settings_dict):
+    def settings(self, settings):
         # Set the settings of the instrument, from a dictionary
         time.sleep(self.instrument._wait)
-        if "current" in settings_dict:
-            self.instrument.current = settings_dict["current"]
-        if "units" in settings_dict:
-            self.instrument._units = np.array(settings_dict["units"])
-        if "wait" in settings_dict:
-            self.instrument._wait = settings_dict["wait"]
+        if "current" in settings:
+            self.instrument.current = settings["current"]
+        if "units" in settings:
+            self.instrument._units = np.array(settings["units"])
+        if "wait" in settings:
+            self.instrument._wait = settings["wait"]
 
 
-voltage_meter = Measurement("Voltage Meter", FakeMultimeter())
+
+
