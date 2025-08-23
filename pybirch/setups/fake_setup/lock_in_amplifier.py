@@ -20,7 +20,7 @@ class FakeLockinAmplifier(fakes.FakeInstrument):
 
         # variables to simulate the lock-in amplifier's state; these do not exist for real instruments
         self._wait = wait
-        self._num_data_points = 100
+        self._num_data_points = 10
         self._sensitivity = 1.0  # Sensitivity in V
         self._units = np.array(["V", "V", "V"])  # X, Y, R units
         self._time_constant = 0.1  # Time constant in seconds
@@ -34,7 +34,7 @@ class FakeLockinAmplifier(fakes.FakeInstrument):
     def initialize(self):
         """Initialize the lock-in amplifier."""
         time.sleep(self._wait)
-        self._num_data_points = 100
+        self._num_data_points = 1
         self._sensitivity = 1.0
         self._time_constant = 0.1
         return

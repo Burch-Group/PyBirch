@@ -1,31 +1,45 @@
-from measurement import Measurement
+from pybirch.scan.measurements import Measurement
 import numpy as np
 import pandas as pd
 import time
 import os
-from movement import Movement
+from pybirch.scan.movements import Movement
 import wandb
-from procedure import Scan
+from pybirch.scan.scan import Scan
 from pymeasure.instruments import Instrument
 from pymeasure.experiment import Results, Procedure
+import pickle
 
 
 class Queue:
-    """A simple queue class to manage scans in the PyBirch framework."""
-    def __init__(self, QID: str):
-        self.scans: list[Scan] = []
+    """A queue class to manage scans in the PyBirch framework."""
+
+    def __init__(self, QID: str, scans: list[Scan] = []):
+        self.scans = scans
         self.QID = QID
 
-    def enqueue(self, item):
-        self.items.append(item)
+    def enqueue(self, item: Scan):
+        self.scans.append(item)
 
-    def dequeue(self):
+    def dequeue(self, index: int = 0) -> Scan:
         if not self.is_empty():
-            return self.items.pop(0)
+            return self.scans.pop(index)
         raise IndexError("Queue is empty")
 
-    def is_empty(self):
-        return len(self.items) == 0
+    def is_empty(self) -> bool:
+        return len(self.scans) == 0
 
-    def size(self):
-        return len(self.items)
+    def size(self) -> int:
+        return len(self.scans)
+    
+    def clear(self):
+        self.scans = []
+    
+    def start(self):
+        for scan in self.scans:
+            if not scan.scan_settings.completed:
+                scan.run_scan()
+                scan.scan_settings.completed = True
+    
+    
+

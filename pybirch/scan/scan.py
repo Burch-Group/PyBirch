@@ -1,10 +1,8 @@
-import pymeasure
 import numpy as np
 import pandas as pd
-from pymeasure.experiment import Procedure
-from pymeasure.experiment import IntegerParameter
 from pybirch.scan.movements import Movement
 from pybirch.scan.measurements import Measurement
+from pybirch.extensions.scan_extensions import ScanExtension
 import wandb
 import os
 from pybirch.scan.samples import Sample
@@ -22,12 +20,6 @@ class MovementDict:
         return f"MovementDict(movement={self.movement}, settings={self.settings}, positions={self.positions})"
     def __str__(self):
         return self.__repr__()
-    def __getstate__(self):
-        # Return a dictionary of the object's state
-        state = self.__dict__.copy()
-        return state
-    def __setstate__(self, state):
-        self.__dict__.update(state)
 
 class MeasurementDict:
     """A dictionary-like object to hold measurement settings."""
@@ -39,16 +31,10 @@ class MeasurementDict:
         return f"MeasurementDict(measurement={self.measurement}, settings={self.settings})"
     def __str__(self):
         return self.__repr__()
-    def __getstate__(self):
-        # Return a dictionary of the object's state
-        state = self.__dict__.copy()
-        return state
-    def __setstate__(self, state):
-        self.__dict__.update(state)
 
 class ScanSettings:
     """A class to hold scan settings, including movement and measurement dictionaries."""
-    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, measurement_dicts: list[MeasurementDict], movement_dicts: list[MovementDict], additional_tags: list[str] = []):
+    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, measurement_dicts: list[MeasurementDict], movement_dicts: list[MovementDict], extensions: list[ScanExtension] = [], additional_tags: list[str] = [], completed: bool = False):
         
         # Name of the project, e.g. 'rare_earth_tritellurides', 'trilayer_twisted_graphene', etc.
         self.project_name = project_name
@@ -71,29 +57,28 @@ class ScanSettings:
         # List of Movement_Dict objects
         self.movement_dicts = movement_dicts
 
+        # List of ScanExtension objects
+        self.extensions = extensions
+
+        self.completed = completed
+
     def __repr__(self):
         return f"ScanSettings(project_name={self.project_name}, \nscan_name={self.scan_name}, \nscan_type={self.scan_type}, \njob_type={self.job_type}, \nmeasurement_dicts={self.measurement_dicts}, \nmovement_dicts={self.movement_dicts})"
     def __str__(self):
         return self.__repr__()
-    def __getstate__(self):
-        # Return a dictionary of the object's state
-        state = self.__dict__.copy()
-        return state
-    def __setstate__(self, state):
-        self.__dict__.update(state)
 
 
-
-class Scan(Procedure):
+class Scan():
     """Base class for scans in the PyBirch framework."""
     # sample directory is under pybirch/samples
-    def __init__(self, scan_settings: ScanSettings, owner: str, sample_ID: str, sample_directory: str = os.path.join(os.path.dirname(__file__), '..', "samples"), master_index: int = 0, indices: np.ndarray = np.array([]), **kwargs):
-        super().__init__(name=scan_settings.scan_name, **kwargs)
+    def __init__(self, scan_settings: ScanSettings, owner: str, sample_ID: str, sample_directory: str = os.path.join(os.path.dirname(__file__), '..', "samples"), master_index: int = 0, indices: np.ndarray = np.array([])):
 
         # scan settings
         self.scan_settings = scan_settings
 
         self.project_name = scan_settings.project_name
+
+        self.extensions = scan_settings.extensions
 
         # e.g. 'piyush_sakrikar'
         self.owner = owner
@@ -110,12 +95,12 @@ class Scan(Procedure):
         self.sample_ID = sample_ID
         self.sample_directory = sample_directory
 
-        self.wandb_tables = {}
-
-
-
 
     def startup(self):
+
+        # Initialize all scan extensions
+        for extension in self.extensions:
+            extension.startup(self)
 
         print(f"Starting up scan: {self.scan_settings.scan_name} for sample {self.sample_ID} owned by {self.owner}")
         print(f"Sample directory: {self.sample_directory}")
@@ -132,19 +117,19 @@ class Scan(Procedure):
         print(f"Sample material: {self.sample.material}")
         print(f"Sample additional tags: {self.sample.additional_tags}")
         
-
+        # Initialize all movement objects
         for item in self.scan_settings.movement_dicts:
             item.movement.connect()
             item.movement.initialize()
             item.movement.settings = item.settings
 
-
+        # Initialize all measurement objects
         for item in self.scan_settings.measurement_dicts:
             item.measurement.connect()
             item.measurement.initialize()
             item.measurement.settings = item.settings
 
-        # Initialize wandb run, add tags and metadata
+        # Initialize wandb run, add tags and metadata (MOVE TO EXTENSIONS)
         wandb.login()
         tags = [self.scan_settings.scan_type, str(self.sample.material), *self.sample.additional_tags, *self.scan_settings.additional_tags]
         tags = [tag for tag in tags if tag]  # Remove empty tags. Lovely unintelligible pythonic syntax is an added bonus
@@ -172,7 +157,6 @@ class Scan(Procedure):
         
         # Create a wandb table for each measurement tool
         self.wandb_tables = {}
-        self.wandb_summary_tables = {}
         for item in self.scan_settings.measurement_dicts:
             self.wandb_tables[item.measurement.name] = wandb.Table(columns=[*item.measurement.columns().tolist(), *[f"{m.movement.position_column} M({m.movement.position_units})" for m in self.scan_settings.movement_dicts]], log_mode="INCREMENTAL")
     
@@ -180,8 +164,12 @@ class Scan(Procedure):
         # self.emit(f'data_{self.sample_ID}_{measurement_name}',data)
         # Save the data to a pandas DataFrame and log it to wandb
         # log message
-        print(f"Saving data for {measurement_name} at position {self.indices} with shape {data.shape}")
-
+        print(f"Saving data for {measurement_name} at indices {self.indices} with shape {data.shape}")
+        print(f"Real Positions: ({') ('.join([f'{m.movement.position_column}: {m.positions[self.indices[i]]}' for i, m in enumerate(self.scan_settings.movement_dicts)])})\n")
+        
+        for extension in self.extensions:
+            extension.save_data(self, data, measurement_name)
+        
         for row in data.itertuples(index=False):
             # convert to dict
             row_data = list(row)
@@ -193,10 +181,16 @@ class Scan(Procedure):
             self.wandb_tables[measurement_name].add_data(*row_data)
 
     def move_to_positions(self, items_to_move: list[tuple[MovementDict, float]]):
+        for extension in self.extensions:
+            extension.move_to_positions(self, items_to_move)
+
         for movement_dict, position in items_to_move:
             movement_dict.movement.position = position
 
     def take_measurements(self):
+        for extension in self.extensions:
+            extension.take_measurements(self)
+        
         # Get the current position of each movement tool
         position_data: dict[str, float] = {}
         for movement_tool in self.scan_settings.movement_dicts:
@@ -214,7 +208,6 @@ class Scan(Procedure):
             # Save the data
             self.save_data(data, item.measurement.name)
 
-
         
     def execute(self):
         """Execute the scan procedure."""
@@ -229,6 +222,9 @@ class Scan(Procedure):
 
         # Initialize previous indices to NaN for each movement tool; all movement tools will be moved in the first iteration
         previous_indices = np.array([np.nan for _ in range(num_movement_tools)])
+
+        for extension in self.extensions:
+            extension.execute(self)
 
         while True:
 
@@ -263,8 +259,11 @@ class Scan(Procedure):
             self.run.log({measurement_name: self.wandb_tables[measurement_name]})
 
     
-    
     def shutdown(self):
+        for extension in self.extensions:
+            extension.shutdown(self)
+
+
         # Shutdown all movement and measurement tools
         for item in self.scan_settings.movement_dicts:
             item.movement.shutdown()
@@ -275,7 +274,11 @@ class Scan(Procedure):
         # Finish the wandb run
         wandb.finish()
 
-    
+    def run_scan(self):
+        self.startup()
+        self.execute()
+        self.shutdown()
+
     def __repr__(self):
         return f"Scan(project_name={self.project_name}, scan_settings={self.scan_settings}, owner={self.owner}, sample_ID={self.sample.ID})"
     def __str__(self):

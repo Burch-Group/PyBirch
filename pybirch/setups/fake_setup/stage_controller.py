@@ -71,7 +71,7 @@ class FakeXStage(Movement):
     def __init__(self, name, instrument: FakeLinearStageController):
         super().__init__(name, instrument)
         self.position_units = "mm"
-        self.position_column = "X Position"
+        self.position_column = "x position"
     
     @property
     def position(self) -> float:
@@ -116,7 +116,7 @@ class FakeYStage(Movement):
     def __init__(self, name, instrument: FakeLinearStageController):
         super().__init__(name, instrument)
         self.position_units = "mm"
-        self.position_column = "Y Position"
+        self.position_column = "y position"
 
     @property
     def position(self) -> float:
@@ -166,7 +166,7 @@ class FakeZStage(Movement):
     def __init__(self, name, instrument: FakeLinearStageController):
         super().__init__(name, instrument)
         self.position_units = "mm"
-        self.position_column = "Z Position"
+        self.position_column = "z position"
 
     @property
     def position(self) -> float:
