@@ -10,25 +10,25 @@ import pickle
 from itertools import compress
 
 class MovementItem:
-    """A dictionary-like object to hold movement settings and positions."""
+    """An object to hold movement settings and positions."""
     def __init__(self, movement: Movement, settings: dict, positions: np.ndarray):
         self.movement = movement
         self.settings = settings
         self.positions = positions
 
     def __repr__(self):
-        return f"MovementDict(movement={self.movement}, settings={self.settings}, positions={self.positions})"
+        return f"MovementItem(movement={self.movement}, settings={self.settings}, positions={self.positions})"
     def __str__(self):
         return self.__repr__()
 
 class MeasurementItem:
-    """A dictionary-like object to hold measurement settings."""
+    """An object to hold measurement settings."""
     def __init__(self, measurement: Measurement, settings: dict):
         self.measurement = measurement
         self.settings = settings
 
     def __repr__(self):
-        return f"MeasurementDict(measurement={self.measurement}, settings={self.settings})"
+        return f"MeasurementItem(measurement={self.measurement}, settings={self.settings})"
     def __str__(self):
         return self.__repr__()
 
