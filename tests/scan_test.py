@@ -32,7 +32,7 @@ with open(sample_file, 'wb') as f:
 
 
 # user logs into wandb
-wandb.login()  # Add your key here, in parens
+wandb.login()  # For first time users, this will prompt for an API key (hopefully)
 
 # User connects to instruments
 multimeter = FakeMultimeter()
