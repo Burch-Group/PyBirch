@@ -9,7 +9,7 @@ from pybirch.scan.samples import Sample
 import pickle
 from itertools import compress
 
-class MovementDict:
+class MovementItem:
     """A dictionary-like object to hold movement settings and positions."""
     def __init__(self, movement: Movement, settings: dict, positions: np.ndarray):
         self.movement = movement
@@ -21,7 +21,7 @@ class MovementDict:
     def __str__(self):
         return self.__repr__()
 
-class MeasurementDict:
+class MeasurementItem:
     """A dictionary-like object to hold measurement settings."""
     def __init__(self, measurement: Measurement, settings: dict):
         self.measurement = measurement
@@ -34,7 +34,7 @@ class MeasurementDict:
 
 class ScanSettings:
     """A class to hold scan settings, including movement and measurement dictionaries."""
-    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, measurement_dicts: list[MeasurementDict], movement_dicts: list[MovementDict], extensions: list[ScanExtension] = [], additional_tags: list[str] = [], completed: bool = False):
+    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, measurement_items: list[MeasurementItem], movement_items: list[MovementItem], extensions: list[ScanExtension] = [], additional_tags: list[str] = [], completed: bool = False):
         
         # Name of the project, e.g. 'rare_earth_tritellurides', 'trilayer_twisted_graphene', etc.
         self.project_name = project_name
@@ -52,10 +52,10 @@ class ScanSettings:
         self.additional_tags = additional_tags
 
         # List of Measurement_Dict objects
-        self.measurement_dicts = measurement_dicts
+        self.measurement_items = measurement_items
 
         # List of Movement_Dict objects
-        self.movement_dicts = movement_dicts
+        self.movement_items = movement_items
 
         # List of ScanExtension objects
         self.extensions = extensions
@@ -63,7 +63,7 @@ class ScanSettings:
         self.completed = completed
 
     def __repr__(self):
-        return f"ScanSettings(project_name={self.project_name}, \nscan_name={self.scan_name}, \nscan_type={self.scan_type}, \njob_type={self.job_type}, \nmeasurement_dicts={self.measurement_dicts}, \nmovement_dicts={self.movement_dicts})"
+        return f"ScanSettings(project_name={self.project_name}, \nscan_name={self.scan_name}, \nscan_type={self.scan_type}, \njob_type={self.job_type}, \nmeasurement_items={self.measurement_items}, \nmovement_items={self.movement_items})"
     def __str__(self):
         return self.__repr__()
 
@@ -87,7 +87,7 @@ class Scan():
 
         # indices for each movement tool, initialized to 0
         if indices.size == 0:
-            self.indices = np.zeros(len(scan_settings.movement_dicts), dtype=int)
+            self.indices = np.zeros(len(scan_settings.movement_items), dtype=int)
         else:
             self.indices = indices
 
@@ -118,13 +118,13 @@ class Scan():
         print(f"Sample additional tags: {self.sample.additional_tags}")
         
         # Initialize all movement objects
-        for item in self.scan_settings.movement_dicts:
+        for item in self.scan_settings.movement_items:
             item.movement.connect()
             item.movement.initialize()
             item.movement.settings = item.settings
 
         # Initialize all measurement objects
-        for item in self.scan_settings.measurement_dicts:
+        for item in self.scan_settings.measurement_items:
             item.measurement.connect()
             item.measurement.initialize()
             item.measurement.settings = item.settings
@@ -146,26 +146,26 @@ class Scan():
                         "owner": self.owner,
                         "sample_material": self.sample.material,
                         "sample": self.sample,
-                        "measurement_tools": [m.measurement.name for m in self.scan_settings.measurement_dicts],
-                        "movement_tools": [m.movement.name for m in self.scan_settings.movement_dicts],
-                        "measurement_settings": {m.measurement.name: m.settings for m in self.scan_settings.measurement_dicts},
-                        "movement_settings": {m.movement.name: m.settings for m in self.scan_settings.movement_dicts},
-                        "implemented_measurement_settings": {m.measurement.name: m.settings for m in self.scan_settings.measurement_dicts},
-                        "implemented_movement_settings": {m.movement.name: m.settings for m in self.scan_settings.movement_dicts},
-                        "movement_positions": {m.movement.name: m.positions for m in self.scan_settings.movement_dicts}
+                        "measurement_tools": [m.measurement.name for m in self.scan_settings.measurement_items],
+                        "movement_tools": [m.movement.name for m in self.scan_settings.movement_items],
+                        "measurement_settings": {m.measurement.name: m.settings for m in self.scan_settings.measurement_items},
+                        "movement_settings": {m.movement.name: m.settings for m in self.scan_settings.movement_items},
+                        "implemented_measurement_settings": {m.measurement.name: m.settings for m in self.scan_settings.measurement_items},
+                        "implemented_movement_settings": {m.movement.name: m.settings for m in self.scan_settings.movement_items},
+                        "movement_positions": {m.movement.name: m.positions for m in self.scan_settings.movement_items}
                 })
         
         # Create a wandb table for each measurement tool
         self.wandb_tables = {}
-        for item in self.scan_settings.measurement_dicts:
-            self.wandb_tables[item.measurement.name] = wandb.Table(columns=[*item.measurement.columns().tolist(), *[f"{m.movement.position_column} M({m.movement.position_units})" for m in self.scan_settings.movement_dicts]], log_mode="INCREMENTAL")
+        for item in self.scan_settings.measurement_items:
+            self.wandb_tables[item.measurement.name] = wandb.Table(columns=[*item.measurement.columns().tolist(), *[f"{m.movement.position_column} M({m.movement.position_units})" for m in self.scan_settings.movement_items]], log_mode="INCREMENTAL")
     
     def save_data(self, data: pd.DataFrame, measurement_name: str):
         # self.emit(f'data_{self.sample_ID}_{measurement_name}',data)
         # Save the data to a pandas DataFrame and log it to wandb
         # log message
         print(f"Saving data for {measurement_name} at indices {self.indices} with shape {data.shape}")
-        print(f"Real Positions: ({') ('.join([f'{m.movement.position_column}: {m.positions[self.indices[i]]}' for i, m in enumerate(self.scan_settings.movement_dicts)])})\n")
+        print(f"Real Positions: ({') ('.join([f'{m.movement.position_column}: {m.positions[self.indices[i]]}' for i, m in enumerate(self.scan_settings.movement_items)])})\n")
         
         for extension in self.extensions:
             extension.save_data(self, data, measurement_name)
@@ -180,7 +180,7 @@ class Scan():
             
             self.wandb_tables[measurement_name].add_data(*row_data)
 
-    def move_to_positions(self, items_to_move: list[tuple[MovementDict, float]]):
+    def move_to_positions(self, items_to_move: list[tuple[MovementItem, float]]):
         for extension in self.extensions:
             extension.move_to_positions(self, items_to_move)
 
@@ -193,15 +193,15 @@ class Scan():
         
         # Get the current position of each movement tool
         position_data: dict[str, float] = {}
-        for movement_tool in self.scan_settings.movement_dicts:
+        for movement_tool in self.scan_settings.movement_items:
             position_data[movement_tool.movement.name] = movement_tool.movement.position
 
         # Perform measurements at the current position, add movement positions to each measurement, save as individual DataFrames
-        for item in self.scan_settings.measurement_dicts:
+        for item in self.scan_settings.measurement_items:
             data = item.measurement.measurement_df()
 
             # Add position
-            for movement_tool in self.scan_settings.movement_dicts:
+            for movement_tool in self.scan_settings.movement_items:
                 position = position_data[movement_tool.movement.name]
                 data[f"{movement_tool.movement.position_column} M({movement_tool.movement.position_units})"] = pd.Series([position] * data.shape[0], index=data.index)
 
@@ -215,9 +215,9 @@ class Scan():
         print(f"Starting scan: {self.scan_settings.scan_name} for sample {self.sample_ID} owned by {self.owner}")
 
         # Perform the scan by iterating over all movement positions and performing measurements
-        num_movement_tools = len(self.scan_settings.movement_dicts)
+        num_movement_tools = len(self.scan_settings.movement_items)
 
-        positions = [self.scan_settings.movement_dicts[i].positions for i in range(num_movement_tools)]
+        positions = [self.scan_settings.movement_items[i].positions for i in range(num_movement_tools)]
         total_positions = np.prod([len(pos) for pos in positions])
 
         # Initialize previous indices to NaN for each movement tool; all movement tools will be moved in the first iteration
@@ -234,7 +234,7 @@ class Scan():
             previous_indices = self.indices.copy()
 
             # create array of (movement_dict, position) tuples for changed indices
-            items_to_move = [(self.scan_settings.movement_dicts[i], float(positions[i][self.indices[i]])) for i in range(num_movement_tools)]
+            items_to_move = [(self.scan_settings.movement_items[i], float(positions[i][self.indices[i]])) for i in range(num_movement_tools)]
             items_to_move = list(compress(items_to_move, mask))
             self.move_to_positions(items_to_move)
 
@@ -265,10 +265,10 @@ class Scan():
 
 
         # Shutdown all movement and measurement tools
-        for item in self.scan_settings.movement_dicts:
+        for item in self.scan_settings.movement_items:
             item.movement.shutdown()
 
-        for item in self.scan_settings.measurement_dicts:
+        for item in self.scan_settings.measurement_items:
             item.measurement.shutdown()
 
         # Finish the wandb run

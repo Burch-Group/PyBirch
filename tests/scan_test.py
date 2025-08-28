@@ -1,7 +1,7 @@
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from pybirch.scan.scan import Scan, ScanSettings, MeasurementDict, MovementDict
+from pybirch.scan.scan import Scan, ScanSettings, MeasurementItem, MovementItem
 from pybirch.setups.fake_setup.multimeter import FakeMultimeter
 from pybirch.setups.fake_setup.multimeter import VoltageMeterMeasurement
 from pybirch.setups.fake_setup.multimeter import CurrentSourceMovement
@@ -34,7 +34,7 @@ with open(sample_file, 'wb') as f:
 
 
 # user logs into wandb
-wandb.login()  # Add your key here
+wandb.login()  # Add your key here, in parens
 
 # User connects to instruments
 multimeter = FakeMultimeter()
@@ -43,7 +43,7 @@ ametek_lockin_amplifier = FakeLockinAmplifier(name="Lock-in Amplifier", wait=0)
 daylight_spectrometer = FakeSpectrometer(name="Daylight Spectrometer", wait=0)
 newport_stage_controller = FakeLinearStageController(name="Newport Stage Controller", wait=0)
 
-# User selects measurements and movements
+# User selects measurements and movement objects
 voltage_meter = VoltageMeterMeasurement("Voltage Meter", multimeter)
 current_source = CurrentSourceMovement("Current Source", multimeter)
 x_stage = FakeXStage("X Stage", newport_stage_controller)
@@ -52,29 +52,26 @@ z_stage = FakeZStage("Z Stage", newport_stage_controller)
 lock_in_measurement = LockInAmplifierMeasurement("Lock-in Measurement", ametek_lockin_amplifier)
 spectrum_measurement = SpectrometerMeasurement("Spectrum Measurement", daylight_spectrometer)
 
-# MeasurementDicts are created for each measurement
+# MeasurementItems are created for each measurement
 measurements = [lock_in_measurement]
-measurement_dicts = []
+measurement_items = []
 for measurement in measurements:
-    item = MeasurementDict(measurement, measurement.settings)
-    measurement_dicts.append(item)
+    item = MeasurementItem(measurement, measurement.settings)
+    measurement_items.append(item)
 
 
-# MovementDicts are created for each movement
+# MovementItems are created for each movement
 x_positions = np.linspace(0, 99, 100)
 y_positions = np.linspace(0, 70, 100)
 z_positions = np.linspace(0, 50, 2)
 current_source_positions = np.linspace(-0.005, 0.005, 2)
 
-tD_movements = [(x_stage, x_positions),
-             (y_stage, y_positions)]
-
-fD_movements = [(x_stage, x_positions),
+fourD_scan_movements = [(x_stage, x_positions),
              (y_stage, y_positions),
              (z_stage, z_positions),
              (current_source, current_source_positions)]
 
-movement_dicts = [MovementDict(movement, movement.settings, positions) for movement, positions in tD_movements]
+movement_items = [MovementItem(movement, movement.settings, positions) for movement, positions in fourD_scan_movements]
 
 
 test_scan_settings = ScanSettings(
@@ -82,8 +79,8 @@ test_scan_settings = ScanSettings(
     job_type="photocurrent",
     scan_type="2D Scan_XY",
     scan_name="Longitudinal",
-    measurement_dicts=measurement_dicts,
-    movement_dicts=movement_dicts,
+    measurement_items=measurement_items,
+    movement_items=movement_items,
 )
 
 if __name__ == "__main__":
