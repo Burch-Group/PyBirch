@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import time
 
-# User fabricates a sample
+# User fabricates a sample for measurement
 sample = Sample(ID="S001")
 sample.get_properties()
 print(f"Sample properties: {sample.additional_tags}")
