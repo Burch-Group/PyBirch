@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from pymeasure.instruments import Instrument
+from typing import Callable
 
 class Measurement:
     """Base class for measurement tools in the PyBirch framework."""
@@ -10,7 +11,8 @@ class Measurement:
         self.instrument = instrument
         self.data_units: np.ndarray = np.array([])
         self.data_columns: np.ndarray = np.array([])
-        
+        self.settings_UI: Callable[[], dict] = lambda: self.settings  # Placeholder for settings UI function
+
     def perform_measurement(self) -> np.ndarray:
         # Perform the measurement and return the result as a 2D numpy array
         raise NotImplementedError("Subclasses should implement this method.")
@@ -50,4 +52,13 @@ class Measurement:
     def __str__(self):
         return f"Measurement(name={self.name}, instrument={self.instrument.name})"
 
+class MeasurementItem:
+    """An object to hold measurement settings."""
+    def __init__(self, measurement: Measurement, settings: dict):
+        self.measurement = measurement
+        self.settings = settings
 
+    def __repr__(self):
+        return f"MeasurementItem(measurement={self.measurement}, settings={self.settings})"
+    def __str__(self):
+        return self.__repr__()

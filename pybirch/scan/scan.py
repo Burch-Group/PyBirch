@@ -1,36 +1,16 @@
 import numpy as np
 import pandas as pd
-from pybirch.scan.movements import Movement
-from pybirch.scan.measurements import Measurement
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+from pybirch.scan.movements import Movement, MovementItem
+from pybirch.scan.measurements import Measurement, MeasurementItem
 from pybirch.extensions.scan_extensions import ScanExtension
 import wandb
 import os
-from pybirch.scan.samples import Sample
+from pybirch.queue.samples import Sample
 import pickle
 from itertools import compress
-
-class MovementItem:
-    """An object to hold movement settings and positions."""
-    def __init__(self, movement: Movement, settings: dict, positions: np.ndarray):
-        self.movement = movement
-        self.settings = settings
-        self.positions = positions
-
-    def __repr__(self):
-        return f"MovementItem(movement={self.movement}, settings={self.settings}, positions={self.positions})"
-    def __str__(self):
-        return self.__repr__()
-
-class MeasurementItem:
-    """An object to hold measurement settings."""
-    def __init__(self, measurement: Measurement, settings: dict):
-        self.measurement = measurement
-        self.settings = settings
-
-    def __repr__(self):
-        return f"MeasurementItem(measurement={self.measurement}, settings={self.settings})"
-    def __str__(self):
-        return self.__repr__()
 
 class ScanSettings:
     """A class to hold scan settings, including movement and measurement dictionaries."""
@@ -61,6 +41,8 @@ class ScanSettings:
         self.extensions = extensions
 
         self.completed = completed
+
+        self.wandb_link: str = ""
 
     def __repr__(self):
         return f"ScanSettings(project_name={self.project_name}, \nscan_name={self.scan_name}, \nscan_type={self.scan_type}, \njob_type={self.job_type}, \nmeasurement_items={self.measurement_items}, \nmovement_items={self.movement_items})"
@@ -100,7 +82,7 @@ class Scan():
 
         # Initialize all scan extensions
         for extension in self.extensions:
-            extension.startup(self)
+            extension.startup()
 
         print(f"Starting up scan: {self.scan_settings.scan_name} for sample {self.sample_ID} owned by {self.owner}")
         print(f"Sample directory: {self.sample_directory}")
@@ -168,7 +150,7 @@ class Scan():
         print(f"Real Positions: ({') ('.join([f'{m.movement.position_column}: {m.positions[self.indices[i]]}' for i, m in enumerate(self.scan_settings.movement_items)])})\n")
         
         for extension in self.extensions:
-            extension.save_data(self, data, measurement_name)
+            extension.save_data(data, measurement_name)
         
         for row in data.itertuples(index=False):
             # convert to dict
@@ -182,14 +164,14 @@ class Scan():
 
     def move_to_positions(self, items_to_move: list[tuple[MovementItem, float]]):
         for extension in self.extensions:
-            extension.move_to_positions(self, items_to_move)
+            extension.move_to_positions(items_to_move)
 
-        for movement_dict, position in items_to_move:
-            movement_dict.movement.position = position
+        for movement_item, position in items_to_move:
+            movement_item.movement.position = position
 
     def take_measurements(self):
         for extension in self.extensions:
-            extension.take_measurements(self)
+            extension.take_measurements()
         
         # Get the current position of each movement tool
         position_data: dict[str, float] = {}
@@ -224,7 +206,7 @@ class Scan():
         previous_indices = np.array([np.nan for _ in range(num_movement_tools)])
 
         for extension in self.extensions:
-            extension.execute(self)
+            extension.execute()
 
         while True:
 
@@ -261,7 +243,7 @@ class Scan():
     
     def shutdown(self):
         for extension in self.extensions:
-            extension.shutdown(self)
+            extension.shutdown()
 
 
         # Shutdown all movement and measurement tools

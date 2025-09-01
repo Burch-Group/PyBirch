@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from pymeasure.instruments import Instrument
+from typing import Callable
 
 class Movement:
     """Base class for movement tools in the PyBirch framework."""
@@ -10,6 +11,7 @@ class Movement:
         self.instrument = instrument
         self.position_units: str = ''
         self.position_column: str = ''
+        self.settings_UI: Callable[[], dict] = lambda: self.settings  # Placeholder for settings UI function
 
     def position_df(self) -> pd.DataFrame:
         # Return the current position as a pandas DataFrame
@@ -50,3 +52,16 @@ class Movement:
 
     def __str__(self):
         return f"Movement(name={self.name}, instrument={self.instrument.name})"
+
+
+class MovementItem:
+    """An object to hold movement settings and positions."""
+    def __init__(self, movement: Movement, settings: dict, positions: np.ndarray):
+        self.movement = movement
+        self.settings = settings
+        self.positions = positions
+
+    def __repr__(self):
+        return f"MovementItem(movement={self.movement}, settings={self.settings}, positions={self.positions})"
+    def __str__(self):
+        return self.__repr__()
