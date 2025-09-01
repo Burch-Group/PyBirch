@@ -1,0 +1,1643 @@
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("ESP300_GUI")
+
+def abort(esp):
+    try:
+        esp.write("AB")
+        logger.info("Aborted")
+    except Exception as e:
+        logger.exception(f"Could not abort: {e}")
+        raise
+
+def set_accel(esp, axis: int, accel: float):
+#will be in device units
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    max = float(esp.ask(f"{axis}AU?"))
+    if not (0.01 <= accel <= max):
+        raise ValueError(f"Acceleration {accel} outside safe bounds.")
+    command = f"{axis}AC{accel}"
+    try:
+        esp.write(command)
+        logger.info(f"Accel set to {accel}")
+    except Exception as e:
+        logger.exception(F"Could not set acceleration: {e}")
+        raise
+
+
+def set_estop_decel(esp, axis: int, decel: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    min = float(esp.ask(f"{axis}AG?"))
+    if not (min <= decel <= 2e9):
+        raise ValueError(f"E-stop deceleration {decel} outside safe bounds.")
+    command = f"{axis}AE{decel}"
+    try:
+        esp.write(command)
+        logger.info(f"E-stop decel set to {decel}")
+    except Exception as e:
+        logger.exception(F"Could not set e-stop decel: {e}")
+        raise
+
+def set_accel_feedforward(esp, axis: int, accel: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= accel <= 2e9): 
+        raise ValueError(f"Accel feed-forward gain {accel} outside safe bounds.")
+    command = f"{axis}AF{accel}"
+    try:
+        esp.write(command)
+        logger.info(f"Accel feed-forward gain set to {accel}")
+    except Exception as e:
+        logger.exception(F"Could not set Accel feed-forward gain: {e}")
+        raise
+
+def set_decel(esp, axis: int, decel: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    max = float(esp.ask(f"{axis}AU?"))
+    if not (0 <= decel <= max): 
+        raise ValueError(f"Deceleration {decel} outside safe bounds.")
+    command = f"{axis}AG{decel}"
+    try:
+        esp.write(command)
+        logger.info(f"Decel set to {decel}")
+    except Exception as e:
+        logger.exception(F"Could not set deceleration: {e}")
+        raise
+
+def abort_program(esp):
+    try:
+        esp.write("AP")
+        logger.info(f"Aborted program")
+    except Exception as e:
+        logger.exception(F"Could not abort program: {e}")
+        raise
+
+def set_max_acceldecel(esp, axis:int, max: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= max <= 2e9):  
+        raise ValueError(f"Maximum {max} outside safe bounds.")
+    command = f"{axis}AU{max}"
+    try:
+        esp.write(command)
+        logger.info(f"Maximum set to {max}")
+    except Exception as e:
+        logger.exception(F"Could not set maximum: {e}")
+        raise
+
+def set_backlash(esp, axis:int, backlash: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= backlash <= 10000): #in encoder counts 
+        raise ValueError(f"Maximum {backlash} outside safe bounds.")
+    command = f"{axis}BA{backlash}"
+    try:
+        esp.write(command)
+        logger.info(f"Backlash Compensation set to {backlash}")
+    except Exception as e:
+        logger.exception(F"Could not set backlash compensation: {e}")
+        raise
+
+def set_DIO_execute(esp, bit: int, program: str):
+    if bit not in range(0, 16):
+        raise ValueError(f"DIO bit {bit} out of range (0–15)")
+    if not program or not program.isalnum() or not len(program)!=2:
+        raise ValueError(f"Program name must be non-empty alphanumeric, got '{program}'")
+
+    command = f"{bit}BG{program}"
+    try:
+        esp.write(command)
+        logger.info(f"BG set: bit={bit}, program={program}")
+    except Exception as e:
+        logger.exception("Failed to set BG trigger: {e}")
+        raise
+    return esp.query(f"{bit}BG?")
+    
+def set_DIO_inhibit(esp, axis:int, bit: int, level: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= bit <= 15): 
+        raise ValueError(f"Bit {bit} outside  bounds.")
+    if not (level==0 or level==1):
+        raise ValueError(f"Level must be 0 (low) or 1 (high)")
+    command = f"{axis}BK{bit},{level}"
+    try:
+        esp.write(command)
+        logger.info(f"DIO set to {bit} level {level}")
+    except Exception as e:
+        logger.exception(F"Could not set DIO for inhibiting motion: {e}")
+        raise 
+
+def enable_DIO_inhibit(esp, axis:int, level: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (level==0 or level==1):
+        raise ValueError(f"Level must be 0 (disable) or 1 (enable)")
+    command = f"{axis}BL{level}"
+    try:
+        esp.write(command)
+        if level=="00":
+            logger.info(f"DIO disabled")
+        if level=="01":
+            logger.info("DIO enabled")
+    except Exception as e:
+        logger.exception(F"Could not change DIO enabling: {e}")
+        raise
+
+def set_DIO_motion(esp, axis:int, bit: int, level: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= bit <= 15): 
+        raise ValueError(f"Bit {bit} outside  bounds.")
+    if not (level==0 or level==1):
+        raise ValueError(f"Level must be 0 (low) or 1 (high)")
+    command = f"{axis}BM{bit},{level}"
+    try:
+        esp.write(command)
+        logger.info(f"DIO set to {bit} level {level}")
+    except Exception as e:
+        logger.exception(F"Could not set DIO for motion status: {e}")
+        raise
+
+def enable_DIO_motion(esp, axis:int, level: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (level==0 or level==1):
+        raise ValueError(f"Level must be 0 (disable) or 1 (enable)")
+    command = f"{axis}BL{level}"
+    try:
+        esp.write(command)
+        if level=="00":
+            logger.info(f"DIO disabled")
+        if level=="01":
+            logger.info("DIO enabled")
+    except Exception as e:
+        logger.exception(F"Could not change DIO enabling: {e}")
+        raise
+
+def set_DIO_port_direction(esp, direction: int):
+ 
+    if not (0x00 <= direction <= 0x03):
+        raise ValueError(f"direction must be 0x00–0x03")
+    command = f"BO{direction:02X}H"
+    try:
+        esp.write(command)
+        logger.info(f"Set DIO port direction to 0x{direction:02X}")
+    except Exception as e:
+        logger.exception(f"Failed to set DIO port direction: {e}")
+        raise
+
+def set_DIO_jog(esp, axis:int, neg: int, pos:int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= neg <= 15):
+        raise ValueError(f"Bit must be between 0 and 15")
+    if not (0 <= pos <= 15):
+        raise ValueError(f"Bit must be between 0 and 15")
+    command = f"{axis}BP{neg},{pos}"
+    try:
+        esp.write(command)
+        logger.info(f"Jogger Bit set for {neg} negative and {pos} positive")
+    except Exception as e:
+        logger.exception(f"Could not assign DIO jog: {e}")
+        raise
+def enable_DIO_jog(esp, axis:int, level: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (level==0 or level==1):
+        raise ValueError(f"Level must be 0 (disable) or 1 (enable)")
+    command = f"{axis}BQ{level}"
+    try:
+        esp.write(command)
+        if level=="00":
+            logger.info(f"DIO disabled")
+        if level=="01":
+            logger.info("DIO enabled")
+    except Exception as e:
+        logger.exception(F"Could not change DIO enabling: {e}")
+        raise
+def set_loop_update(esp, axis:int, interval:int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= interval <= 60000):
+        raise ValueError(f"Interval must be between 0 and 60000ms")
+    command = f"{axis}CL{interval}"
+    try:
+        esp.write(command)
+        logger.info(f"Interval set for {interval}ms")
+    except Exception as e:
+        logger.exception(f"Could not assign interval: {e}")
+        raise
+def set_linear_comp(esp, axis:int, comp: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= comp <= 2e9): 
+        raise ValueError(f"Linear compensation outside safe bounds.")
+    command = f"{axis}CO{comp}"
+    try:
+        esp.write(command)
+        logger.info(f"Linear Compensation set to {comp}")
+    except Exception as e:
+        logger.exception(F"Could not set linear compensation: {e}")
+        raise
+def set_deadband(esp, axis:int, band: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= band <= 2e9): 
+        raise ValueError(f"Deadband compensation outside safe bounds.")
+    command = f"{axis}DB{band}"
+    try:
+        esp.write(command)
+        logger.info(f"Deadband set to {band}")
+    except Exception as e:
+        logger.exception(F"Could not set Deadband: {e}")
+        raise
+def set_data_acquisition(esp, mode:int, axis:int, param: int, secparam:int, rate:int, sample: int ):
+    if mode not in (0, 1, 2):
+        raise ValueError(f"Mode {mode} is out of range (0–2).")
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not param ==0:
+        raise ValueError(f"Parameter {param} must be 0.")
+    if not (0 <= secparam <= 7):
+        raise ValueError(f"Secondary parameter {secparam} must be between 0 and 7.")
+    if not (0 <= rate <= 1000):
+        raise ValueError(f"Rate {rate} is out of range 0 to 1000")
+    if not (sample <= 1000):
+        raise ValueError(f"Sample range is at most 1000.")
+    command = f"DC{mode},{axis},{param},{secparam},{rate},{sample}"
+    try:
+        esp.write(command)
+        logger.info(f"Data Acquisition set to mode {mode}, axis {axis}, param {param}, secparam {secparam}, rate {rate}, sample {sample}")
+    except Exception as e:
+        logger.exception(F"Could not set data acquisition: {e}")
+        raise
+def data_done(esp):
+    try:
+        done = esp.query("DD")
+        if done == "1":
+            logger.info("Data acquisition completed")
+            return True
+        else:
+            logger.info("Data acquisition still in progress")
+            return False
+    except Exception as e:
+        logger.exception(f"Could not check data acquisition status: {e}")
+        raise
+def enable_data(esp, enable:int):
+    if enable not in (0, 1):
+        raise ValueError(f"Enable must be 0 (disable) or 1 (enable)")
+    command = f"DE{enable}"
+    try:
+        esp.write(command)
+        if enable == 0:
+            logger.info("Data acquisition disabled")
+        else:
+            logger.info("Data acquisition enabled")
+    except Exception as e:
+        logger.exception(f"Could not change data acquisition enabling: {e}")
+        raise
+
+def sample_count(esp):
+    try:
+        count = esp.query("DF")
+        logger.info(f"Sample count: {count}")
+        return count
+    except Exception as e:
+        logger.exception(f"Could not check data acquisition status: {e}")
+        raise
+
+def get_data(esp):
+    try:
+        data = esp.query("DG")
+        logger.info(f"DATA: {data}")
+        return data
+    except Exception as e:
+        logger.exception(f"Could not check data acquisition status: {e}")
+        raise
+def define_home(esp, axis:int, pos:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0<= pos <= 2e9):
+        raise ValueError(f"Position {pos} is outside of safe bounds.")
+    command = f"{axis}DH{pos}"
+    try:
+        esp.write(command)
+        logger.info(f"Home position for axis {axis} set to {pos}")
+    except Exception as e:
+        logger.exception(f"Could not set home position: {e}")
+        raise
+
+def define_label(esp, label:int):
+    if label not in range (1, 101):
+        raise ValueError(f"Label {label} is out of range (1–100).")
+    command = f"{label}DL"
+    try:
+        esp.write(command)
+        logger.info(f"Label defined as {label}")
+    except Exception as e:
+        logger.exception(f"Could not set label: {e}")
+        raise
+def dac_offset(esp, channel:int, offset:float):
+    if channel not in (1, 2, 3):
+        raise ValueError(f"Channel {channel} is out of range (1–3).")
+    if not (-10<= offset <= 10):
+        raise ValueError(f"Offset {offset} is outside of safe bounds.")
+    command = f"{channel}DO{offset}"
+    try:
+        esp.write(command)
+        logger.info(f"DAC offset set to {offset}")
+    except Exception as e:
+        logger.exception(f"Could not set DAC offset: {e}")
+        raise
+def read_pos(esp, axis:int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    command = f"{axis}DP?"
+    try:
+        resp = esp.query(command)
+        logger.info(f"Position of axis {axis} is {resp}")
+        return resp
+    except Exception as e:
+        logger.warning(f"Could not query position: {e}")
+def read_vel(esp, axis:int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    command = f"{axis}DV?"
+    try:
+        resp = esp.query(command)
+        logger.info(f"Velocity of axis {axis} is {resp}")
+        return resp
+    except Exception as e:
+        logger.warning(f"Could not query velocity: {e}")
+
+def execute_auto(esp, program: int, repeats: int):
+    if program not in range (1, 101):
+        raise ValueError(f"Program {program} is out of range (1–100).")
+    if not (1 <= repeats <= 2e9):
+        raise ValueError(f"Number of executions is out of range 1 to 2e9")
+    command = f"{program}EO{repeats}"
+    try:
+        esp.write(command)
+        logger.info(f"Automatic execution set to {program}, {repeats} times")
+    except Exception as e:
+        logger.exception(f"Could not set automatic execution: {e}")
+        raise
+
+def enter_program(esp, program:int):
+    if program not in range (1, 101):
+        raise ValueError(f"Program {program} is out of range (1–100).")
+    command = f"{program}EP"
+    try:
+        esp.write(command)
+        logger.info(f"Enter program mode for {program}")
+    except Exception as e:
+        logger.exception(f"Could not enter program mode: {e}")
+        raise
+
+def event_action_command(esp, command: str):
+    try:
+        esp.write(f"ES{command}")
+        logger.info("Event action command string set to {command}")
+    except Exception as e:
+        logger.exception("Could not define event action command string:{e}")
+        raise
+def execute_program(esp, program: int, repeats: int):
+    if program not in range (1, 101):
+        raise ValueError(f"Program {program} is out of range (1–100).")
+    if not (1 <= repeats <= 2147385345):
+        raise ValueError(f"Number of executions is out of range 1 to 2147385345")
+    command = f"{program}EX{repeats}"
+    try:
+        esp.write(command)
+        logger.info(f"Execution set to {program}, {repeats} times")
+    except Exception as e:
+        logger.exception(f"Could not set execution: {e}")
+        raise
+def maximum_following(esp, axis:int, max: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= max <= 2e9): #in encoder counts 
+        raise ValueError(f"Maximum {max} outside safe bounds.")
+    command = f"{axis}FE{max}"
+    try:
+        esp.write(command)
+        logger.info(f"Following Error Threshold set to {max}")
+    except Exception as e:
+        logger.exception(F"Could not set following error threshold: {e}")
+        raise
+def position_resolution(esp, axis:int, resolution:int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= resolution <= 7): 
+        raise ValueError(f"Resolution outside 1 to 7 bounds.")
+    command = f"{axis}FP{resolution}"
+    try:
+        esp.write(command)
+        logger.info(f"Resolution set to {resolution}")
+    except Exception as e:
+        logger.exception(F"Could not set resolution: {e}")
+        raise
+def encoder_resolution(esp, axis:int, resolution:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (2e-9 <= resolution <= 2e9):
+        raise ValueError(f"Resolution outside bounds.")
+    command = f"{axis}FR{resolution}"
+    try:
+        esp.write(command)
+        logger.info(f"Resolution set to {resolution}")
+    except Exception as e:
+        logger.exception(F"Could not set resolution: {e}")
+        raise
+def master_ratio(esp, axis:int, ratio:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (-1000000 <= ratio <= 1000000):
+        raise ValueError(f"Ratio outside bounds.")
+    command = f"{axis}GR{ratio}"
+    try:
+        esp.write(command)
+        logger.info(f"Ratio set to {ratio}")
+    except Exception as e:
+        logger.exception(F"Could not set ratio: {e}")
+        raise
+
+def group_accel(esp, axis:int, group:int, accel:float):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    max = float(esp.ask(f"{axis}AU?"))
+    if not (0.01 <= accel <= max):
+        raise ValueError(f"Acceleration {accel} outside safe bounds.")
+    command = f"{group}HA{accel}"
+    try:
+        esp.write(command)
+        logger.info(f"Group {group} acceleration set to {accel}")
+    except Exception as e:
+        logger.exception(f"Could not set group acceleration: {e}")
+        raise
+
+def group_list(esp):
+    try:
+        groups = esp.query("HB")
+        logger.info(f"Available groups: {groups}")
+        return groups
+    except Exception as e:
+        logger.exception(f"Could not retrieve group list: {e}")
+        raise
+def group_arc(esp, number:int, coordinate1:float, coordinate2:float, angle:float):
+    if not number <= len(esp.query("HB")):
+        raise ValueError(f"Group {number} is out of range.")
+    if not (esp.axis.left_limit <= coordinate1 <= esp.axis.right_limit) and (esp.axis.left_limit <= coordinate2 <= esp.axis.right_limit):
+        raise ValueError(f"Coordinates {coordinate1} and {coordinate2} are out of bounds of motion.")
+    if not (0 <= angle <= 360):
+        raise ValueError(f"Angle {angle} degrees is out of range.")
+    command = f"{number}HC{coordinate1},{coordinate2},{angle}"
+    try:
+        esp.write(command)
+        logger.info(f"Group {number} arc set to coordiantes {coordinate1}, {coordinate2}, {angle} degrees")
+    except Exception as e:
+        logger.exception(f"Could not set group arc: {e}")
+        raise
+
+def group_decel(esp, axis:int, group:int, decel:float):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    max = float(esp.ask(f"{axis}AG?"))
+    if not (0.01 <= decel <= max):
+        raise ValueError(f"Deceleration {decel} outside safe bounds.")
+    command = f"{group}HD{decel}"
+    try:
+        esp.write(command)
+        logger.info(f"Group {group} deceleration set to {decel}")
+    except Exception as e:
+        logger.exception(f"Could not set group deceleration: {e}")
+        raise
+def group_estop_decel(esp, axis:int, group: int, decel: float):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    min = float(esp.ask(f"{axis}AG?"))
+    if not (min <= decel <= 2e9):
+        raise ValueError(f"E-stop deceleration {decel} outside safe bounds.")
+    command = f"{group}HE{decel}"
+    try:
+        esp.write(command)
+        logger.info(f" Group {group} E-stop decel set to {decel}")
+    except Exception as e:
+        logger.exception(F"Could not set group e-stop decel: {e}")
+        raise
+def group_off(esp, group: int):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    command = f"{group}HF"
+    try:
+        esp.write(command)
+        logger.info(f"Group {group} off")
+    except Exception as e:
+        logger.exception(F"Could not turn group off: {e}")
+        raise
+def group_jerk(esp, group:int, jerk:float):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    if not (0 <= jerk <= 2e9): 
+        raise ValueError(f"Jerk outside safe bounds.")
+    command = f"{group}HJ{jerk}"
+    try:
+        esp.write(command)
+        logger.info(f"Group {group} jerk set to {jerk}")
+    except Exception as e:
+        logger.exception(F"Could not set group jerk: {e}")
+        raise
+def group_line(esp, group:int, target1:float, target2:float, target3:float):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    if not (esp.axis.left_limit <= target1 <= esp.axis.right_limit) and (esp.axis.left_limit <= target2 <= esp.axis.right_limit):
+        raise ValueError(f"Targets {target1}, {target2}, are out of bounds of motion.")
+    if 'target3' in locals() and not (esp.axis.left_limit <= target3 <= esp.axis.right_limit):
+        raise ValueError(f"Target {target3} is out of bounds of motion.")
+    command = f"{group}HL{target1},{target2},{target3}"
+    try:
+        esp.write(command)
+        logger.info(f"Group {group} line set to targets {target1}, {target2}, {target3}")
+    except Exception as e:
+        logger.exception(F"Could not set group line: {e}")
+        raise
+def create_group(esp, group:int, axes:list):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    if not all(ax in (1, 2, 3) for ax in axes):
+        raise ValueError(f"Axes {axes} are out of range (1–3).")
+    axes_str = ','.join(f"{ax}" for ax in axes)
+    command = f"{group}HN{axes_str}"
+    try:
+        esp.write(command)
+        logger.info(f"Group {group} created with axes {axes}")
+    except Exception as e:
+        logger.exception(F"Could not create group: {e}")
+        raise
+def group_on(esp, group:int):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    command = f"{group}HO"
+    try:
+        esp.write(command)
+        logger.info(f"Group {group} on")
+    except Exception as e:
+        logger.exception(f"Could not turn group on: {e}")
+        raise
+def group_position(esp, group:int):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    command = f"{group}HP"
+    try:
+        esp.query(command)
+        logger.info(f"Group {group} position queried")
+        return esp.query(command)
+    except Exception as e:
+        logger.exception(f"Could not query group position: {e}")
+        raise
+def wait_group_buffer(esp, group:int, time: float):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    if not time <= 10: #ms
+        raise ValueError(f"Time {time} must be at most 10 ms")
+    command = f"{group}HQ{time}"
+    try: 
+        esp.write(command)
+        logger.info(f"Waiting for group {group} buffer for {time} ms")
+    except Exception as e:
+        logger.exception(f"Could not wait for group buffer: {e}")
+        raise
+def stop_group_motion(esp, group:int):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    command = f"{group}HS"
+    try:
+        esp.write(command)
+        logger.info(f"Group {group} motion stopped")
+    except Exception as e:
+        logger.exception(f"Could not stop group motion: {e}")
+        raise
+def set_group_vel(esp, group:int, velocity:float):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    max= float(esp.ask(f"{group}VU?"))
+    if not (0 <= velocity <= 2e9): 
+        raise ValueError(f"Velocity outside safe bounds.")
+    command = f"{group}HV{velocity}"
+    try:
+        esp.write(command)
+        logger.info(f"Group {group} velocity set to {velocity}")
+    except Exception as e:
+        logger.exception(F"Could not set group velocity: {e}")
+        raise
+def group_waitforstop(esp, group:int, time:float):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    if not time <= 60000: #ms
+        raise ValueError(f"Time {time} must be at most 60000 ms")
+    command = f"{group}HW{time}"
+    try: 
+        esp.write(command)
+        logger.info(f"Waiting for group {group} to stop for {time} ms")
+    except Exception as e:
+        logger.exception(f"Could not wait for group stop: {e}")
+        raise
+def delete_group(esp, group:int):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    command = f"{group}HX"
+    try:
+        esp.write(command)
+        logger.info(f"Group {group} deleted")
+    except Exception as e:
+        logger.exception(f"Could not delete group: {e}")
+        raise
+def read_group(esp, group:int):
+    if not group <= len(esp.query("HB")):
+        raise ValueError(f"Group {group} is out of range.")
+    command = f"{group}HZ"
+    try:
+        esp.query(command)
+        logger.info(f"Group {group} settings queried")
+        return esp.query(command)
+    except Exception as e:
+        logger.exception(f"Could not query group settings: {e}")
+        raise
+
+def get_model(esp, axis:int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    command = f"ID{axis}"
+    try:
+        resp = esp.query(command)
+        logger.info(f"Model of axis {axis} is {resp}")
+        return resp
+    except Exception as e:
+        logger.warning(f"Could not query model: {e}")
+
+def jog_high(esp, axis:int, speed:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= speed <= esp.query(f"{axis}VU?")):
+        raise ValueError(f"Speed out of range.")
+    command = f"{axis}JH{speed}"
+    try:
+        esp.write(command)
+        logger.info(f"Jog high set for {speed}")
+    except Exception as e:
+        logger.exception(f"Could not assign jog high: {e}")
+        raise
+
+def jerk_rate(esp, axis:int, jerk:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= jerk <= 2e9):
+        raise ValueError(f"Jerk out of range.")
+    command = f"{axis}JK{jerk}"
+    try:
+        esp.write(command)
+        logger.info(f"Jerk set for {jerk}")
+    except Exception as e:
+        logger.exception(f"Could not assign jerk: {e}")
+        raise
+def jump_to_label(esp, label:int, loop:int):
+    if label not in range (1,101):
+        raise ValueError(f"Label {label} is out of range (1–100).")
+    if not (1 <= loop <= 65535):
+        raise ValueError(f"Loop out of range.")
+    command = f"{label}JL{loop}"
+    try:
+        esp.write(command)
+        logger.info(f"Jump to label {label} loop {loop}")
+    except Exception as e:
+        logger.exception(f"Could not jump to label {label}: {e}")
+        raise
+def jog_low(esp, axis:int, speed:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= speed <= esp.query(f"{axis}VU?")):
+        raise ValueError(f"Speed out of range.")
+    command = f"{axis}JW{speed}"
+    try:
+        esp.write(command)
+        logger.info(f"Jog low set for {speed}")
+    except Exception as e:
+        logger.exception(f"Could not assign jog low: {e}")
+        raise
+
+def derivative_gain(esp, axis:int, gain:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= gain <= 2e9):
+        raise ValueError(f"Gain out of range.")
+    command = f"{axis}KD{gain}"
+    try:
+        esp.write(command)
+        logger.info(f"Derivative gain set for {gain}")
+    except Exception as e:
+        logger.exception(f"Could not assign derivative gain: {e}")
+        raise
+def integral_gain(esp, axis:int, gain:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= gain <= 2e9):
+        raise ValueError(f"Gain out of range.")
+    command = f"{axis}KI{gain}"
+    try:
+        esp.write(command)
+        logger.info(f"Integral gain set for {gain}")
+    except Exception as e:
+        logger.exception(f"Could not assign integral gain: {e}")
+        raise
+
+def proportional_gain(esp, axis:int, gain:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= gain <= 2e9):
+        raise ValueError(f"Gain out of range.")
+    command = f"{axis}KP{gain}"
+    try:
+        esp.write(command)
+        logger.info(f"Proportional gain set for {gain}")
+    except Exception as e:
+        logger.exception(f"Could not assign proportional gain: {e}")
+        raise
+
+def integral_saturation(esp, axis:int, saturation:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= saturation <= 2e9):
+        raise ValueError(f"Saturation out of range.")
+    command = f"{axis}KS{saturation}"
+    try:
+        esp.write(command)
+        logger.info(f"Integral saturation set for {saturation}")
+    except Exception as e:
+        logger.exception(f"Could not assign integral saturation: {e}")
+        raise
+def list_program(esp, program:int):
+    if program not in range (1, 101):
+        raise ValueError(f"Program {program} is out of range 1 to 100.")
+    command = f"LP{program}"
+    try:
+        esp.query(command)
+        logger.info(f"Listed program {program}")
+        return esp.query(command)
+    except Exception as e:
+        logger.exception(f"Could not list program {program}: {e}")
+        raise
+
+def motor_off(esp, axis:int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    command = f"{axis}MF"
+    try:
+        esp.write(command)
+        logger.info(f"Motor off command sent for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not send motor off command: {e}")
+        raise
+
+def motor_on(esp, axis:int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    command = f"{axis}MO"
+    try:
+        esp.write(command)
+        logger.info(f"Motor on command sent for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not send motor on command: {e}")
+        raise
+
+def travel_limit(esp, axis:int, direction:chr):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if direction not in ('+', '-'):
+        raise ValueError(f"Direction {direction} is invalid. Use '+' or '-'.")
+    command = f"{axis}MT{direction}"
+    try:
+        esp.write(command)
+        logger.info(f"Moving to travel limit in the {direction} direction for axis {axis}")
+        esp.wait_for_stop(axis)
+        return esp.query(f"{axis}DP?")
+    except Exception as e:
+        logger.exception(f"Could not move to travel limit: {e}")
+        raise
+def move_indefinite(esp, axis:int, direction:chr):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if direction not in ('+', '-'):
+        raise ValueError(f"Direction {direction} is invalid. Use '+' or '-'.")
+    command = f"{axis}MV{direction}"
+    try:
+        esp.write(command)
+        logger.info(f"Indefinite move command sent for axis {axis} in {direction} direction")
+        esp.wait_for_stop(axis)
+        logger.info(f"Indefinite move completed for axis {axis}")
+        return esp.query(f"{axis}DP?")  
+    except Exception as e:
+        logger.exception(f"Could not send indefinite move command: {e}")
+        raise
+
+def move_index(esp, axis:int, direction:chr):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if direction not in ('+', '-'):
+        raise ValueError(f"Direction {direction} is invalid. Use '+' or '-'.")
+    command = f"{axis}MZ{direction}"
+    try:
+        esp.write(command)
+        logger.info(f"Index move command sent for axis {axis} in {direction} direction")
+        esp.wait_for_stop(axis)
+        logger.info(f"Index move completed for axis {axis}")
+        return esp.query(f"{axis}DP?")  
+    except Exception as e:
+        logger.exception(f"Could not send index move command: {e}")
+        raise
+
+def home_high(esp, axis:int, speed:float):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0<= speed <= esp.query(f"{axis}VU?")):
+        raise ValueError(f"Speed {speed} is out of range.")
+    command = f"{axis}OH{speed}"
+    try:
+        esp.write(command)
+        logger.info("Setting home search high speed to {speed} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not set home search high speed: {e}")
+        raise
+
+def home_low(esp, axis:int, speed:float):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0<= speed <= esp.query(f"{axis}VU?")):
+        raise ValueError(f"Speed {speed} is out of range.")
+    command = f"{axis}OL{speed}"
+    try:
+        esp.write(command)
+        logger.info("Setting home search low speed to {speed} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not set home search low speed: {e}")
+        raise
+
+def home_mode(esp, axis:int, mode:int):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if mode not in range(0,7):
+        raise ValueError(f"Mode {mode} is out of range 0 to 6.")
+    command = f"{axis}OM{mode}"
+    try:
+        esp.write(command)
+        logger.info(f"Setting home mode to {mode} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not set home mode: {e}")
+        raise
+
+def search_home(esp, axis:int, mode:int):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if mode not in range(0,7):
+        raise ValueError(f"Mode {mode} is out of range 0 to 6.")
+    command = f"{axis}OR{mode}"
+    try:
+        esp.write(command)
+        logger.info(f"Setting home search to {mode} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not search for home: {e}")
+        raise
+def get_hardware(esp):
+    try:
+        resp = esp.query("PH")
+        logger.info(f"Hardware info: {resp}")
+        return resp
+    except Exception as e:
+        logger.exception(f"Could not retrieve hardware info: {e}")
+        raise
+def motor_drive(esp, axis:int):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if esp.query(f"{axis}MD?") == "1":
+        logger.warning(f"Motor drive command for axis {axis} ignored: motor is in motion.")
+        return
+    command = f"{axis}QD"
+    try:
+        esp.write(command)
+        logger.info(f"Motor drive updated for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not update motor drive: {e}")
+        raise
+def gear_constant(esp, axis:int, gear:float):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0 <= gear <= 2e9):
+        raise ValueError(f"Gear {gear} is out of range.")
+    command = f"{axis}QG{gear}"
+    command2 = f"{axis}QD"
+    try:
+        esp.write(command)
+        esp.write(command2)
+        logger.info(f"Setting gear constant to {gear} for axis {axis}")
+        esp.motor_drive(axis)
+    except Exception as e:
+        logger.exception(f"Could not set gear constant: {e}")
+        raise
+
+def motor_max(esp, axis:int, max:float):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0<= max <= 3): # in Amps
+        raise ValueError(f"Max {max} is out of range.")
+    command = f"{axis}QI{max}"
+    command2 = f"{axis}QD"
+    try: 
+        esp.write(command)
+        esp.write(command2)
+        logger.info(f"Maximum motor current set to {max}A for axis {axis}")
+        esp.motor_drive(axis)
+    except Exception as e:
+        logger.exception(f"Could not set maximum motor current: {e}")
+        raise
+def motor_type(esp, axis:int, motor:int):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0 <= motor <= 4):
+        raise ValueError(f"Motor {motor} is out of range.")
+    if motor ==2:
+        raise ValueError("Step motor is not supported by the ESP300.")
+    command = f"{axis}QM{motor}"
+    try:
+        esp.write(command)
+        logger.info(f"Setting motor type to {motor} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not set motor type: {e}")
+        raise
+
+def quit_programMode(esp):
+    try:
+        esp.write("QP")
+        logger.info("Exiting program mode. All commands will be executed immediately.")
+    except Exception as e:
+        logger.exception(f"Could not exit program mode: {e}")
+        raise 
+
+def motor_torque(esp, axis:int, delay:int, reduction:float):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0 <= delay <= 60000):
+        raise ValueError(f"Delay {delay}ms is out of range.")
+    if not (0 <= reduction <= 100):
+        raise ValueError(f"Reduction {reduction}% is out of range.")
+    command = f"{axis}QR{delay},{reduction}"
+    try:
+        esp.write(command)
+        logger.info(f"Reducing motor torque to {reduction}% for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not reduce motor torque: {e}")
+        raise
+
+def microstep_factor(esp, axis:int, microstep:int):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0 <= microstep <= 1000):
+        raise ValueError(f"Microstep {microstep} is out of range.")
+    command = f"{axis}QS{microstep}"
+    command2=f"{axis}QD"
+    try:
+        esp.write(command)
+        esp.write(command2)
+        logger.info(f"Setting microstep factor to {microstep} for axis {axis}")
+        esp.motor_drive(axis)
+    except Exception as e:
+        logger.exception(f"Could not set microstep factor: {e}")
+        raise
+def tachometer_gain(esp, axis:int, gain:float):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0 <= gain <= 20):
+        raise ValueError(f"Gain {gain} is out of range.")
+    command = f"{axis}QT{gain}"
+    command2 = f"{axis}QD"
+    try:
+        esp.write(command)
+        esp.write(command2)
+        logger.info(f"Setting tachometer gain to {gain} for axis {axis}")
+        esp.motor_drive(axis)
+    except Exception as e:
+        logger.exception(f"Could not set tachometer gain: {e}")
+        raise
+def average_voltage(esp, axis:int, voltage:int):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0 <= voltage <= 48): #in V
+        raise ValueError(f"Voltage {voltage}V is out of range.")
+    command = f"{axis}QV{voltage}"
+    command2 = f"{axis}QD"
+    try:
+        esp.write(command)
+        esp.write(command2)
+        logger.info(f"Setting average motor voltage to {voltage}V for axis {axis}")
+        esp.motor_drive(axis)
+    except Exception as e:
+        logger.exception(f"Could not set average motor voltage: {e}")
+        raise
+
+def service_request(esp, interrupt:int):
+    if not (0 <= interrupt <= 31):
+        raise ValueError(f"Interrupt number {interrupt} is out of range.")
+    command = f"RQ{interrupt}"
+    try:
+        esp.write(command)
+        logger.info(f"Generating service request {interrupt}")
+    except Exception as e:
+        logger.exception(f"Could not generate service request: {e}")
+        raise
+def reset_controller(esp):
+    try:
+        esp.write("RS")
+        logger.info("Controller reset.")
+    except Exception as e:
+        logger.exception(f"Could not reset controller: {e}")
+        raise
+def device_address(esp, address:int):
+    if not (0 <= address <= 30):
+        raise ValueError(f"Address {address} is out of range 0 to 30.")
+    command = f"SA{address}"
+    try:
+        esp.write(command)
+        logger.info(f"Address changed to {address}")
+    except Exception as e:
+        logger.warning(f"Could not change address: {e}")
+        raise
+
+def DIO_port(esp, port:int):
+    max = 0x0FFFFFF
+    min= 0x000000
+    if not (min <= port <= max):
+        raise ValueError(f"DIO {port} is out of range.")
+    command = f"SB{port}"
+    try:
+        esp.write(command)
+        logger.info(f"DIO changed to {port}")
+    except Exception as e:
+        logger.warning(f"Could not change DIO: {e}")
+        raise
+
+def home_preset(esp, axis:int, position:float):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (esp.axis.left_limit <= position <= esp.axis.right_limit):
+        raise ValueError(f"Position {position} is out of range.")
+    command = f"{axis}SH{position}"
+    try:
+        esp.write(command)
+        logger.info("Setting home preset position to {position} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not set home preset: {e}")
+        raise
+
+def master_jog(esp, interval:int):
+    if not (1 <= interval <= 1000): #ms
+        raise ValueError(f" Update interval {interval} is out of range 0 to 30.")
+    command = f"SI{interval}"
+    try:
+        esp.write(command)
+        logger.info(f"Master-slave jog velocity update interval changed to {interval}")
+    except Exception as e:
+        logger.warning(f"Could not change interval: {e}")
+        raise
+def scaling_coeff(esp, coeff1:float, coeff2:float):
+    command = f"SK{coeff1},{coeff2}"
+    try: 
+        esp.write(command)
+        logger.info(f"Scaling coefficiets set to {coeff1}, {coeff2}")
+    except Exception as e:
+        logger.exception(f"Could not set scaling coeffs: {e}")
+        raise
+def left_limit(esp, axis:int, position:float):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (-2e9 <= position <= 0):#Encoder units
+        raise ValueError(f"Position {position} is out of range.")
+    command = f"{axis}SL{position}"
+    try:
+        esp.write(command)
+        logger.info(f"Setting left limit position to {position} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not set left limit: {e}")
+        raise
+
+def save(esp):
+    try:
+        esp.write("SM")
+        logger.info("Settings saved.")
+    except Exception as e:
+        logger.exception(f"Could not save settings: {e}")
+        raise
+
+def units(esp, axis:int, units:int):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0 <= units <= 10):
+        raise ValueError(f"Unit settings {units} is out of range.")
+    command = f"{axis}SN{units}"
+    try:
+        esp.write(command)
+        logger.info(f"Units set to {units} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not set units: {e}")
+        raise
+def right_limit(esp, axis:int, position:float):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (0 <= position <= 2e9):#Encoder units
+        raise ValueError(f"Position {position} is out of range.")
+    command = f"{axis}SR{position}"
+    try:
+        esp.write(command)
+        logger.info(f"Setting right limit position to {position} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not set right limit: {e}")
+        raise
+def master_slave(esp, master:int, slave:int):
+    if master not in (1,2,3) or slave not in (1, 2, 3):
+        raise ValueError(f"Must choose valid master and slave axes (1-3)")
+    command = f"{slave}SS{master}"
+    try:
+        esp.write(command)
+        logger.info(f"Master {master} and slave {slave} relationship set.")
+    except Exception as e:
+        logger.exception(f"Could not set master-slave relationship: {e}")
+        raise
+def stop(esp, axis:int):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis out of range 1 to 3.")
+    command = f"{axis}ST"
+    try:
+        esp.write(command)
+        logger.info(f"{axis} Stopped.")
+    except Exception as e:
+        logger.exception(f"Could not stop: {e}")
+        raise
+def encoder_resolution(esp, axis:int, resolution:int):
+    if axis not in (1,2,3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if not (2e-9 <= resolution <= 2e9):
+        raise ValueError(f"Encoder resolution {resolution} is out of range.")
+    command = f"{axis}SU{resolution}"
+    try:
+        esp.write(command)
+        logger.info(f"Encoder resolution set to {resolution} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not set encoder resolution: {e}")
+        raise
+
+def get_errors(esp):
+    try:
+        resp= esp.query("TB?")
+        logger.info(f"Errors queried: {resp}")
+        return resp
+    except Exception as e:
+        logger.exception(f"Could not query errors: {e}")
+        raise
+def error_code(esp):
+    try:
+        resp= esp.query("TE?")
+        logger.info(f"Error codes queried: {resp}")
+        return resp
+    except Exception as e:
+        logger.exception(f"Could not query error codes: {e}")
+        raise
+
+def trajectory_mode(esp, axis: int, mode: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    if mode not in (0, 7):
+        raise ValueError(f"Mode {mode} is out of range (0 to 6).")
+    command = f"{axis}TJ{mode}"
+    try:
+        esp.write(command)
+        logger.info(f"Trajectory mode set to {mode} for axis {axis}")
+    except Exception as e:
+        logger.exception(f"Could not set trajectory mode: {e}")
+        raise
+def actual_position(esp, axis: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    command = f"{axis}TP"
+    try:
+        esp.query(command)
+        logger.info(f"Position for axis {axis}")
+        return esp.query(command)
+    except Exception as e:
+        logger.exception(f"Could not read actual position: {e}")
+        raise
+
+def controller_status(esp):
+    command = f"TS"
+    try: 
+        esp.query(command)
+        logger.info(f"Querying controller status")
+        return esp.query(command)
+    except Exception as e:
+        logger.exception(f"Could not query controller status: {e}")
+        raise
+
+def actual_velocity(esp, axis: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range 1 to 3.")
+    command = f"{axis}TV"
+    try:
+        esp.query(command)
+        logger.info(f"Velocity for axis {axis}")
+        return esp.query(command)
+    except Exception as e:
+        logger.exception(f"Could not read actual velocity: {e}")
+        raise
+
+def controller_activity(esp):
+    command = f"TX"
+    try: 
+        esp.query(command)
+        logger.info(f"Querying controller activity")
+        return esp.query(command)
+    except Exception as e:
+        logger.exception(f"Could not query controller activity: {e}")
+        raise
+
+def servo(esp):
+    command = f"UF"
+    try: 
+        esp.write(command)
+        logger.info(f"Updating servo filter")
+    except Exception as e:
+        logger.exception(f"Could not update servo filter: {e}")
+        raise
+
+def wait_DIO_high(esp, bit: int):
+    if bit not in range(0, 16):
+        raise ValueError(f"DIO bit {bit} out of range (0–15)")
+    command = f"{bit}UH"
+    try:
+        esp.write(command)
+        logger.info(f"DIO wait high set to bit {bit}")
+    except Exception as e:
+        logger.exception("Failed to set DIO wait high : {e}")
+        raise
+
+def wait_DIO_low(esp, bit: int):
+    if bit not in range(0, 16):
+        raise ValueError(f"DIO bit {bit} out of range (0–15)")
+    command = f"{bit}UL"
+    try:
+        esp.write(command)
+        logger.info(f"DIO wait low set to bit {bit}")
+    except Exception as e:
+        logger.exception("Failed to set DIO wait low : {e}")
+        raise
+
+def set_vel(esp, axis: int, vel: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    max = float(esp.ask(f"{axis}VU?"))
+    if not (0.0 <= vel <= max):
+        raise ValueError(f"Velocity {vel} outside safe bounds.")
+    command = f"{axis}VA{vel}"
+    try:
+        esp.write(command)
+        logger.info(f"Velocity set to {vel}")
+    except Exception as e:
+        logger.exception(F"Could not set velocity: {e}")
+        raise
+
+def vel_step(esp, axis: int, vel: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    max = float(esp.ask(f"{axis}VU?"))
+    if not (0.0 <= vel <= max):
+        raise ValueError(f"Velocity {vel} outside safe bounds.")
+    command = f"{axis}VB{vel}"
+    try:
+        esp.write(command)
+        logger.info(f"Step Motor Velocity set to {vel}")
+    except Exception as e:
+        logger.exception(F"Could not set step motor velocity: {e}")
+        raise
+def firmware(esp):
+    command = f"VE?"
+    try: 
+        esp.query(command)
+        logger.info(f"Querying firmware version")
+        return esp.query(command)
+    except Exception as e:
+        logger.exception(f"Could not query firmware version: {e}")
+        raise
+def set_vel_feedforward(esp, axis: int, vel: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= vel <= 2e9): 
+        raise ValueError(f"Velocity feed-forward gain {vel} outside safe bounds.")
+    command = f"{axis}VF{vel}"
+    try:
+        esp.write(command)
+        logger.info(f"Velocity feed-forward gain set to {vel}")
+    except Exception as e:
+        logger.exception(F"Could not set Velocity feed-forward gain: {e}")
+        raise
+def max_vel(esp, axis:int, max: float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0 <= max <= 2e9):  
+        raise ValueError(f"Maximum {max} outside safe bounds.")
+    command = f"{axis}VU{max}"
+    try:
+        esp.write(command)
+        logger.info(f"Maximum velocity set to {max}")
+    except Exception as e:
+        logger.exception(F"Could not set maximum velocity: {e}")
+        raise
+
+def wait_pos(esp, axis:int, pos:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    min= float(esp.ask(f"{axis}TP"))
+    max=float(esp.ask(f"{axis}DP?"))
+    if not (min<= pos <=max ):
+        raise ValueError("Position out of range.")
+    command=f"{axis}WP{pos}"
+    try:
+        esp.write(command)
+        logger.info(f"Wait for position set to {pos}")
+    except Exception as e:
+        logger.exception(f"Could not set wait for position: {e}")
+        raise
+def stop_time(esp, axis:int, delay:float):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0<= delay <=60000 ):
+        raise ValueError("Delay out of range.")
+    command=f"{axis}WS{delay}"
+    try:
+        esp.write(command)
+        logger.info(f"Wait for stop set to {delay}")
+    except Exception as e:
+        logger.exception(f"Could not set wait for stop: {e}")
+        raise
+def wait(esp, delay:float):
+    if not (0<= delay <=60000 ):
+        raise ValueError("Delay out of range.")
+    command=f"WT{delay}"
+    try:
+        esp.write(command)
+        logger.info(f"Wait set to {delay}")
+    except Exception as e:
+        logger.exception(f"Could not set wait: {e}")
+        raise
+def memory(esp):
+    command = f"XM"
+    try: 
+        esp.query(command)
+        logger.info(f"Querying available memory")
+        return esp.query(command)
+    except Exception as e:
+        logger.exception(f"Could not query available memory: {e}")
+        raise
+def erase_program(esp, program:int):
+    if program not in range (1, 101):
+        raise ValueError(f"Program {program} is out of range (1–100).")
+    command = f"{program}XX"
+    try:
+        esp.write(command)
+        logger.info(f"Erased program{program}")
+    except Exception as e:
+        logger.exception(f"Could not erase program : {e}")
+        raise
+def IO_config(esp, axis:int, config: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0x0000 <= config <= 0xFFFF):
+        raise ValueError(f"Configuration value out of range")
+    command = f"{axis}ZA{config:04X}H"
+    try:
+        esp.write(command)
+        logger.info(f"Amplifier Config set to 0x{config:04X}")
+    except Exception as e:
+        logger.exception(f"Failed to set amplifier config: {e}")
+        raise
+def feed_config(esp, axis:int, config: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0x0000 <= config <= 0xFFFF):
+        raise ValueError(f"Configuration value out of range")
+    command = f"{axis}ZB{config:04X}H"
+    try:
+        esp.write(command)
+        logger.info(f"Feedback Config set to 0x{config:04X}")
+    except Exception as e:
+        logger.exception(f"Failed to set feedback config: {e}")
+        raise
+def e_config(esp, axis:int, config: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0x0000 <= config <= 0xFFFF):
+        raise ValueError(f"Configuration value out of range")
+    command = f"{axis}ZE{config:04X}H"
+    try:
+        esp.write(command)
+        logger.info(f"Estep Config set to 0x{config:04X}")
+    except Exception as e:
+        logger.exception(f"Failed to set estep config: {e}")
+        raise
+def err_config(esp, axis:int, config: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0x0000 <= config <= 0xFFFF):
+        raise ValueError(f"Configuration value out of range")
+    command = f"{axis}ZF{config:04X}H"
+    try:
+        esp.write(command)
+        logger.info(f"Following error Config set to 0x{config:04X}")
+    except Exception as e:
+        logger.exception(f"Failed to set following error config: {e}")
+        raise
+def hard_config(esp, axis:int, config: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0x0000 <= config <= 0xFFFF):
+        raise ValueError(f"Configuration value out of range")
+    command = f"{axis}ZH{config:04X}H"
+    try:
+        esp.write(command)
+        logger.info(f"Hardware limit Config set to 0x{config:04X}")
+    except Exception as e:
+        logger.exception(f"Failed to set hardware limit config: {e}")
+        raise
+def soft_config(esp, axis:int, config: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0x0000 <= config <= 0xFFFF):
+        raise ValueError(f"Configuration value out of range")
+    command = f"{axis}ZS{config:04X}H"
+    try:
+        esp.write(command)
+        logger.info(f"Software limit Config set to 0x{config:04X}")
+    except Exception as e:
+        logger.exception(f"Failed to set software limit config: {e}")
+        raise
+def esp_config(esp, axis:int, config: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0x0000 <= config <= 0xFFFF):
+        raise ValueError(f"Configuration value out of range")
+    command = f"{axis}ZU{config:04X}H"
+    try:
+        esp.write(command)
+        logger.info(f"ESP system Config set to 0x{config:04X}")
+    except Exception as e:
+        logger.exception(f"Failed to set esp system config: {e}")
+        raise
+def sys_config(esp, axis:int, config: int):
+    if axis not in (1, 2, 3):
+        raise ValueError(f"Axis {axis} is out of range (1–3).")
+    if not (0x0000 <= config <= 0xFFFF):
+        raise ValueError(f"Configuration value out of range")
+    command = f"{axis}ZZ{config:04X}H"
+    try:
+        esp.write(command)
+        logger.info(f"System Config set to 0x{config:04X}")
+    except Exception as e:
+        logger.exception(f"Failed to set system config: {e}")
+        raise
+SETTINGS = {
+    "ABORT": abort,
+    "SET_ACCEL": set_accel,
+    "SET_ESTOP_DECEL": set_estop_decel, 
+    "SET_ACCEL_FEEDFORWARD_GAIN": set_accel_feedforward,
+    "SET_DECEL": set_decel,
+    "ABORT_PROGRAM": abort_program,
+    "SET_MAX_ACCELDECEL" : set_max_acceldecel,
+    "BACKLASH_COMP": set_backlash,
+    "SET_DIO_EXECUTE": set_DIO_execute,
+    "SET_DIO_INHIBIT": set_DIO_inhibit,
+    "ENABLE_DIO_INHIBIT": enable_DIO_inhibit,
+    "SET_DIO_MOTION": set_DIO_motion,
+    "ENABLEDISABLE_DIO_MOTION": enable_DIO_motion,
+    "SET_DIO_DIRECTION": set_DIO_port_direction,
+    "SET_DIO_JOG": set_DIO_jog,
+    "ENABLE_DIO_JOG": enable_DIO_jog,
+    "SET_LOOP_UPDATE": set_loop_update,
+    "SET_LINEAR_COMPENSATION": set_linear_comp,
+    "SET_POSITION_DEADBAND": set_deadband,
+    "SET_DATA_ACQUISITION": set_data_acquisition,
+    "DATA_DONE": data_done,
+    "ENABLE_DATA": enable_data,
+    "SAMPLE_COUNT": sample_count,
+    "GET_DATA": get_data,
+    "SET_HOME": define_home,
+    "DEFINE_LABEL": define_label, 
+    "SET_DAC_OFFSET": dac_offset,
+    "READ_POSITION": read_pos,
+    "READ_VELOCITY": read_vel,
+    "AUTOMATIC_EXECUTION": execute_auto,
+    "PROGRAM_MODE": enter_program,
+    "EVENT_ACTION": event_action_command,
+    "EXECUTE": execute_program,
+    "FOLLOWING_THRESHOLD": maximum_following,
+    "POSITION_RESOLUTION": position_resolution,
+    "ENCODER_RESOLUTION": encoder_resolution,
+    "MASTER_RATIO": master_ratio,
+    "GROUP_ACCEL": group_accel,
+    "GROUP_LIST": group_list,
+    "GROUP_ARC": group_arc,
+    "GROUP_DECEL": group_decel,
+    "GROUP_ESTOP_DECEL": group_estop_decel,
+    "GROUP_OFF": group_off,
+    "GROUP_JERK": group_jerk,
+    "GROUP_LINE": group_line,
+    "CREATE_GROUP": create_group,
+    "GROUP_ON": group_on,
+    "GROUP_POSITION": group_position,
+    "GROUP_BUFFER": wait_group_buffer,
+    "STOP_GROUP": stop_group_motion, 
+    "GROUP_VEL": set_group_vel,
+    "WAIT_GROUP_STOP": group_waitforstop,
+    "DELETE_GROUP": delete_group,
+    "GROUP_SIZE": read_group,
+    "GET_MODEL": get_model,
+    "JOG_HIGH" : jog_high,
+    "JERK" : jerk_rate,
+    "JUMP_LABEL": jump_to_label,
+    "JOG_LOW": jog_low, 
+    "DERIVATIVE_GAIN": derivative_gain,
+    "INTEGRAL_GAIN": integral_gain,
+    "PROPORTIONAL_GAIN": proportional_gain,
+    "SATURATION": integral_saturation,
+    "LIST_PROGRAM": list_program,
+    "MOTOR_OFF": motor_off, 
+    "MOTOR_ON": motor_on,
+    "TRAVEL_LIMIT": travel_limit,
+    "MOVE_INDEFINITE": move_indefinite,
+    "MOVE_INDEX": move_index,
+    "HOME_HIGH": home_high,
+    "HOME_LOW": home_low,
+    "HOME_MODE": home_mode,
+    "SEARCH_HOME": search_home,
+    "HARDWARE": get_hardware,
+    "MOTOR_DRIVE": motor_drive,
+    "GEAR_CONSTANT": gear_constant,
+    "MOTOR_MAX": motor_max,
+    "MOTOR_TYPE": motor_type,
+    "QUIT_PROGRAM_MODE": quit_programMode,
+    "MOTOR_TORQUE": motor_torque,
+    "MICROSTEP_FACTOR": microstep_factor,
+    "TACHOMETER_GAIN": tachometer_gain,
+    "AVERAGE_VOLTAGE": average_voltage,
+    "SERVICE_REQUEST": service_request,
+    "RESET_CONTROLLER": reset_controller,
+    "ADDRESS": device_address,
+    "DIO_PORT": DIO_port,
+    "HOME_PRESET": home_preset,
+    "MASTER_JOG": master_jog,
+    "SCALING": scaling_coeff,
+    "LEFT_LIMIT": left_limit, 
+    "SAVE": save,
+    "UNITS": units,
+    "RIGHT_LIMIT": right_limit,
+    "MASTER_SLAVE": master_slave,
+    "STOP": stop,
+    "ENCODER_RESOLUTION": encoder_resolution,
+    "ERRORS": get_errors, 
+    "ERROR_CODE": error_code, 
+    "ACTUAL_POSITION": actual_position,
+    "TRAJECTORY_MODE": trajectory_mode,
+    "CONTROLLER_STATUS": controller_status,
+    "ACTUAL_VELOCITY": actual_velocity,
+    "CONTROLLER_ACTIVITY": controller_activity, 
+    "SERVO": servo, 
+    "WAIT_DIO_HIGH": wait_DIO_high, 
+    "WAIT_DIO_LOW": wait_DIO_low, 
+    "SET_VEL": set_vel,
+    "VEL_STEP": vel_step,
+    "FIRMWARE": firmware,
+    "SET_VEL_FEEDFORWARD": set_vel_feedforward,
+    "MAX_VEL": max_vel,
+    "WAIT_POS": wait_pos,
+    "STOP_TIME": stop_time,
+    "WAIT": wait,
+    "MEMORY": memory,
+    "ERASE_PROGRAM": erase_program,
+    "IO_CONFIG": IO_config,
+    "FEED_CONFIG": feed_config,
+    "E_CONFIG": e_config,
+    "ERR_CONFIG": err_config,
+    "HARD_CONFIG": hard_config,
+    "SOFT_CONFIG": soft_config,
+    "ESP_CONFIG": esp_config,
+    "SYS_CONFIG": sys_config
+}
+
