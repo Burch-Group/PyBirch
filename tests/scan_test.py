@@ -2,11 +2,11 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from pybirch.scan.scan import Scan, ScanSettings, MeasurementItem, MovementItem
-from pybirch.setups.fake_setup.multimeter import FakeMultimeter, CurrentSourceMovement, VoltageMeterMeasurement
-from pybirch.setups.fake_setup.spectrometer import FakeSpectrometer, SpectrometerMeasurement
-from pybirch.setups.fake_setup.stage_controller import FakeLinearStageController, FakeXStage, FakeYStage, FakeZStage
-from pybirch.setups.fake_setup.lock_in_amplifier import FakeLockinAmplifier, LockInAmplifierMeasurement
-from pybirch.scan.samples import Sample
+from pybirch.setups.fake_setup.multimeter.multimeter import FakeMultimeter, CurrentSourceMovement, VoltageMeterMeasurement
+from pybirch.setups.fake_setup.spectrometer.spectrometer import FakeSpectrometer, SpectrometerMeasurement
+from pybirch.setups.fake_setup.stage_controller.stage_controller import FakeLinearStageController, FakeXStage, FakeYStage, FakeZStage
+from pybirch.setups.fake_setup.lock_in_amplifier.lock_in_amplifier import FakeLockinAmplifier, LockInAmplifierMeasurement
+from pybirch.queue.samples import Sample
 import pickle
 import wandb
 
@@ -59,8 +59,8 @@ for measurement in measurements:
 
 
 # Movement settings are defined
-x_positions = np.linspace(0, 99, 100)
-y_positions = np.linspace(0, 70, 100)
+x_positions = np.linspace(0, 99, 3)
+y_positions = np.linspace(0, 70, 2)
 z_positions = np.linspace(0, 50, 2)
 current_source_positions = np.linspace(-0.005, 0.005, 2)
 
