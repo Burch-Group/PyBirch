@@ -3,4 +3,4 @@
   <img src="birch.png" alt="PyBirch" width="200"/>
 </p>
   
-Laboratory measurement architecture. Includes PyMeasure functionality; an automated GUI; scan queueing; and a Wandb interface for real-time data visualization, storage and management.
+Laboratory measurement architecture. Includes PyMeasure functionality; scan queueing; LablinQR extension; and a Wandb interface for real-time data visualization, storage and management.
