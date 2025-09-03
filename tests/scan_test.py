@@ -51,7 +51,7 @@ lock_in_measurement = LockInAmplifierMeasurement("Lock-in Measurement", ametek_l
 spectrum_measurement = SpectrometerMeasurement("Spectrum Measurement", daylight_spectrometer)
 
 # MeasurementItems are created for each measurement object
-measurements = [lock_in_measurement, spectrum_measurement, voltage_meter]
+measurements = [lock_in_measurement]
 measurement_items = []
 for measurement in measurements:
     item = MeasurementItem(measurement, measurement.settings)
@@ -59,15 +59,13 @@ for measurement in measurements:
 
 
 # Movement settings are defined
-x_positions = np.linspace(0, 99, 3)
-y_positions = np.linspace(0, 70, 2)
+x_positions = np.linspace(0, 99, 100)
+y_positions = np.linspace(0, 70, 100)
 z_positions = np.linspace(0, 50, 2)
 current_source_positions = np.linspace(-0.005, 0.005, 2)
 
 fourD_scan_movements = [(x_stage, x_positions),
-             (y_stage, y_positions),
-             (z_stage, z_positions),
-             (current_source, current_source_positions)]
+             (y_stage, y_positions)]
 
 # MovementItems are created for each movement object
 movement_items = [MovementItem(movement, movement.settings, positions) for movement, positions in fourD_scan_movements]
