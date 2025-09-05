@@ -269,7 +269,8 @@ class Scan():
     def __getstate__(self):
         # Return a dictionary of the object's state, excluding wandb and sample
         state = self.__dict__.copy()
-        del state['sample']
+        if state["sample"]:
+            del state['sample']
         return state
     
     def __setstate__(self, state):
@@ -286,3 +287,17 @@ class Scan():
         self.sample = Sample(self.sample.ID)
         self.sample = pickle.load(open(os.path.join(self.sample_directory, self.sample.ID + ".pkl"), 'rb'))
 
+def get_empty_scan() -> Scan:
+    """Create an empty scan with default settings."""
+    scan_settings = ScanSettings(
+        project_name="default_project",
+        scan_name="default_scan",
+        scan_type="",
+        job_type="",
+        measurement_items=[],
+        movement_items=[],
+        extensions=[],
+        additional_tags=[],
+        completed=False
+    )
+    return Scan(scan_settings=scan_settings, owner="", sample_ID="")
