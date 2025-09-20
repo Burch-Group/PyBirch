@@ -35,3 +35,4 @@ Items:
 - [ ] Extension Autoload
 - [ ] Available Extensions List
 - [ ] Maybe: Replace WanDB with a specialized database in Flask
+- [ ] Maybe: Autogenerate Acquisition, Movement objects from PyMeasure instruments
