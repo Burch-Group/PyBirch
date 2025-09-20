@@ -2,7 +2,9 @@ import re
 import time
 import numpy as np
 import pandas as pd
-
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 from pymeasure.adapters import FakeAdapter
 from pymeasure.instruments import Instrument, fakes
 from pybirch.scan.measurements import Measurement

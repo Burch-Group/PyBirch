@@ -37,9 +37,10 @@ class Queue:
     
     def start(self):
         for scan in self.scans:
-            if not scan.scan_settings.completed:
-                scan.run_scan()
-                scan.scan_settings.completed = True
-    
-    
-
+            if not scan.scan_settings.status == "Completed":
+                try:
+                    scan.run_scan()
+                    scan.scan_settings.status = "Completed"
+                except Exception as e:
+                    scan.scan_settings.status = "Error"
+                    print(f"Error occurred while running scan {scan.scan_settings.scan_name}: {e}")

@@ -14,7 +14,7 @@ from itertools import compress
 
 class ScanSettings:
     """A class to hold scan settings, including movement and measurement dictionaries."""
-    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, measurement_items: list[MeasurementItem], movement_items: list[MovementItem], extensions: list[ScanExtension] = [], additional_tags: list[str] = [], completed: bool = False):
+    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, measurement_items: list[MeasurementItem], movement_items: list[MovementItem], extensions: list[ScanExtension] = [], additional_tags: list[str] = [], status: str = "Queued"):
         
         # Name of the project, e.g. 'rare_earth_tritellurides', 'trilayer_twisted_graphene', etc.
         self.project_name = project_name
@@ -40,7 +40,7 @@ class ScanSettings:
         # List of ScanExtension objects
         self.extensions = extensions
 
-        self.completed = completed
+        self.status = status
 
         self.wandb_link: str = ""
 
@@ -298,6 +298,6 @@ def get_empty_scan() -> Scan:
         movement_items=[],
         extensions=[],
         additional_tags=[],
-        completed=False
+        status="Queued"
     )
     return Scan(scan_settings=scan_settings, owner="", sample_ID="")
