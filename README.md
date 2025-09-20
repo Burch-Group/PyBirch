@@ -12,7 +12,7 @@ Items:
 - [x] Movement Objects
 - [x] Measurement Objects
 - [x] Test Scan
-- [ ] Available Instruments List
+- [x] Available Instruments List
 - [ ] Scan Tree Logic
 - [ ] Scan Tree UI
 - [x] Settings Panels for Preliminary Instruments
@@ -20,7 +20,7 @@ Items:
 - [ ] Settings Table Search Function
 - [x] Scan List -- Deprecated
 - [ ] Queue Title Bar
-- [ ] Instrument Autoload
+- [x] Instrument Autoload
 - [ ] Scan Info Page
 - [ ] Queue Info Page
 - [ ] Scan Presets
