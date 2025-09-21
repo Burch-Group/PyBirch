@@ -31,6 +31,7 @@ Items:
 - [ ] Conditional Object
 - [ ] Advanced Movement Object
 - [ ] User Alphatest
+- [ ] Revamp UI with Yusuke Kamiyamane icons 
 - [ ] LabLinQR Extension
 - [ ] Extension Autoload
 - [ ] Available Extensions List
