@@ -38,3 +38,4 @@ Items:
 - [ ] Available Extensions List
 - [ ] Maybe: Replace WanDB with a specialized database in Flask
 - [ ] Maybe: Autogenerate Acquisition, Movement objects from PyMeasure instruments
+- [ ] Maybe: Autofind devices using 2D scans, add folder for data passing between scans...
