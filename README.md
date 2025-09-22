@@ -31,8 +31,11 @@ Items:
 - [ ] Conditional Object
 - [ ] Advanced Movement Object
 - [ ] User Alphatest
+- [ ] Revamp UI with Yusuke Kamiyamane icons
+- [ ] Finalize code structure
 - [ ] LabLinQR Extension
 - [ ] Extension Autoload
 - [ ] Available Extensions List
 - [ ] Maybe: Replace WanDB with a specialized database in Flask
 - [ ] Maybe: Autogenerate Acquisition, Movement objects from PyMeasure instruments
+- [ ] Maybe: Autofind devices using 2D scans, add folder for data passing between scans...
