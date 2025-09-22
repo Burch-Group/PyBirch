@@ -263,7 +263,7 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     window = QtWidgets.QWidget()
     layout = QtWidgets.QVBoxLayout(window)
-    measurement_frame = MeasurementFrame([LockInAmplifierMeasurement("Lock-in Amplifier", FakeLockinAmplifier()), VoltageMeterMeasurement("Voltage Meter", FakeMultimeter())])
+    measurement_frame = MeasurementFrame([LockInAmplifierMeasurement("Lock-in Amplifier"), VoltageMeterMeasurement("Voltage Meter")])
     layout.addWidget(measurement_frame)
 
     window.setLayout(layout)

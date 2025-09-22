@@ -83,9 +83,10 @@ class FakeSpectrometer(fakes.FakeInstrument):
 class SpectrometerMeasurement(Measurement):
     """Measurement class for the spectrometer."""
 
-    def __init__(self, name: str, instrument: FakeSpectrometer):
-        super().__init__(name, instrument)
-        self.data_units = instrument.units
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.instrument = FakeSpectrometer()
+        self.data_units = self.instrument.units
         self.data_columns = np.array(["wavelength", "intensity"])
 
     def perform_measurement(self) -> np.ndarray:

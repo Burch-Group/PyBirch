@@ -6,12 +6,14 @@ from typing import Callable
 class Movement:
     """Base class for movement tools in the PyBirch framework."""
 
-    def __init__(self, name: str, instrument: Instrument):
+    def __init__(self, name: str):
         self.name = name
-        self.instrument = instrument
         self.position_units: str = ''
         self.position_column: str = ''
         self.settings_UI: Callable[[], dict] = lambda: self.settings  # Placeholder for settings UI function
+
+    def check_connection(self) -> bool:
+        raise NotImplementedError("Subclasses should implement this method.")
 
     def position_df(self) -> pd.DataFrame:
         # Return the current position as a pandas DataFrame
@@ -49,14 +51,24 @@ class Movement:
     def shutdown(self):
         # Shutdown the movement equipment
         pass
+    
 
-    def __str__(self):
-        return f"Movement(name={self.name}, instrument={self.instrument.name})"
+class VisaMovement(Movement):
+    """Adds visa capabilities to the Movement class."""
+
+    def __init__(self, name: str, instrument: type, adapter: str = ''):
+        super().__init__(name)
+        self.instrument_type = instrument
+        self.initialize_instrument(adapter)
+
+    def initialize_instrument(self, adapter: str):
+        self.instrument = self.instrument_type(adapter) if adapter else self.instrument_type()
+        self.adapter = adapter
 
 
 class MovementItem:
     """An object to hold movement settings and positions."""
-    def __init__(self, movement: Movement, settings: dict, positions: np.ndarray):
+    def __init__(self, movement: Movement | VisaMovement, settings: dict, positions: np.ndarray):
         self.movement = movement
         self.settings = settings
         self.positions = positions

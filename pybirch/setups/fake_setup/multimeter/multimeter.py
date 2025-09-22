@@ -47,9 +47,11 @@ class FakeMultimeter(fakes.FakeInstrument):
 
 # define a measurement subclass for the voltage_meter of the multimeter
 # instrument is a placeholder; will be replaced with actual instrument instance at runtime
+# We do not use a VisaMeasurement subclass here because FakeMultimeter does not use a visa adapter
 class VoltageMeterMeasurement(Measurement):
-    def __init__(self, name: str, instrument: FakeMultimeter):
-        super().__init__(name, instrument)
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.instrument = FakeMultimeter()
         self.data_dimensions = (2,1)  # 1 column for current, 1 column for voltage
         self.data_units = np.array(["A","V"])
         self.data_columns = np.array(["current", "voltage"])
@@ -111,8 +113,9 @@ class VoltageMeterMeasurement(Measurement):
 
 # next a movement subclass for the current source of the multimeter
 class CurrentSourceMovement(Movement):
-    def __init__(self, name: str, instrument: FakeMultimeter):
-        super().__init__(name, instrument)
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.instrument = FakeMultimeter()
         self.position_shape = (1,)  # 1D position
         self.position_units = "A"
         self.position_column = "current"

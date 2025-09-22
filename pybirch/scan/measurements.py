@@ -2,16 +2,19 @@ import numpy as np
 import pandas as pd
 from pymeasure.instruments import Instrument
 from typing import Callable
+from pymeasure.instruments.keithley import Keithley2400
 
 class Measurement:
     """Base class for measurement tools in the PyBirch framework."""
 
-    def __init__(self, name: str, instrument: Instrument):
+    def __init__(self, name: str):
         self.name = name
-        self.instrument = instrument
         self.data_units: np.ndarray = np.array([])
         self.data_columns: np.ndarray = np.array([])
         self.settings_UI: Callable[[], dict] = lambda: self.settings  # Placeholder for settings UI function
+
+    def check_connection(self) -> bool:
+        raise NotImplementedError("Subclasses should implement this method.")
 
     def perform_measurement(self) -> np.ndarray:
         # Perform the measurement and return the result as a 2D numpy array
@@ -49,12 +52,24 @@ class Measurement:
         # Shutdown the measurement equipment
         pass
 
-    def __str__(self):
-        return f"Measurement(name={self.name}, instrument={self.instrument.name})"
+
+class VisaMeasurement(Measurement):
+    """Adds visa capabilities to the Measurement class."""
+
+    def __init__(self, name: str, instrument: type, adapter: str = ''):
+        super().__init__(name)
+        self.instrument_type = instrument
+        self.initialize_instrument(adapter)
+    
+    def initialize_instrument(self, adapter: str):
+        self.instrument = self.instrument_type(adapter) if adapter else self.instrument_type()
+        self.adapter = adapter
+
+
 
 class MeasurementItem:
     """An object to hold measurement settings."""
-    def __init__(self, measurement: Measurement, settings: dict):
+    def __init__(self, measurement: Measurement | VisaMeasurement, settings: dict):
         self.measurement = measurement
         self.settings = settings
 

@@ -4,8 +4,8 @@ from pathlib import Path
 import os
 import pickle
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-from pybirch.scan.measurements import Measurement
-from pybirch.scan.movements import Movement
+from pybirch.scan.measurements import Measurement, VisaMeasurement
+from pybirch.scan.movements import Movement, VisaMovement
 from PySide6 import QtCore, QtWidgets, QtGui
 
 def get_classes_from_file(file_path: str, acceptable_class_types: tuple = (type,)) -> list[tuple[str, type]]:
@@ -45,7 +45,7 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
     from the specified directory. The classes are displayed in a tree structure, with selectable
     checkboxes on the left side, and a button to refresh the list.
     """
-    def __init__(self, directory: str, acceptable_class_types: tuple = (Measurement, Movement)):
+    def __init__(self, directory: str, acceptable_class_types: tuple = (Measurement, Movement, VisaMeasurement, VisaMovement)):
         super().__init__()
         self.directory = directory
         self.pybirch_classes = get_classes_from_directory(self.directory, acceptable_class_types)

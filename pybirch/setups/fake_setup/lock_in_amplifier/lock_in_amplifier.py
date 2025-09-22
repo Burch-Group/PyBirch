@@ -120,22 +120,27 @@ class FakeLockinAmplifier(fakes.FakeInstrument):
 class LockInAmplifierMeasurement(Measurement):
     """Measurement class for the lock-in amplifier."""
 
-    def __init__(self, name: str, instrument: FakeLockinAmplifier):
-        super().__init__(name, instrument)
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.instrument = FakeLockinAmplifier()
         self.data_units = self.instrument._units
         self.data_columns = self.instrument.data_columns
 
     def perform_measurement(self) -> np.ndarray:
         """Perform the measurement."""
         return self.instrument.perform_measurement()
+    
     def connect(self):
         self.instrument.connect()
+
     def initialize(self):
         """Initialize the lock-in amplifier."""
         self.instrument.initialize()
+
     def shutdown(self):
         """Shutdown the lock-in amplifier."""
         self.instrument.shutdown()
+
     @property
     def settings(self) -> dict:
         return {
@@ -143,6 +148,7 @@ class LockInAmplifierMeasurement(Measurement):
             "time_constant": self.instrument.time_constant,
             "num_data_points": self.instrument.num_data_points
         }
+    
     @settings.setter
     def settings(self, settings: dict):
         """Set the settings of the lock-in amplifier."""
