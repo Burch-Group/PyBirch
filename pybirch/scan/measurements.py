@@ -52,7 +52,6 @@ class Measurement:
         # Shutdown the measurement equipment
         pass
 
-
 class VisaMeasurement(Measurement):
     """Adds visa capabilities to the Measurement class."""
 
