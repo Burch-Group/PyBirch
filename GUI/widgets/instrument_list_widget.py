@@ -1,3 +1,6 @@
+## DEPRECATED ##
+
+
 import sys
 from PySide6 import QtCore, QtWidgets, QtGui
 import numpy as np

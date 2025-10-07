@@ -1,20 +1,42 @@
 # Copyright (C) 2022 The Qt Company Ltd.
 # SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 from __future__ import annotations
-
-
+from typing import Callable, Optional
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from PySide6.QtCore import QModelIndex, Qt, QAbstractItemModel
 from treeitem import InstrumentTreeItem
+import pickle
 
 
 class ScanTreeModel(QAbstractItemModel):
 
-    def __init__(self, headers: list, data: str, parent=None):
+    def __init__(self, headers: list, filename: str, parent=None, update_interface: Optional[Callable] = None):
         super().__init__(parent)
 
-        self.root_data = headers
-        self.root_item = InstrumentTreeItem(self.root_data.copy())
-        self.setup_model_data(data.split("\n"), self.root_item)
+        self.headers = headers
+        self.restore_model_from_pickle(filename)
+        self.update_interface = update_interface
+
+
+## NEEDS TO BE TESTED ##
+    def start_scan(self) -> bool:
+        move_next: Callable = self.root_item.move_next
+        i = 0
+        while move_next != True:
+            if type(move_next) == Callable:
+                move_next = move_next()
+
+            if self.update_interface:
+                self.update_interface()
+
+            i += 1
+            if i > 10000:
+                print("Scan appears to be stuck in an infinite loop. Aborting.")
+                return False
+
+        return True
+
 
     def columnCount(self, parent: QModelIndex = None) -> int: #type: ignore
         return self.root_item.column_count()
@@ -157,39 +179,17 @@ class ScanTreeModel(QAbstractItemModel):
 
         return result
 
-    def setup_model_data(self, lines: list, parent: TreeItem): #type: ignore
-        parents = [parent]
-        indentations = [0]
+## NEEDS TO BE FINISHED ##
+    def pickle_model(self, filename: str) -> None:
+        with open(filename, 'wb') as output:
+            pickle.dump(self, output, pickle.HIGHEST_PROTOCOL)
 
-        for line in lines:
-            line = line.rstrip()
-            if line and "\t" in line:
-
-                position = 0
-                while position < len(line):
-                    if line[position] != " ":
-                        break
-                    position += 1
-
-                column_data = line[position:].split("\t")
-                column_data = [string for string in column_data if string]
-
-                if position > indentations[-1]:
-                    if parents[-1].child_count() > 0:
-                        parents.append(parents[-1].last_child()) #type: ignore
-                        indentations.append(position)
-                else:
-                    while position < indentations[-1] and parents:
-                        parents.pop()
-                        indentations.pop()
-
-                parent: InstrumentTreeItem = parents[-1]
-                col_count = self.root_item.column_count()
-                parent.insert_children(parent.child_count(), 1, col_count)
-
-                for column in range(len(column_data)):
-                    child = parent.last_child()
-                    child.set_data(column, column_data[column]) #type: ignore
+    def restore_model_from_pickle(self, filename: str):
+        with open(filename, 'rb') as input:
+            model: ScanTreeModel = pickle.load(input)
+            self.root_data = model.root_data
+            self.root_item = model.root_item
+            self.layoutChanged.emit()
 
     def _repr_recursion(self, item: InstrumentTreeItem, indent: int = 0) -> str:
         result = " " * indent + repr(item) + "\n"

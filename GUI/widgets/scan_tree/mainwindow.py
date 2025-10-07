@@ -38,9 +38,6 @@ class MainWindow(QMainWindow):
         self.insert_row_action = actions_menu.addAction("Insert Row")
         self.insert_row_action.setShortcut("Ctrl+I, R")
         self.insert_row_action.triggered.connect(self.insert_row)
-        self.insert_column_action = actions_menu.addAction("Insert Column")
-        self.insert_column_action.setShortcut("Ctrl+I, C")
-        self.insert_column_action.triggered.connect(self.insert_column)
         actions_menu.addSeparator()
         self.remove_row_action = actions_menu.addAction("Remove Row")
         self.remove_row_action.setShortcut("Ctrl+R, R")
@@ -102,18 +99,6 @@ class MainWindow(QMainWindow):
         self.update_actions()
 
     @Slot()
-    def insert_column(self) -> None:
-        model: QAbstractItemModel = self.view.model()
-        column: int = self.view.selectionModel().currentIndex().column()
-
-        changed: bool = model.insertColumn(column + 1)
-        if changed:
-            model.setHeaderData(column + 1, Qt.Orientation.Horizontal, "[No header]",
-                                Qt.ItemDataRole.EditRole)
-
-        self.update_actions()
-
-    @Slot()
     def insert_row(self) -> None:
         index: QModelIndex = self.view.selectionModel().currentIndex()
         model: QAbstractItemModel = self.view.model()
@@ -154,7 +139,6 @@ class MainWindow(QMainWindow):
         current_index = selection_model.currentIndex()
         has_current: bool = current_index.isValid()
         self.insert_row_action.setEnabled(has_current)
-        self.insert_column_action.setEnabled(has_current)
 
         if has_current:
             self.view.closePersistentEditor(current_index)
