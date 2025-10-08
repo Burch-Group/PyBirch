@@ -23,6 +23,9 @@ Items:
 - [x] Scan List -- Deprecated
 - [x] Queue Title Bar
 - [x] Instrument Autoload
+- [ ] Instrument Page Serialization
+- [ ] Scan Serialization
+- [ ] Queue Serialization
 - [ ] Scan Info Page
 - [ ] Queue Info Page
 - [ ] Scan Presets
