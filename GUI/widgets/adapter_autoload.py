@@ -194,6 +194,24 @@ class InstrumentManager(QtWidgets.QWidget):
             status_item.setIcon(QtGui.QIcon(icon))
             status_item.setText("Connected" if connected else "Failed")
 
+    def auto_pair(self, instrument_classes):
+        """Automatically pair adapters with instruments by doing a pairwise search with the check_connection method."""
+        for row in range(self.table.rowCount()):
+            adapter = self.table.item(row, 0).text()
+            if adapter.startswith("placeholder_"):
+                continue  # Skip placeholders
+
+            for inst_class in instrument_classes:
+                instrument = inst_class(adapter)
+                if instrument.check_connection():
+                    # Found a match, set the instrument name
+                    combo = self.table.cellWidget(row, 1)
+                    index = combo.findText(inst_class.__name__)
+                    if index >= 0:
+                        combo.setCurrentIndex(index)
+                    break
+        
+
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
