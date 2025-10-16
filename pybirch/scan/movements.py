@@ -1,13 +1,18 @@
 import numpy as np
 import pandas as pd
 from pymeasure.instruments import Instrument
-from typing import Callable
+from typing import Callable, Optional
+import pickle
+
 
 class Movement:
     """Base class for movement tools in the PyBirch framework."""
 
     def __init__(self, name: str):
         self.name = name
+        self.nickname = name  # Optional user-defined nickname, given in the GUI at runtime.
+        self.adapter = ''
+        self.status: bool = False  # Connection status
         self.position_units: str = ''
         self.position_column: str = ''
         self.settings_UI: Callable[[], dict] = lambda: self.settings  # Placeholder for settings UI function
@@ -51,7 +56,19 @@ class Movement:
     def shutdown(self):
         # Shutdown the movement equipment
         pass
+
+    def dict_repr(self) -> dict:
+        return {
+            "name": self.name,
+            "type": self.__class__.__name__,
+            "adapter": getattr(self, 'adapter', ''),
+            "settings": self.settings
+        }
     
+    def load_from_dict(self, data: dict, initialize: bool = False):
+        self.name = data.get("name", self.name)
+        if "settings" in data:
+            self.settings = data["settings"]
 
 class VisaMovement(Movement):
     """Adds visa capabilities to the Movement class."""
@@ -64,6 +81,12 @@ class VisaMovement(Movement):
     def initialize_instrument(self, adapter: str):
         self.instrument = self.instrument_type(adapter) if adapter else self.instrument_type()
         self.adapter = adapter
+
+        try:
+            self.status = self.check_connection()
+        except Exception as e:
+            print(f"Failed to initialize instrument {self.name} with adapter {adapter}: {e}")
+            self.status = False
 
 
 class MovementItem:

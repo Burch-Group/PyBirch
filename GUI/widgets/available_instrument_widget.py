@@ -10,12 +10,8 @@ class AvailableInstrumentWidget(QtWidgets.QDialog):
 
     def __init__(self, instrument_data, parent=None):
         """
-        instrument_data: list of dicts, e.g.
-        [
-            {"name": "Oscilloscope", "adapter": "GPIB0::5::INSTR", "status": True},
-            {"name": "Multimeter", "adapter": "COM3", "status": False},
-            ...
-        ]
+        instrument_data: list of Measurement or Movement objects from InstrumentManager
+        Each object should have 'name', 'adapter', and 'status' attributes.
         """
         super().__init__(parent)
         self.setWindowTitle("Available Instruments")
@@ -41,6 +37,7 @@ class AvailableInstrumentWidget(QtWidgets.QDialog):
         button_layout.addWidget(self.cancel_button)
         button_layout.addWidget(self.continue_button)
         layout.addLayout(button_layout)
+        self.continue_button.setDefault(True)
 
         # Populate the table
         self.load_instruments()
@@ -61,17 +58,17 @@ class AvailableInstrumentWidget(QtWidgets.QDialog):
             self.table.insertRow(row)
 
             # Instrument name
-            item_name = QtWidgets.QTableWidgetItem(inst["name"])
+            item_name = QtWidgets.QTableWidgetItem(inst.name)
             item_name.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
             self.table.setItem(row, 0, item_name)
 
             # Adapter string
-            item_adapter = QtWidgets.QTableWidgetItem(inst["adapter"])
+            item_adapter = QtWidgets.QTableWidgetItem(inst.adapter)
             item_adapter.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
             self.table.setItem(row, 1, item_adapter)
 
             # Status indicator (green check/red cross emoji)
-            status_icon = "✅" if inst["status"] else "❌"
+            status_icon = "✅" if inst.status else "❌"
 
             status_item = QtWidgets.QTableWidgetItem()
             status_item.setTextAlignment(QtCore.Qt.AlignCenter)
@@ -92,9 +89,17 @@ class AvailableInstrumentWidget(QtWidgets.QDialog):
     def on_continue(self):
         """Get selected instrument and close dialog."""
         selected_id = self.radio_group.checkedId()
+        print("Selected ID:", selected_id)
         if selected_id == -1:
-            QtWidgets.QMessageBox.warning(self, "Selection Required", "Please select one instrument.")
-            return
+            # if no selection, check if user has highlighted a row instead
+            selected_items = self.table.selectedItems()
+            print("Selected items:", selected_items)
+            if selected_items:
+                selected_id = selected_items[0].row()
+                print("Using selected row:", selected_id)
+            else:
+                QtWidgets.QMessageBox.warning(self, "No Selection", "Please select an instrument to continue.")
+                return
 
         self.selected_instrument = self.instrument_data[selected_id]
         self.accept()

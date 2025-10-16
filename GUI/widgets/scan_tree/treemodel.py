@@ -4,61 +4,102 @@ from __future__ import annotations
 from typing import Callable, Optional
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from PySide6.QtCore import QModelIndex, Qt, QAbstractItemModel
+from PySide6.QtCore import QModelIndex, Qt, QAbstractItemModel, QPersistentModelIndex, QThreadPool
 from treeitem import InstrumentTreeItem
+from pybirch.scan.movements import Movement, VisaMovement
+from pybirch.scan.measurements import Measurement, VisaMeasurement
 import pickle
+
+from phd_student import PhDStudent
+
 
 
 class ScanTreeModel(QAbstractItemModel):
 
-    def __init__(self, headers: list, filename: str, parent=None, update_interface: Optional[Callable] = None):
+    def __init__(self, headers: list, filename: Optional[str] = None, parent=None, update_interface: Optional[Callable] = None, next_item: Optional[InstrumentTreeItem] = None):
         super().__init__(parent)
 
-        self.headers = headers
-        self.restore_model_from_pickle(filename)
+        if filename:
+            self.restore_model_from_pickle(filename)
+        else:
+            self.root_item = InstrumentTreeItem()
+        
+        # Set the headers on the root item
+        self.root_item.headers = headers
         self.update_interface = update_interface
+        self.threadpool = QThreadPool()
+        self.threadpool.setMaxThreadCount(20)  # Limit to 20 threads for safety
+        self.completed = False
+        self.paused = False
+        self.stopped = False
+        self.next_item = next_item
 
 
-## NEEDS TO BE TESTED ##
     def start_scan(self) -> bool:
-        move_next: Callable = self.root_item.move_next
-        i = 0
-        while move_next != True:
-            if type(move_next) == Callable:
-                move_next = move_next()
-
+        if self.root_item.child_count() == 0:
+            return False
+        
+        next_item = self.root_item.child_items[0] if self.next_item is None else self.next_item
+        
+        while next_item is not self.root_item:
             if self.update_interface:
                 self.update_interface()
-
-            i += 1
-            if i > 10000:
-                print("Scan appears to be stuck in an infinite loop. Aborting.")
+            
+            if self.stopped or self.paused:
                 return False
 
+            fast_forward = InstrumentTreeItem.FastForward(next_item)
+            if not next_item.finished():
+                fast_forward = fast_forward.new_item(next_item)
+
+            while not fast_forward.done:
+                fast_forward = fast_forward.new_item(fast_forward.current_item)
+                if fast_forward.done:
+                    break
+            
+            # Execute the stack in parallel with QT multithreading by mapping the move_next function to each item in the stack, 
+            # and assigning this work to a virtual PhD student
+            if len(fast_forward.stack) == 0:
+                virtual_lab_group = []
+                for item in fast_forward.stack:
+                    worker = PhDStudent(
+                        item.move_next
+                    ) 
+
+                    # If necessary, connect signals here
+                    # worker.signals.result.connect()
+                    # worker.signals.finished.connect()
+                    # worker.signals.progress.connect()
+                    virtual_lab_group.append(worker)
+                
+                # Execute
+                for worker in virtual_lab_group:
+                    self.threadpool.start(worker)
+                
+                self.threadpool.waitForDone()  # Wait for all threads to complete
+
+            next_item = fast_forward.final_item
+            if next_item is None:
+                break
+
+        self.completed = True
         return True
-
-
-    def columnCount(self, parent: QModelIndex = None) -> int: #type: ignore
-        return self.root_item.column_count()
-
-    def data(self, index: QModelIndex, role: int = None): #type: ignore
-        if not index.isValid():
-            return None
-
-        if role != Qt.ItemDataRole.DisplayRole and role != Qt.ItemDataRole.EditRole:
-            return None
-
-        item: InstrumentTreeItem = self.get_item(index)
-
-        return item.data(index.column())
-
-    def flags(self, index: QModelIndex) -> Qt.ItemFlags: #type: ignore
+        
+    def flags(self, index: QModelIndex) -> Qt.ItemFlags:  # type: ignore
         if not index.isValid():
             return Qt.ItemFlag.NoItemFlags
 
-        return Qt.ItemFlag.ItemIsEditable | QAbstractItemModel.flags(self, index)
+        flags = super().flags(index)
+        if index.column() == 0:
+            # Editable, selectable, enabled, user-checkable
+            flags |= Qt.ItemFlag.ItemIsEditable | Qt.ItemFlag.ItemIsUserCheckable
+        elif index.column() == 1:
+            # Not editable
+            flags &= ~Qt.ItemFlag.ItemIsEditable
 
-    def get_item(self, index: QModelIndex = QModelIndex()) -> InstrumentTreeItem:
+        return flags
+
+    def get_item(self, index: QModelIndex | QPersistentModelIndex = QModelIndex()) -> InstrumentTreeItem:
         if index.isValid():
             item: InstrumentTreeItem = index.internalPointer()
             if item:
@@ -69,7 +110,7 @@ class ScanTreeModel(QAbstractItemModel):
     def headerData(self, section: int, orientation: Qt.Orientation,
                    role: int = Qt.ItemDataRole.DisplayRole):
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
-            return self.root_item.data(section)
+            return self.root_item.headers[section]
 
         return None
 
@@ -86,23 +127,29 @@ class ScanTreeModel(QAbstractItemModel):
             return self.createIndex(row, column, child_item)
         return QModelIndex()
 
-    def insertColumns(self, position: int, columns: int, #type: ignore
-                      parent: QModelIndex = QModelIndex()) -> bool:
-        self.beginInsertColumns(parent, position, position + columns - 1)
-        success: bool = self.root_item.insert_columns(position, columns)
-        self.endInsertColumns()
-
-        return success
-
-    def insertRows(self, position: int, rows: int, #type: ignore
-                   parent: QModelIndex = QModelIndex()) -> bool:
+    def insertRows(self, position: int, count: int, parent: QModelIndex = QModelIndex()) -> bool: #type: ignore
+        """Standard QAbstractItemModel insertRows method"""
         parent_item: InstrumentTreeItem = self.get_item(parent)
         if not parent_item:
             return False
 
-        self.beginInsertRows(parent, position, position + rows - 1)
-        column_count = self.root_item.column_count()
-        success: bool = parent_item.insert_children(position, rows, column_count)
+        # Create default instruments for standard insertRows calls
+        default_instruments: list[Movement | VisaMovement | Measurement | VisaMeasurement] = [Measurement('Default Instrument') for _ in range(count)]
+        
+        self.beginInsertRows(parent, position, position + count - 1)
+        success: bool = parent_item.insert_children(position, default_instruments)
+        self.endInsertRows()
+
+        return success
+
+    def insertInstruments(self, position: int, instrument_objects: list[Movement | VisaMovement | Measurement | VisaMeasurement], parent: QModelIndex = QModelIndex()) -> bool:
+        """Custom method to insert specific instrument objects"""
+        parent_item: InstrumentTreeItem = self.get_item(parent)
+        if not parent_item:
+            return False
+
+        self.beginInsertRows(parent, position, position + len(instrument_objects) - 1)
+        success: bool = parent_item.insert_children(position, instrument_objects)
         self.endInsertRows()
 
         return success
@@ -121,17 +168,6 @@ class ScanTreeModel(QAbstractItemModel):
             return QModelIndex()
 
         return self.createIndex(parent_item.child_number(), 0, parent_item)
-
-    def removeColumns(self, position: int, columns: int, #type: ignore
-                      parent: QModelIndex = QModelIndex()) -> bool:
-        self.beginRemoveColumns(parent, position, position + columns - 1)
-        success: bool = self.root_item.remove_columns(position, columns)
-        self.endRemoveColumns()
-
-        if self.root_item.column_count() == 0:
-            self.removeRows(0, self.rowCount())
-
-        return success
 
     def removeRows(self, position: int, rows: int, #type: ignore
                    parent: QModelIndex = QModelIndex()) -> bool:
@@ -154,12 +190,12 @@ class ScanTreeModel(QAbstractItemModel):
             return 0
         return parent_item.child_count()
 
-    def setData(self, index: QModelIndex, value, role: int) -> bool: #type: ignore
+    def setData(self, index: QModelIndex, role: int, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement = Measurement('default'), indices: list[int] = [], final_indices: list[int] = []) -> bool: #type: ignore
         if role != Qt.ItemDataRole.EditRole:
             return False
 
         item: InstrumentTreeItem = self.get_item(index)
-        result: bool = item.set_data(index.column(), value)
+        result: bool = item.set_data(instrument_object, indices, final_indices)
 
         if result:
             self.dataChanged.emit(index, index,
@@ -167,17 +203,25 @@ class ScanTreeModel(QAbstractItemModel):
 
         return result
 
-    def setHeaderData(self, section: int, orientation: Qt.Orientation, value,
-                      role: int = None) -> bool: #type: ignore
-        if role != Qt.ItemDataRole.EditRole or orientation != Qt.Orientation.Horizontal:
-            return False
+    def data(self, index: QModelIndex | QPersistentModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
 
-        result: bool = self.root_item.set_data(section, value)
+        if role != Qt.ItemDataRole.DisplayRole and role != Qt.ItemDataRole.EditRole:
+            return None
 
-        if result:
-            self.headerDataChanged.emit(orientation, section, section)
+        item: InstrumentTreeItem = self.get_item(index)
+        if not item:
+            return None
 
-        return result
+        # Return the appropriate column data
+        if index.column() < len(item.columns):
+            return item.columns[index.column()]
+        return None
+
+    def columnCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
+        # The number of columns is determined by the headers
+        return len(self.root_item.headers)
 
 ## NEEDS TO BE FINISHED ##
     def pickle_model(self, filename: str) -> None:

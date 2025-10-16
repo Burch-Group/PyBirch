@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from pymeasure.instruments import Instrument
-from typing import Callable
+from typing import Callable, Optional
 from pymeasure.instruments.keithley import Keithley2400
 
 class Measurement:
@@ -9,6 +9,9 @@ class Measurement:
 
     def __init__(self, name: str):
         self.name = name
+        self.nickname = name  # Optional user-defined nickname, given in the GUI at runtime.
+        self.adapter = ''
+        self.status: bool = False  # Connection status
         self.data_units: np.ndarray = np.array([])
         self.data_columns: np.ndarray = np.array([])
         self.settings_UI: Callable[[], dict] = lambda: self.settings  # Placeholder for settings UI function
@@ -64,6 +67,11 @@ class VisaMeasurement(Measurement):
         self.instrument = self.instrument_type(adapter) if adapter else self.instrument_type()
         self.adapter = adapter
 
+        try:
+            self.status = self.check_connection()
+        except Exception as e:
+            print(f"Failed to initialize instrument {self.name} with adapter {adapter}: {e}")
+            self.status = False
 
 
 class MeasurementItem:
