@@ -29,8 +29,8 @@ class InstrumentTreeItem:
         self.child_items: list[InstrumentTreeItem] = []
         self.instrument_object = instrument_object
 
-        self.headers = ["Name", "Type", "Adapter"]
-        self.columns = [self.name, self.type, self.adapter]
+        self.headers = ["Name", "Type", "Adapter", "Semaphores"]
+        self.columns = [self.name, self.type, self.adapter, self.semaphore]
 
         # Initialize indices for Movement objects if not provided
         if instrument_object is None:
@@ -86,10 +86,11 @@ class InstrumentTreeItem:
 
         return True
 
-    def set_data(self, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement = Measurement('Default Instrument'), indices: list[int] = [], final_indices: list[int] = []) -> bool:
+    def set_data(self, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement = Measurement('Default Instrument'), indices: list[int] = [], final_indices: list[int] = [], semaphore: str = "") -> bool:
         self.instrument_object = instrument_object
         self.item_indices = indices
         self.final_indices = final_indices
+        self.semaphore = semaphore
 
         if self.instrument_object is None:
             self.name = ""
@@ -99,8 +100,8 @@ class InstrumentTreeItem:
             self.name = instrument_object.nickname
             self.type = instrument_object.__class__.__bases__[0].__name__
             self.adapter = instrument_object.adapter
-        
-        self.columns = [self.name, self.type, self.adapter]
+
+        self.columns = [self.name, self.type, self.adapter, self.semaphore]
         return True
 
     def finished(self) -> bool:

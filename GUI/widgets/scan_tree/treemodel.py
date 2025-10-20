@@ -90,11 +90,12 @@ class ScanTreeModel(QAbstractItemModel):
             return Qt.ItemFlag.NoItemFlags
 
         flags = super().flags(index)
-        if index.column() == 0:
-            # Editable, selectable, enabled, user-checkable
-            flags |= Qt.ItemFlag.ItemIsEditable | Qt.ItemFlag.ItemIsUserCheckable
-        elif index.column() == 1:
-            # Not editable
+        
+        # Only the semaphore column (column 3) should be editable
+        if index.column() == 3:  # Semaphore column
+            flags |= Qt.ItemFlag.ItemIsEditable
+        else:
+            # All other columns are not editable
             flags &= ~Qt.ItemFlag.ItemIsEditable
 
         return flags
@@ -190,16 +191,46 @@ class ScanTreeModel(QAbstractItemModel):
             return 0
         return parent_item.child_count()
 
-    def setData(self, index: QModelIndex, role: int, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement = Measurement('default'), indices: list[int] = [], final_indices: list[int] = []) -> bool: #type: ignore
+    def setData(self, index: QModelIndex, value, role: int = Qt.ItemDataRole.EditRole) -> bool: #type: ignore
         if role != Qt.ItemDataRole.EditRole:
             return False
 
+        if not index.isValid():
+            return False
+
         item: InstrumentTreeItem = self.get_item(index)
-        result: bool = item.set_data(instrument_object, indices, final_indices)
+        if not item:
+            return False
+
+        # Handle editing of the semaphore column (column 3)
+        if index.column() == 3:
+            # Update the semaphore value
+            item.semaphore = str(value) if value is not None else ""
+            # Update the columns array to reflect the change
+            item.columns[3] = item.semaphore
+            
+            self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+            return True
+        
+        # For other columns, we don't allow direct editing
+        return False
+
+    def setInstrumentData(self, index: QModelIndex, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = "") -> bool:
+        """Custom method to set instrument data for an item"""
+        if not index.isValid():
+            return False
+
+        item: InstrumentTreeItem = self.get_item(index)
+        if not item:
+            return False
+
+        result: bool = item.set_data(instrument_object, indices, final_indices, semaphore)
 
         if result:
-            self.dataChanged.emit(index, index,
-                                  [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+            # Emit dataChanged for all columns since instrument data affects multiple columns
+            first_column = self.index(index.row(), 0, index.parent())
+            last_column = self.index(index.row(), self.columnCount() - 1, index.parent())
+            self.dataChanged.emit(first_column, last_column, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
 
         return result
 

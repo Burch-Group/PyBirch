@@ -31,8 +31,8 @@ class BaseInstrument:
         self.resource_name = resource_name
 
     def check_connection(self):
-        # Simulated connection check: 80% chance of success
-        return random.random() < 0.8
+        # Simulated connection check: 50% chance of success. Let's be realistic.
+        return random.random() < 0.5
 
 
 class InstrumentManager(QtWidgets.QWidget):

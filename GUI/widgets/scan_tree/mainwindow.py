@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
         
 
-        headers = ["Instrument Name", "Type", "Adapter"]
+        headers = ["Instrument Name", "Type", "Adapter", "Semaphores"]
 
         file = Path(__file__).parent / "default.txt"
         self.model = ScanTreeModel(headers, parent=self)
@@ -161,10 +161,7 @@ class MainWindow(QMainWindow):
 
         self.update_actions()
 
-        for column in range(model.columnCount(parent)):
-            child: QModelIndex = model.index(index.row() + 1, column, parent)
-            model.setData(child, "[No data]", Qt.ItemDataRole.EditRole)
-
+        # Set default instrument for the new row - don't try to set "[No data]" since columns aren't directly editable
         # Select instrument for the new row
         new_index = model.index(index.row() + 1, 0, parent)
         self.view.setCurrentIndex(new_index)
@@ -193,13 +190,15 @@ class MainWindow(QMainWindow):
             return
 
         # Copy data from the copied item to the new row
-        for column in range(model.columnCount(parent)):
-            child: QModelIndex = model.index(index.row(), column, parent)
-            data = self.copied_item.columns[column] if column < len(self.copied_item.columns) else "[No data]"
-            model.setData(child, data, Qt.ItemDataRole.EditRole)
-            # If the copied item has an associated instrument object, set it in the new row
-            if column == 0 and self.copied_item.instrument_object:
-                self.tree_item_from_index(child).set_data(self.copied_item.instrument_object)
+        child: QModelIndex = model.index(index.row(), 0, parent)
+        # If the copied item has an associated instrument object, set it in the new row
+        if self.copied_item.instrument_object:
+            self.tree_item_from_index(child).set_data(
+                self.copied_item.instrument_object, 
+                self.copied_item.item_indices, 
+                self.copied_item.final_indices, 
+                self.copied_item.semaphore
+            )
 
 
         self.update_actions()
