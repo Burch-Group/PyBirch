@@ -1,0 +1,481 @@
+from pymeasure.instruments.newport import ESP300
+from pymeasure.instruments.newport.esp300 import Axis
+from pymeasure.adapters import VISAAdapter
+import os
+from PyQt5 import QtWidgets, uic
+from PyQt5.QtCore import QTimer
+import logging
+from time import sleep
+from PyQt5.QtWidgets import QSpinBox, QPushButton, QMessageBox
+
+adapter = VISAAdapter("GPIB::7::INSTR")
+adapter.connection.write_termination = "\r"
+adapter.connection.read_termination  = "\r"
+esp = ESP300(adapter)
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+
+class MainWindow(QtWidgets.QMainWindow):
+
+    def __init__(self, esp):
+        super().__init__()
+        self.esp = esp
+        ui_file_path = os.path.join(os.path.dirname(__file__), 'ESP300 control panel front.ui') 
+        uic.loadUi(ui_file_path, self) #imports widgets as objects in python
+        self.esp.clear_errors()  
+
+        #Units
+        self.esp.x.units = 'encoder count'
+        self.esp.y.units = 'encoder count' 
+        self.esp.phi.units = 'encoder count'
+        
+        #Enable Axes
+        try:
+            for axis in (self.esp.x, self.esp.y, self.esp.phi):
+                axis.enable()
+            if all(a.enabled for a in (self.esp.x, self.esp.y, self.esp.phi)):
+                logger.info("All axes enabled")
+        except Exception as e:
+            logger.exception(f"Failed to enable axes: {e}")
+        
+        # Current Position 
+        self.lineEdit_current_x.setReadOnly(True)
+        self.lineEdit_current_y.setReadOnly(True)
+        self.lineEdit_current_z.setReadOnly(True)
+
+        #Move Abs
+        self.pushButton_move_x.clicked.connect(self.move_x)
+        self.pushButton_move_y.clicked.connect(self.move_y)
+        self.pushButton_move_z.clicked.connect(self.move_z)
+        self.pushButton_moveAll.clicked.connect(self.move_all)
+        self.pushButton_populateCurrent.clicked.connect(self.populate_current)
+
+        #Shift
+        self.pushButton_shift_x.clicked.connect(self.shift_x)
+        self.pushButton_shift_y.clicked.connect(self.shift_y)
+        self.pushButton_shift_z.clicked.connect(self.shift_z)
+        self.pushButton_shiftAll.clicked.connect(self.shift_all)
+      
+        #STOP
+        self.pushButton_safety.clicked.connect(self.stop_all)
+
+        #DONE
+        self.pushButton_done.clicked.connect(QtWidgets.QApplication.instance().quit)
+
+        #Limits
+        self.pushButton_setlims.clicked.connect(self.set_lims)
+        self.pushButton_populateCurrentLims.clicked.connect(self.populate_lims)
+
+        #GPIB
+        self.spinBox_GPIB.setValue(self.esp.query("SA?"))
+        self.pushButton_GPIB.clicked.connect(self.gpib)
+
+        #Axes
+        self.pushButton_XY.clicked.connect(self.set_axes)
+        self.comboBox_x_axis.setCurrentIndex(0)
+        self.comboBox_y_axis.setCurrentIndex(2)
+
+
+        #Motor
+        self.radioButton_MF.clicked.connect(self.motor_off)
+        self.radioButton_MO.clicked.connect(self.motor_on)
+        self.radioButton_MS.clicked.connect(self.motor_stop)
+
+        #Timer
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_positions)
+        self.timer.start(500)
+
+    def update_positions(self):
+        try:
+            x = self.esp.x.position
+            y = self.esp.y.position
+            z = self.esp.phi.position
+            self.lineEdit_current_x.setText(f"{x:.3f}")
+            self.lineEdit_current_y.setText(f"{y:.3f}")
+            self.lineEdit_current_z.setText(f"{z:.3f}")
+        except Exception as e:
+            logger.exception(f"ERR: {e}")
+        
+        moving = not (self.esp.x.motion_done 
+                  and self.esp.y.motion_done 
+                  and self.esp.phi.motion_done)
+
+        if moving:
+            self.progressBar_moving.setRange(0, 0)
+            self.progressBar_moving.setFormat("Moving…")
+        else:
+            self.progressBar_moving.setRange(0, 1)
+            self.progressBar_moving.setValue(1)
+            self.progressBar_moving.setFormat("Idle")
+
+    def move_x(self):
+        target_x = self.doubleSpinBox_move_x.value()
+        low  = self.esp.x.left_limit
+        high = self.esp.x.right_limit
+
+        #No Scraping!
+        y_pos = self.esp.y.position
+
+        if  y_pos > 4600:   #This is in encoder units, switch if you're using different units
+            logger.warning("Blocked X move: Y is too low")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Unsafe Move",
+                "Cannot move X while Y is at bottom."
+            )
+            return
+        
+        #Respects software limits
+        if not (low <= target_x <= high):
+            logger.warning(f"X move rejected: target {target_x} outside limits [{low}, {high}]")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Out-of-Range Move",
+                f"X-axis target {target_x} is outside limits:\n{low} to {high} (encoder ticks)"
+            )
+            return
+        try:
+            self.esp.x.position = target_x
+            self.esp.x.wait_for_stop()
+        except Exception as e:
+            logger.exception(f"ERR: {e}")
+
+
+    def move_y(self):
+        target_y = self.doubleSpinBox_move_y.value()
+        low  = self.esp.y.left_limit
+        high = self.esp.y.right_limit
+
+        #Respects software limits
+        if not (low <= target_y <= high):
+            logger.warning(f"Y move rejected: target {target_y} outside limits [{low}, {high}]")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Out-of-Range Move",
+                f"Y-axis target {target_y} is outside limits:\n{low} to {high} (encoder ticks)"
+            )
+            return
+        
+        try:
+            self.esp.y.position = target_y
+            self.esp.y.wait_for_stop()
+        except Exception as e:
+            logger.exception(f"ERR: {e}")
+
+    def move_z(self):
+        target_z = self.doubleSpinBox_move_z.value()
+        low  = self.esp.phi.left_limit
+        high = self.esp.phi.right_limit
+
+        #No scraping!
+        y_pos = self.esp.y.position
+
+
+        if  y_pos > 4600: #This is in encoder units, switch if you're using different units
+            logger.warning("Blocked Z move: Y is too low")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Unsafe Move",
+                "Cannot move Z while Y is at bottom."
+            )
+            return
+
+        #Respects software limits
+        if not (low <= target_z <= high):
+            logger.warning(f"Z move rejected: target {target_z} outside limits [{low}, {high}]")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Out-of-Range Move",
+                f"Z-axis target {target_z} is outside limits:\n{low} to {high} (encoder ticks)"
+            )
+            return
+        
+        try:
+            self.esp.phi.position = target_z
+            self.esp.phi.wait_for_stop()
+        except Exception as e:
+            logger.exception(f"ERR: {e}")
+
+    def move_all(self):
+        axes = {
+        'X': (self.esp.x, self.doubleSpinBox_move_x.value()),
+        'Y': (self.esp.y, self.doubleSpinBox_move_y.value()),
+        'Z': (self.esp.phi, self.doubleSpinBox_move_z.value()),
+        }
+        for name, (axis, target) in axes.items():
+            low, high = axis.left_limit, axis.right_limit
+            if not (low <= target <= high):
+                QtWidgets.QMessageBox.warning(
+                    self, "Out-of-Range Move",
+                    f"{name}-axis target {target} is outside [{low}, {high}] ticks."
+                )
+            return
+            
+        if self.esp.y.position > 4600:
+            logger.warning("Blocked move: Y is too low")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Unsafe Move",
+                "Cannot move Z while Y is at bottom."
+            )
+            return
+
+
+        try:
+            for axis, target in axes.values():
+                axis.position = target
+
+            for axis in (self.esp.x, self.esp.y, self.esp.phi):
+                axis.wait_for_stop()
+
+            logger.info("All axes moved to X=%s, Y=%s, Z=%s",
+                        axes['X'][1], axes['Y'][1], axes['Z'][1])
+
+        except Exception as e:
+            logger.exception(f"Move All failed: {e}")
+    def populate_current(self):
+        x = self.esp.x.position   # We can change this to read from the lineEdit boxes if we want, but I thought it would be best to pull directly  from instrument
+        y = self.esp.y.position
+        z = self.esp.phi.position
+
+        self.doubleSpinBox_move_x.setValue(x)
+        self.doubleSpinBox_move_y.setValue(y)
+        self.doubleSpinBox_move_z.setValue(z)
+
+    def shift_x(self):
+        shiftby_x = self.doubleSpinBox_shift_x.value()
+        low  = self.esp.x.left_limit
+        high = self.esp.x.right_limit
+        target_x = self.esp.x.position + shiftby_x
+
+        #No scraping!
+        y_pos = self.esp.y.position
+        if  y_pos > 4600: #This is in encoder units, switch if you're using different units
+            logger.warning("Blocked X move: Y is too low")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Unsafe Move",
+                "Cannot move X while Y is at bottom."
+            )
+            return
+
+        #Respects software limits
+        if not (low < target_x <= high):
+            logger.warning(f"X move rejected: target {target_x} outside limits [{low}, {high}]")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Out-of-Range Move",
+                f"X-axis target {target_x} is outside limits:\n{low} to {high} (encoder ticks)"
+            )
+            return
+        
+        try:
+            self.esp.x.position = target_x
+            self.esp.x.wait_for_stop()
+        except Exception as e:
+            logger.exception(f"ERR: {e}")
+    
+    def shift_y(self):
+        shiftby_y = self.doubleSpinBox_shift_y.value()
+        low  = self.esp.y.left_limit
+        high = self.esp.y.right_limit
+        target_y = self.esp.y.position + shiftby_y
+
+        #Respects software limits
+        if not (low < target_y <= high):
+            logger.warning(f"X move rejected: target {target_y} outside limits [{low}, {high}]")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Out-of-Range Move",
+                f"X-axis target {target_y} is outside limits:\n{low} to {high} (encoder ticks)"
+            )
+            return
+        
+        try:
+            self.esp.y.position = target_y
+            self.esp.y.wait_for_stop()
+        except Exception as e:
+            logger.exception(f"ERR: {e}")
+
+    def shift_z(self):
+        shiftby_z = self.doubleSpinBox_shift_z.value()
+        low  = self.esp.phi.left_limit
+        high = self.esp.phi.right_limit
+        target_z = self.esp.phi.position + shiftby_z
+
+        #No scraping!
+        y_pos = self.esp.y.position
+        if  y_pos > 4600: #This is in encoder units, switch if you're using different units
+            logger.warning("Blocked Z move: Y is too low")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Unsafe Move",
+                "Cannot move Z while Y is at bottom."
+            )
+            return
+
+        #Respects software limits
+        if not (low < target_z <= high):
+            logger.warning(f"Z move rejected: target {target_z} outside limits [{low}, {high}]")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Out-of-Range Move",
+                f"Z-axis target {target_z} is outside limits:\n{low} to {high} (encoder ticks)"
+            )
+            return
+        
+        try:
+            self.esp.phi.position = target_z
+            self.esp.phi.wait_for_stop()
+        except Exception as e:
+            logger.exception(f"ERR: {e}")
+
+    def shift_all(self):
+        axes = {
+        'X': (self.esp.x, self.esp.x + self.doubleSpinBox_shift_x.value()),
+        'Y': (self.esp.y, self.esp.y + self.doubleSpinBox_shift_y.value()),
+        'Z': (self.esp.phi, self.esp.phi + self.doubleSpinBox_shift_z.value()),
+        }
+        for name, (axis, target) in axes.items():
+            low, high = axis.left_limit, axis.right_limit
+            if not (low <= target <= high):
+                QtWidgets.QMessageBox.warning(
+                    self, "Out-of-Range Move",
+                    f"{name}-axis target {target} is outside [{low}, {high}] ticks."
+                )
+            return
+            
+        if self.esp.y.position > 4600:
+            logger.warning("Blocked move: Y is too low")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Unsafe Move",
+                "Cannot move Z while Y is at bottom."
+            )
+            return
+
+
+        try:
+            for axis, target in axes.values():
+                axis.position = target
+
+            for axis in (self.esp.x, self.esp.y, self.esp.phi):
+                axis.wait_for_stop()
+
+            logger.info("All axes moved to X=%s, Y=%s, Z=%s",
+                        axes['X'][1], axes['Y'][1], axes['Z'][1])
+
+        except Exception as e:
+            logger.exception(f"Shift All failed: {e}")
+
+    def stop_all(self):
+        logger.warning("STOPPING!")
+        for axis in (self.esp.x, self.esp.y, self.esp.phi):
+            try:
+                axis.stop()       
+            except Exception:
+                self.esp.write("AB")
+                logger.info("Could not stop, aborted.")
+
+    def set_lims(self):
+        x_neg = self.doubleSpinBox_xlim_neg.value()
+        x_pos = self.doubleSpinBox_xlim_pos.value()
+        y_neg = self.doubleSpinBox_ylim_neg.value()
+        y_pos = self.doubleSpinBox_ylim_pos.value()
+        z_neg = self.doubleSpinBox_zlim_neg.value()
+        z_pos = self.doubleSpinBox_zlim_pos.value()
+
+        try:
+            self.esp.x.left_limit = x_neg
+            self.esp.x.right_limit = x_pos
+            self.esp.y.left_limit = y_neg
+            self.esp.y.right_limit = y_pos
+            self.esp.phi.left_limit = z_neg
+            self.esp.phi.right_limit = z_pos
+            logger.info("Limits successfully set on hardware")
+
+        
+        except Exception as e:
+            logger.exception(f"Err: {e}")
+    
+    def populate_lims(self):
+        x_neg = self.esp.x.left_limit
+        x_pos = self.esp.x.right_limit
+        y_neg = self.esp.y.left_limit
+        y_pos = self.esp.y.right_limit
+        z_neg = self.esp.phi.left_limit
+        z_pos = self.esp.phi.right_limit
+
+        try:
+            self.doubleSpinBox_xlim_neg.setValue(f"{x_neg}")
+            self.doubleSpinBox_xlim_pos.setValue(f"{x_pos}")
+            self.doubleSpinBox_ylim_neg.setValue(f"{y_neg}")
+            self.doubleSpinBox_ylim_pos.setValue(f"{y_pos}")
+            self.doubleSpinBox_zlim_neg.setValue(f"{z_neg}")
+            self.doubleSpinBox_zlim_pos.setValue(f"{z_pos}")
+            self.logger.info("GUI limits populated from hardware")
+        
+        except Exception as e:
+            logger.exception(f"Err: {e}")
+
+    def motor_off(self):
+        try:
+            self.esp.write("1MF")
+            self.esp.write("2MF")
+            self.esp.write("3MF")
+            self.logger.info("Motors off")
+        except Exception as e:
+            logger.exception(f"Err: {e}")
+    
+    def motor_on(self):
+        try:
+            self.esp.write("1MO")
+            self.esp.write("2MO")
+            self.esp.write("3MO")
+            self.logger.info("Motors on")
+
+        except Exception as e:
+            logger.exception(f"Err: {e}")
+
+    def motor_stop(self):
+        try:
+            self.esp.write("1ST")
+            self.esp.write("2ST")
+            self.esp.write("3St")
+            self.logger.info("Motors stopped")
+
+        except Exception as e:
+            logger.exception(f"Err: {e}")
+
+    def gpib(self):
+        addr = int(self.spinBox_GPIB.value())
+        try:
+            self.esp.write(f"SA{addr}")
+            self.logger.info(f"GPIB set to {addr}")
+        except Exception as e:
+            logger.exception(f"Err: {e}")
+
+    def set_axes(self):
+        try:
+            x_val = self.comboBox_x_axis.currentText()
+            y_val = self.comboBox_y_axis.currentText()
+            self.esp.x = Axis(x_val, self)
+            self.esp.y = Axis(y_val, self)
+            if x_val == 1  and y_val ==2 or x_val == 2  and y_val ==1:
+                self.esp.phi = Axis(3, self)
+            elif x_val == 2  and y_val ==3 or x_val == 3  and y_val ==2:
+                self.esp.phi = Axis(1, self)
+            elif x_val == 1  and y_val ==3 or x_val == 3  and y_val ==1:
+                self.esp.phi = Axis(2, self)     
+
+        except Exception as e:
+            logger.exception(f"Err: {e}")
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication([])
+    window = MainWindow(esp)
+    window.show()
+    app.exec_()
+
