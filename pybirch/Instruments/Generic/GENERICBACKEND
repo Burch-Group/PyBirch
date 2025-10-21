@@ -1,0 +1,175 @@
+import sys
+import inspect
+from PyQt5 import QtWidgets, QtCore
+from pymeasure.instruments import Instrument
+
+
+class DummyFromInstrument:
+    def __init__(self, instrument_cls, name=None):
+        self.name = name or instrument_cls.__name__
+        self.parameters = {}
+        self.methods = {}
+
+        # 1. Try to find Instrument.control descriptors
+        for attr, obj in inspect.getmembers(instrument_cls):
+            if hasattr(obj, "get_command") and hasattr(obj, "set_command"):
+                self.parameters[attr] = 0.0  # default float
+
+        # 2. Fall back to public attributes/methods if no controls
+        if not self.parameters:
+            print(f"[DummyFromInstrument] No Instrument.controls found, "
+                  f"falling back to public attributes for {instrument_cls.__name__}")
+            for attr, obj in inspect.getmembers(instrument_cls):
+                if not attr.startswith("_"):  # skip private
+                    if callable(obj):
+                        self.parameters[attr] = "<method>"
+                        self.methods[attr] = obj
+                    elif isinstance(obj, (int, float)):
+                        self.parameters[attr] = obj
+                    elif isinstance(obj, bool):
+                        self.parameters[attr] = obj
+                    else:
+                        self.parameters[attr] = str(obj)
+
+        print(f"[DummyFromInstrument] Discovered parameters for {self.name}: {list(self.parameters.keys())}")
+
+    def list_parameters(self):
+        return list(self.parameters.keys())
+
+    def get_parameter(self, name):
+        return self.parameters.get(name)
+
+    def set_parameter(self, name, value):
+        if name in self.parameters:
+            self.parameters[name] = value
+
+    def call_method(self, name):
+        if name in self.methods:
+            try:
+                return self.methods[name](self)  # simulate call
+            except Exception as e:
+                return f"Error calling {name}: {e}"
+        return f"{name} is not callable"
+
+    def query_command(self, cmd):
+        return f"{cmd}? -> dummy response ({self.name})"
+
+    def write_command(self, cmd):
+        print(f"Dummy {self.name}: {cmd}")
+
+
+class GenericInstrumentGUI(QtWidgets.QWidget):
+    """
+    Plug-and-play GUI for any instrument.
+    Populates table with widgets based on parameter type.
+    """
+    def __init__(self, instrument):
+        super().__init__()
+        self.instrument = instrument
+        self.setWindowTitle(f"{self.instrument.name} GUI")
+        self.setGeometry(200, 200, 650, 400)
+        self.create_ui()
+
+        # Auto-update timer
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.update_table)
+        self.timer.start(1000)
+
+    def create_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+
+        # Table
+        self.table = QtWidgets.QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Parameter", "Value / Action"])
+        layout.addWidget(self.table)
+
+        # Command input
+        cmd_layout = QtWidgets.QHBoxLayout()
+        self.cmd_input = QtWidgets.QLineEdit()
+        self.send_btn = QtWidgets.QPushButton("Send Command")
+        self.send_btn.clicked.connect(self.send_command)
+        cmd_layout.addWidget(self.cmd_input)
+        cmd_layout.addWidget(self.send_btn)
+        layout.addLayout(cmd_layout)
+
+        self.update_table()
+
+    def update_table(self):
+        params = self.instrument.list_parameters()
+        self.table.setRowCount(len(params))
+
+        for row, name in enumerate(params):
+            val = self.instrument.get_parameter(name)
+            self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(name))
+
+            # Remove any old widget
+            self.table.removeCellWidget(row, 1)
+
+            # --- Methods: QPushButton ---
+            if val == "<method>":
+                btn = QtWidgets.QPushButton(f"Call {name}")
+                btn.clicked.connect(lambda _, m=name: self.call_method(m))
+                self.table.setCellWidget(row, 1, btn)
+
+            # --- Float: QDoubleSpinBox ---
+            elif isinstance(val, float):
+                spin = QtWidgets.QDoubleSpinBox()
+                spin.setRange(-1e6, 1e6)
+                spin.setDecimals(4)
+                spin.setValue(val)
+                spin.valueChanged.connect(lambda v, n=name: self.instrument.set_parameter(n, v))
+                self.table.setCellWidget(row, 1, spin)
+
+            # --- Int: QSpinBox ---
+            elif isinstance(val, int):
+                spin = QtWidgets.QSpinBox()
+                spin.setRange(-1_000_000, 1_000_000)
+                spin.setValue(val)
+                spin.valueChanged.connect(lambda v, n=name: self.instrument.set_parameter(n, v))
+                self.table.setCellWidget(row, 1, spin)
+
+            # --- Bool: QCheckBox ---
+            elif isinstance(val, bool):
+                chk = QtWidgets.QCheckBox()
+                chk.setChecked(val)
+                chk.stateChanged.connect(lambda state, n=name: self.instrument.set_parameter(n, bool(state)))
+                self.table.setCellWidget(row, 1, chk)
+
+            # --- String: QLineEdit (editable) ---
+            else:
+                line = QtWidgets.QLineEdit()
+                line.setText(str(val))
+                line.editingFinished.connect(lambda n=name, le=line: self.instrument.set_parameter(n, le.text()))
+                self.table.setCellWidget(row, 1, line)
+
+    def call_method(self, name):
+        result = self.instrument.call_method(name)
+        QtWidgets.QMessageBox.information(self, f"Method {name}", str(result))
+
+    def send_command(self):
+        cmd = self.cmd_input.text().strip()
+        if not cmd:
+            return
+        try:
+            response = self.instrument.query_command(cmd)
+            QtWidgets.QMessageBox.information(self, "Command Response", str(response))
+        except Exception:
+            self.instrument.write_command(cmd)
+        self.cmd_input.clear()
+
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
+
+    # ---- Option A: Dummy instrument for testing ----
+    from pymeasure.instruments.fluke import fluke7341
+    dummy_inst = DummyFromInstrument(fluke7341)
+    gui = GenericInstrumentGUI(instrument=dummy_inst)
+
+    # ---- Option B: Real instrument (uncomment if available) ----
+    # real_inst = Keithley2000("GPIB::24::INSTR")
+    # gui = GenericInstrumentGUI(instrument=real_inst)
+
+    gui.show()
+    sys.exit(app.exec_())
