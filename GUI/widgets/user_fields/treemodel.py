@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Optional
 from PySide6.QtCore import QModelIndex, Qt, QAbstractItemModel, QPersistentModelIndex, QMimeData
 from typing import Sequence
-from treeitem import UserFieldTreeItem
+from .treeitem import UserFieldTreeItem
 
 
 class UserFieldTreeModel(QAbstractItemModel):

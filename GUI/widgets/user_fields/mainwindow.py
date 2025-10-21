@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QMainWindow, QTreeView,
                                QFileDialog)
 from PySide6.QtTest import QAbstractItemModelTester
 
-from treemodel import UserFieldTreeModel, UserFieldTreeItem
+from .treemodel import UserFieldTreeModel, UserFieldTreeItem
 
 
 class UserFieldMainWindow(QMainWindow):
