@@ -28,8 +28,8 @@ Items:
 - [ ] Instrument Page Serialization
 - [ ] Scan Serialization
 - [ ] Queue Serialization
-- [ ] Scan Info Page
-- [ ] Queue Info Page
+- [x] Scan Info Page
+- [x] Queue Info Page
 - [ ] Scan Presets
 - [ ] Queue Presets
 - [ ] Queue Logic
