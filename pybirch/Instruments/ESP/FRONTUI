@@ -1,0 +1,722 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>frontpanelESP300</class>
+ <widget class="QWidget" name="frontpanelESP300">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>613</width>
+    <height>734</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <widget class="QLabel" name="label">
+   <property name="geometry">
+    <rect>
+     <x>9</x>
+     <y>9</y>
+     <width>410</width>
+     <height>50</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>Showcard Gothic</family>
+     <pointsize>30</pointsize>
+     <kerning>true</kerning>
+    </font>
+   </property>
+   <property name="layoutDirection">
+    <enum>Qt::LeftToRight</enum>
+   </property>
+   <property name="text">
+    <string>ESP 300 Front Panel</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QGroupBox" name="groupBox_current_pos">
+   <property name="geometry">
+    <rect>
+     <x>9</x>
+     <y>65</y>
+     <width>132</width>
+     <height>210</height>
+    </rect>
+   </property>
+   <property name="title">
+    <string>Current Pos:</string>
+   </property>
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <item>
+     <widget class="QLabel" name="label_current_x">
+      <property name="text">
+       <string>Current X Position</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLineEdit" name="lineEdit_current_x">
+      <property name="readOnly">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="label_current_y">
+      <property name="text">
+       <string>Current Y Position</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLineEdit" name="lineEdit_current_y">
+      <property name="readOnly">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="label_current_z">
+      <property name="text">
+       <string>Current Z Position</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLineEdit" name="lineEdit_current_z">
+      <property name="readOnly">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="label_moving">
+      <property name="text">
+       <string>Moving...</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QProgressBar" name="progressBar_moving">
+      <property name="value">
+       <number>24</number>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QGroupBox" name="groupBox_move">
+   <property name="geometry">
+    <rect>
+     <x>147</x>
+     <y>65</y>
+     <width>178</width>
+     <height>210</height>
+    </rect>
+   </property>
+   <property name="title">
+    <string>Move Abs:</string>
+   </property>
+   <layout class="QGridLayout" name="gridLayout">
+    <item row="4" column="0">
+     <widget class="QDoubleSpinBox" name="doubleSpinBox_move_y">
+      <property name="minimum">
+       <double>-250000.000000000000000</double>
+      </property>
+      <property name="maximum">
+       <double>4700.000000000000000</double>
+      </property>
+     </widget>
+    </item>
+    <item row="6" column="0">
+     <widget class="QDoubleSpinBox" name="doubleSpinBox_move_z">
+      <property name="minimum">
+       <double>-200000.000000000000000</double>
+      </property>
+      <property name="maximum">
+       <double>200000.000000000000000</double>
+      </property>
+     </widget>
+    </item>
+    <item row="7" column="0" colspan="2">
+     <widget class="QPushButton" name="pushButton_moveAll">
+      <property name="text">
+       <string>Move All</string>
+      </property>
+     </widget>
+    </item>
+    <item row="6" column="1">
+     <widget class="QPushButton" name="pushButton_move_z">
+      <property name="text">
+       <string>Move</string>
+      </property>
+     </widget>
+    </item>
+    <item row="8" column="0" colspan="2">
+     <widget class="QPushButton" name="pushButton_populateCurrent">
+      <property name="text">
+       <string>Populate Current</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="1" rowspan="2">
+     <widget class="QPushButton" name="pushButton_move_y">
+      <property name="text">
+       <string>Move</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="0" rowspan="2" colspan="2">
+     <widget class="QLabel" name="label_current_y_2">
+      <property name="text">
+       <string>Y Move Abs.</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="1">
+     <widget class="QPushButton" name="pushButton_move_x">
+      <property name="text">
+       <string>Move</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0">
+     <widget class="QDoubleSpinBox" name="doubleSpinBox_move_x">
+      <property name="minimum">
+       <double>-100000.000000000000000</double>
+      </property>
+      <property name="maximum">
+       <double>100000.000000000000000</double>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="0" colspan="2">
+     <widget class="QLabel" name="label_current_z_2">
+      <property name="text">
+       <string>Z Move Abs.</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="0" colspan="2">
+     <widget class="QLabel" name="label_current_x_2">
+      <property name="text">
+       <string>X Move Abs.</string>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QGroupBox" name="groupBox_shift">
+   <property name="geometry">
+    <rect>
+     <x>331</x>
+     <y>65</y>
+     <width>150</width>
+     <height>200</height>
+    </rect>
+   </property>
+   <property name="title">
+    <string>Shift</string>
+   </property>
+   <layout class="QGridLayout" name="gridLayout_2">
+    <item row="0" column="0" colspan="2">
+     <widget class="QLabel" name="label_shift_x">
+      <property name="text">
+       <string>X Shift</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0">
+     <widget class="QDoubleSpinBox" name="doubleSpinBox_shift_x"/>
+    </item>
+    <item row="2" column="0" rowspan="2" colspan="2">
+     <widget class="QLabel" name="label_current_y_3">
+      <property name="text">
+       <string>Y Shift</string>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="0" colspan="2">
+     <widget class="QLabel" name="label_current_z_3">
+      <property name="text">
+       <string>Z Shift</string>
+      </property>
+     </widget>
+    </item>
+    <item row="7" column="1">
+     <widget class="QPushButton" name="pushButton_shift_z">
+      <property name="text">
+       <string>Shift</string>
+      </property>
+     </widget>
+    </item>
+    <item row="4" column="0">
+     <widget class="QDoubleSpinBox" name="doubleSpinBox_shift_y"/>
+    </item>
+    <item row="1" column="1">
+     <widget class="QPushButton" name="pushButton_shift_x">
+      <property name="text">
+       <string>Shift</string>
+      </property>
+     </widget>
+    </item>
+    <item row="7" column="0">
+     <widget class="QDoubleSpinBox" name="doubleSpinBox_shift_z"/>
+    </item>
+    <item row="8" column="0" colspan="2">
+     <widget class="QPushButton" name="pushButton_shiftAll">
+      <property name="text">
+       <string>Shift All</string>
+      </property>
+     </widget>
+    </item>
+    <item row="4" column="1">
+     <widget class="QPushButton" name="pushButton_shift_y">
+      <property name="text">
+       <string>Shift</string>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QPushButton" name="pushButton_safety">
+   <property name="geometry">
+    <rect>
+     <x>30</x>
+     <y>280</y>
+     <width>101</width>
+     <height>61</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>SAFETY ABORT</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="pushButton_done">
+   <property name="geometry">
+    <rect>
+     <x>190</x>
+     <y>280</y>
+     <width>111</width>
+     <height>61</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>DONE</string>
+   </property>
+  </widget>
+  <widget class="QGroupBox" name="groupBox">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>360</y>
+     <width>342</width>
+     <height>108</height>
+    </rect>
+   </property>
+   <property name="title">
+    <string/>
+   </property>
+   <layout class="QGridLayout" name="gridLayout_6">
+    <item row="3" column="2" rowspan="2">
+     <widget class="QComboBox" name="comboBox_x_axis">
+      <item>
+       <property name="text">
+        <string>1</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>2</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>3</string>
+       </property>
+      </item>
+     </widget>
+    </item>
+    <item row="1" column="0" colspan="2">
+     <widget class="QLabel" name="label_2">
+      <property name="text">
+       <string>ESP 300 Address</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="5">
+     <widget class="QLabel" name="label_11">
+      <property name="text">
+       <string>Motor:</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="2">
+     <widget class="QLabel" name="label_3">
+      <property name="text">
+       <string>X Axis</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="5">
+     <widget class="QRadioButton" name="radioButton_MF">
+      <property name="text">
+       <string>Off</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="3">
+     <widget class="QLabel" name="label_4">
+      <property name="text">
+       <string>Y Axis</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="0" rowspan="2">
+     <widget class="QSpinBox" name="spinBox_GPIB">
+      <property name="maximum">
+       <number>30</number>
+      </property>
+      <property name="value">
+       <number>7</number>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="5">
+     <widget class="QRadioButton" name="radioButton_MO">
+      <property name="text">
+       <string>On</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="3" rowspan="2">
+     <widget class="QComboBox" name="comboBox_y_axis">
+      <property name="currentText">
+       <string>1</string>
+      </property>
+      <item>
+       <property name="text">
+        <string>1</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>2</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>3</string>
+       </property>
+      </item>
+     </widget>
+    </item>
+    <item row="4" column="5">
+     <widget class="QRadioButton" name="radioButton_MS">
+      <property name="text">
+       <string>Stop</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="1" rowspan="2">
+     <widget class="QPushButton" name="pushButton_GPIB">
+      <property name="text">
+       <string>apply</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="4" rowspan="3">
+     <widget class="QPushButton" name="pushButton_XY">
+      <property name="text">
+       <string>apply</string>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QGroupBox" name="groupBox_software_lims">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>500</y>
+     <width>322</width>
+     <height>211</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="title">
+    <string>Software Stage Limits</string>
+   </property>
+   <layout class="QGridLayout" name="gridLayout_3">
+    <item row="0" column="0">
+     <widget class="QGroupBox" name="groupBox_move_2">
+      <property name="title">
+       <string/>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <item>
+        <widget class="QLabel" name="label_xlim_neg">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+          </font>
+         </property>
+         <property name="text">
+          <string>X Negative Limit</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDoubleSpinBox" name="doubleSpinBox_xlim_neg">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+          </font>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_current_y_4">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+          </font>
+         </property>
+         <property name="text">
+          <string>Y Negative Limit</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDoubleSpinBox" name="doubleSpinBox_ylim_neg">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+          </font>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_current_z_4">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+           <weight>50</weight>
+           <bold>false</bold>
+          </font>
+         </property>
+         <property name="text">
+          <string>Z Negative Limit</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDoubleSpinBox" name="doubleSpinBox_zlim_neg">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+          </font>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item row="0" column="1">
+     <widget class="QGroupBox" name="groupBox_move_3">
+      <property name="title">
+       <string/>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_3">
+       <item>
+        <widget class="QLabel" name="label_xlim_neg_2">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+          </font>
+         </property>
+         <property name="text">
+          <string>X Positive Limit</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDoubleSpinBox" name="doubleSpinBox_xlim_pos">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+          </font>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_current_y_5">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+          </font>
+         </property>
+         <property name="text">
+          <string>Y Positive Limit</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDoubleSpinBox" name="doubleSpinBox_ylim_pos">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+          </font>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_current_z_5">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+           <weight>50</weight>
+           <bold>false</bold>
+          </font>
+         </property>
+         <property name="text">
+          <string>Z Positive Limit</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDoubleSpinBox" name="doubleSpinBox_zlim_pos">
+         <property name="font">
+          <font>
+           <pointsize>8</pointsize>
+          </font>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item row="0" column="2">
+     <widget class="QPushButton" name="pushButton_setlims">
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>Set Limits</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="2">
+     <widget class="QPushButton" name="pushButton_populateCurrentLims">
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>Populate Current</string>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QGroupBox" name="groupBox_7">
+   <property name="geometry">
+    <rect>
+     <x>360</x>
+     <y>280</y>
+     <width>255</width>
+     <height>221</height>
+    </rect>
+   </property>
+   <property name="title">
+    <string>Error Out</string>
+   </property>
+   <layout class="QGridLayout" name="gridLayout_5">
+    <item row="0" column="0">
+     <widget class="QLabel" name="label_8">
+      <property name="text">
+       <string>Status</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="1">
+     <widget class="QLabel" name="label_9">
+      <property name="text">
+       <string>Code</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0">
+     <widget class="QPushButton" name="pushButton_errOutStatus">
+      <property name="enabled">
+       <bool>false</bool>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="1">
+     <widget class="QSpinBox" name="spinBox_errOutCode"/>
+    </item>
+    <item row="1" column="2">
+     <widget class="QComboBox" name="comboBox_errOutUnits">
+      <item>
+       <property name="text">
+        <string>Decimal</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>Hex</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>Octal</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>Binary</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>SI Notation</string>
+       </property>
+      </item>
+     </widget>
+    </item>
+    <item row="2" column="0">
+     <widget class="QLabel" name="label_10">
+      <property name="text">
+       <string>source</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="0" colspan="3">
+     <widget class="QTextEdit" name="textEdit_errOutSource">
+      <property name="readOnly">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
