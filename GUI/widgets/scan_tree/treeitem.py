@@ -11,20 +11,23 @@ import pandas as pd
 
 ## NEEDS TO BE TESTED ##
 class InstrumentTreeItem:
-    def __init__(self, parent: 'InstrumentTreeItem' = None, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement = Measurement('default'), indices: list[int] = [], final_indices: list[int] = [], semaphore: str = ""):  #type: ignore
+    def __init__(self, parent: 'InstrumentTreeItem' = None, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement | None = None, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = ""):  #type: ignore
         self.instrument_object = instrument_object
         self.item_indices = indices
         self.final_indices = final_indices
         self.parent_item = parent
         self.semaphore: str = semaphore
+        self.movement_positions: list = []
+        self.movement_entries: dict = {}
+        self.checked: bool = False  # Add checkbox state
         if self.instrument_object is None:
             self.name = ""
             self.type = ""
             self.adapter = ""
         else:
-            self.name = instrument_object.nickname
-            self.type = instrument_object.__class__.__bases__[0].__name__
-            self.adapter = instrument_object.adapter
+            self.name = self.instrument_object.nickname
+            self.type = self.instrument_object.__class__.__bases__[0].__name__
+            self.adapter = self.instrument_object.adapter
 
         self.child_items: list[InstrumentTreeItem] = []
         self.instrument_object = instrument_object
@@ -40,7 +43,17 @@ class InstrumentTreeItem:
             if not self.item_indices:
                 self.item_indices = [0]
             if not self.final_indices:
-                self.final_indices = [len(instrument_object.positions) - 1]  #type: ignore
+                # Check if the movement object has positions attribute, otherwise default to 1
+                try:
+                    positions = getattr(instrument_object, 'positions', None)
+                    if positions and len(positions) > 0:
+                        self.final_indices = [len(positions) - 1]
+                    else:
+                        # Default if no positions attribute or empty positions
+                        self.final_indices = [1]
+                except Exception:
+                    # Default if any error accessing positions
+                    self.final_indices = [1]
         else:
             # For Measurement objects, indices are always [0] to [1]
             self.item_indices = [0]
@@ -86,23 +99,69 @@ class InstrumentTreeItem:
 
         return True
 
-    def set_data(self, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement = Measurement('Default Instrument'), indices: list[int] = [], final_indices: list[int] = [], semaphore: str = "") -> bool:
+    def set_data(self, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement | None = None, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = "", checked: bool = False) -> bool:
         self.instrument_object = instrument_object
         self.item_indices = indices
         self.final_indices = final_indices
         self.semaphore = semaphore
+        self.checked = checked
 
         if self.instrument_object is None:
             self.name = ""
             self.type = ""
             self.adapter = ""
         else:
-            self.name = instrument_object.nickname
-            self.type = instrument_object.__class__.__bases__[0].__name__
-            self.adapter = instrument_object.adapter
+            self.name = self.instrument_object.nickname
+            self.type = self.instrument_object.__class__.__bases__[0].__name__
+            self.adapter = self.instrument_object.adapter
 
         self.columns = [self.name, self.type, self.adapter, self.semaphore]
         return True
+
+    def set_checked(self, checked: bool, update_children: bool = True, update_parent: bool = True) -> None:
+        """Set the checked state and optionally propagate to children/parent"""
+        self.checked = checked
+        
+        if update_children:
+            # Update all children to the same state
+            for child in self.child_items:
+                child.set_checked(checked, update_children=True, update_parent=False)
+        
+        if update_parent and self.parent_item:
+            self.parent_item._update_check_state_from_children()
+    
+    def _update_check_state_from_children(self) -> None:
+        """Update this item's check state based on children states"""
+        if not self.child_items:
+            return
+            
+        checked_count = sum(1 for child in self.child_items if child.checked)
+        
+        if checked_count == len(self.child_items):
+            self.checked = True
+        elif checked_count == 0:
+            print(self.checked)
+            # self.checked = False
+        else:
+            # For partial states, we'll use False but the model will handle partial display
+            self.checked = False
+    
+    def get_check_state(self):
+        """Get the Qt check state (for use with Qt.CheckStateRole)"""
+        from PySide6.QtCore import Qt
+        
+        if not self.child_items:
+            return Qt.CheckState.Checked if self.checked else Qt.CheckState.Unchecked
+        
+        # For parent items, check if we have a partial state
+        checked_count = sum(1 for child in self.child_items if child.checked)
+        
+        if checked_count == len(self.child_items):
+            return Qt.CheckState.Checked
+        elif checked_count == 0:
+            return Qt.CheckState.Unchecked
+        else:
+            return Qt.CheckState.PartiallyChecked
 
     def finished(self) -> bool:
         if self.item_indices and self.final_indices:

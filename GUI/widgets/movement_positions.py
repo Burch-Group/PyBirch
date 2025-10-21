@@ -24,6 +24,10 @@ class RangeWidget(QtWidgets.QWidget):
         self.start_spin_box = QtWidgets.QDoubleSpinBox()
         self.stop_spin_box = QtWidgets.QDoubleSpinBox()
         self.n_step_spin_box = QtWidgets.QDoubleSpinBox()
+        # Configure n_step_spin_box for integer values
+        self.n_step_spin_box.setDecimals(0)  # No decimal places
+        self.n_step_spin_box.setMinimum(0)   # Allow 0 for validation
+        self.n_step_spin_box.setMaximum(10000)  # Reasonable maximum
         self.caution_icon = QtWidgets.QLabel("⚠️")
         self.caution_icon.setVisible(False)
 
@@ -40,6 +44,9 @@ class RangeWidget(QtWidgets.QWidget):
         self.stop_spin_box.valueChanged.connect(self.update_stop)
         self.n_step_spin_box.valueChanged.connect(self.update_step)
         self.radio_button.toggled.connect(self.set_enabled)
+        
+        # Initial validation check
+        self.check_if_valid()
 
 
 
@@ -51,8 +58,8 @@ class RangeWidget(QtWidgets.QWidget):
         self.stop = value
         self.check_if_valid()
 
-    def update_step(self, value: int):
-        self.n_step = value
+    def update_step(self, value):
+        self.n_step = int(value)  # Ensure integer conversion
         self.check_if_valid()
 
     def check_if_valid(self):
@@ -65,7 +72,16 @@ class RangeWidget(QtWidgets.QWidget):
         self.caution_icon.setVisible(not self.valid_entry)
 
     def set_entry(self, entry: tuple[float, float, int]):
-        self.start, self.stop, self.n_step = entry
+        if entry and len(entry) == 3:
+            self.start, self.stop, self.n_step = entry
+            # Update the spin boxes to reflect the loaded values
+            self.start_spin_box.setValue(float(self.start))
+            self.stop_spin_box.setValue(float(self.stop)) 
+            self.n_step_spin_box.setValue(float(self.n_step))  # QDoubleSpinBox expects float
+            self.check_if_valid()
+            # Update caution icon visibility based on current enabled state
+            if hasattr(self, 'enabled'):
+                self.caution_icon.setVisible(self.enabled and not self.valid_entry)
 
     def get_entry(self) -> tuple[float, float, int]:
         return (self.start, self.stop, self.n_step)
@@ -237,16 +253,52 @@ class MovementPositionsSubwidget(QtWidgets.QWidget):
         return []
     
     def get_entries(self) -> dict:
+        # Determine which radio button is currently selected
+        selected_mode = None
+        if self.advanced_widget.radio_button.isChecked():
+            selected_mode = "advanced"
+        elif self.discrete_widget.radio_button.isChecked():
+            selected_mode = "discrete"
+        elif self.range_widget.radio_button.isChecked():
+            selected_mode = "range"
+        
         return {
             "advanced": self.advanced_widget.get_entry(),
             "discrete": self.discrete_widget.get_entry(),
-            "range": self.range_widget.get_entry()
+            "range": self.range_widget.get_entry(),
+            "selected_mode": selected_mode  # Save which radio button is selected
         }
     
     def set_entries(self, entries: dict):
+        # First, set all the entries without triggering radio button changes
         self.advanced_widget.set_entry(entries.get("advanced", ""))
         self.discrete_widget.set_entry(entries.get("discrete", ""))
         self.range_widget.set_entry(entries.get("range", ""))
+        
+        # Then restore which radio button was selected
+        selected_mode = entries.get("selected_mode", None)
+        
+        # Temporarily disconnect the button group to avoid conflicts
+        self.button_group.setExclusive(False)
+        
+        # Clear all radio buttons first
+        self.advanced_widget.radio_button.setChecked(False)
+        self.discrete_widget.radio_button.setChecked(False)
+        self.range_widget.radio_button.setChecked(False)
+        
+        # Set the correct radio button based on saved mode
+        if selected_mode == "advanced":
+            self.advanced_widget.radio_button.setChecked(True)
+        elif selected_mode == "discrete":
+            self.discrete_widget.radio_button.setChecked(True)
+        elif selected_mode == "range":
+            self.range_widget.radio_button.setChecked(True)
+        else:
+            # Default to range if no mode specified
+            self.range_widget.radio_button.setChecked(True)
+            
+        # Re-enable exclusive mode for the button group
+        self.button_group.setExclusive(True)
 
     def check_if_enabled(self):
         return self.advanced_widget.enabled or self.discrete_widget.enabled or self.range_widget.enabled

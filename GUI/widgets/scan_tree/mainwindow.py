@@ -6,10 +6,11 @@ import sys, os
 from pathlib import Path
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
 from PySide6.QtCore import (QAbstractItemModel, QItemSelectionModel,
                             QModelIndex, Qt, Slot)
-from PySide6.QtWidgets import (QAbstractItemView, QMainWindow, QTreeView,
+from PySide6.QtWidgets import (QAbstractItemView, QMainWindow, QTreeWidget, QTreeWidgetItem,
                                QWidget)
 from PySide6.QtTest import QAbstractItemModelTester
 
@@ -30,12 +31,15 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.resize(573, 468)
 
-        self.view = QTreeView()
+        self.view = QTreeWidget()
         self.view.setAlternatingRowColors(True)
         self.view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self.view.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.view.setAnimated(False)
         self.view.setAllColumnsShowFocus(True)
+        
+        # Connect itemChanged signal for checkbox handling (like instrument_autoload)
+        self.view.itemChanged.connect(self.handle_item_changed)
         self.setCentralWidget(self.view)
 
         menubar = self.menuBar()
@@ -69,6 +73,16 @@ class MainWindow(QMainWindow):
         self.select_instrument_action = actions_menu.addAction("Select Instrument")
         self.select_instrument_action.setShortcut("Ctrl+S")
         self.select_instrument_action.triggered.connect(self.select_instrument)
+        actions_menu.addSeparator()
+        self.select_all_action = actions_menu.addAction("Select All")
+        self.select_all_action.setShortcut("Ctrl+A")
+        self.select_all_action.triggered.connect(self.select_all_instruments)
+        self.deselect_all_action = actions_menu.addAction("Deselect All")
+        self.deselect_all_action.setShortcut("Ctrl+D")
+        self.deselect_all_action.triggered.connect(self.deselect_all_instruments)
+        actions_menu.addSeparator()
+        self.show_selected_action = actions_menu.addAction("Show Selected")
+        self.show_selected_action.triggered.connect(self.show_selected_instruments)
         help_menu = menubar.addMenu("&Help")
         help_menu.addSeparator()
         about_qt_action = help_menu.addAction("About Qt", qApp.aboutQt)  # noqa: F821  #type: ignore
@@ -84,168 +98,325 @@ class MainWindow(QMainWindow):
         self.view.addAction(self.copy_row_action)
         self.view.addAction(self.paste_row_action)
         self.view.addAction(self.select_instrument_action)
+        # Add separator and checkbox actions
+        from PySide6.QtGui import QAction
+        separator = QAction(self)
+        separator.setSeparator(True)
+        self.view.addAction(separator)
+        self.view.addAction(self.select_all_action)
+        self.view.addAction(self.deselect_all_action)
+        self.view.addAction(self.show_selected_action)
         self.statusBar().showMessage("Ready")
         
 
         headers = ["Instrument Name", "Type", "Adapter", "Semaphores"]
+        self.view.setHeaderLabels(headers)
 
-        file = Path(__file__).parent / "default.txt"
-        self.model = ScanTreeModel(headers, parent=self)
-
-        if "-t" in sys.argv:
-            QAbstractItemModelTester(self.model, self)
-        self.view.setModel(self.model)
-        self.view.expandAll()
+        # Initialize with empty tree
+        self.view.clear()
 
         for column in range(len(headers)):
             self.view.resizeColumnToContents(column)
 
         selection_model = self.view.selectionModel()
-        selection_model.selectionChanged.connect(self.update_actions)
+        if selection_model:
+            selection_model.selectionChanged.connect(self.update_actions)
 
-        self.copied_item: InstrumentTreeItem | None = None
+        self.copied_item: QTreeWidgetItem | None = None
 
+        self.update_actions()
+        
+    def sync_checkbox_to_tree_item(self, item: QTreeWidgetItem) -> None:
+        """Sync QTreeWidgetItem checkbox state to InstrumentTreeItem"""
+        try:
+            instrument_tree_item = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            if instrument_tree_item and hasattr(instrument_tree_item, 'set_checked'):
+                is_checked = item.checkState(0) == Qt.CheckState.Checked
+                instrument_tree_item.set_checked(is_checked, update_children=False, update_parent=False)
+        except Exception as e:
+            pass  # Silent fail
+
+    def handle_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
+        """Handle changes in item check states (copied from instrument_autoload)"""
+        if column != 0:  # Only handle changes in the first column (checkbox column)
+            return
+        
+        # Sync the checkbox state to InstrumentTreeItem
+        self.sync_checkbox_to_tree_item(item)
+        
+        # Check if this is a user-initiated change on a parent item
+        is_parent_item = item.childCount() > 0
+        item_state = item.checkState(0)
+            
+        if is_parent_item:
+            # If the item is a parent, update all child items (unless partially checked)
+            if item_state != Qt.CheckState.PartiallyChecked:
+                for i in range(item.childCount()):
+                    child = item.child(i)
+                    if child:
+                        child.setCheckState(0, item_state)
+                        self.sync_checkbox_to_tree_item(child)  # Sync child too
+        else:
+            # If the item is a child, update the parent folder's state
+            parent = item.parent()
+            if parent is not None:
+                checked_count = sum(1 for i in range(parent.childCount()) 
+                                  if parent.child(i) and parent.child(i).checkState(0) == Qt.CheckState.Checked)
+                if checked_count == parent.childCount():
+                    parent.setCheckState(0, Qt.CheckState.Checked)
+                elif checked_count == 0:
+                    # Don't automatically uncheck parent when all children are deselected
+                    # Keep the parent's current state unchanged
+                    pass  # No automatic state change when all children are deselected
+                else:
+                    parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
+
+        
         self.update_actions()
 
     @Slot()
-    def insert_child(self) -> None:
-        selection_model = self.view.selectionModel()
-        index: QModelIndex = selection_model.currentIndex()
-        model = self.view.model()  # This is our ScanTreeModel
-        assert isinstance(model, ScanTreeModel)  # Runtime check for type safety
+    def handle_item_clicked(self, index: QModelIndex) -> None:
+        """Legacy method - no longer needed with QTreeWidget"""
+        pass
 
-        # Select the new instrument using the Available Instrument Widget. Insert as the first child of the current item, in both the ScanTreeModel and the view.
+    @Slot()
+    def handle_checkbox_toggle(self, index: QModelIndex) -> None:
+        """Legacy method - no longer needed with QTreeWidget"""
+        pass
+
+    @Slot()
+    def insert_child(self) -> None:
+        current_item = self.view.currentItem()
+        if not current_item:
+            current_item = self.view.invisibleRootItem()
+
+        # Select the new instrument using the Available Instrument Widget
         instrument_list = self.get_available_instruments()
 
         dialog = AvailableInstrumentWidget(instrument_list)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             selected_instrument = dialog.selected_instrument
-            # create a child item in the model with the selected instrument name and adapter
             if selected_instrument:
-                if not model.insertInstruments(0, [selected_instrument], index):
-                    return
-                # The instrument object is already set during insertInstruments, no need to call setData
-            self.view.expand(index)
+                # Create a new tree widget item
+                child_item = QTreeWidgetItem(current_item)
+                child_item.setText(0, selected_instrument.nickname)
+                child_item.setText(1, selected_instrument.__class__.__bases__[0].__name__)
+                child_item.setText(2, selected_instrument.adapter)
+                child_item.setText(3, "")  # Empty semaphore initially
+                
+                # Set checkbox functionality
+                child_item.setFlags(child_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                child_item.setCheckState(0, Qt.CheckState.Unchecked)
+                
+                # Store the instrument object as user data
+                child_item.setData(0, Qt.ItemDataRole.UserRole, selected_instrument)
+                
+                # Create and store InstrumentTreeItem object for persistent data
+                from .treeitem import InstrumentTreeItem
+                instrument_tree_item = InstrumentTreeItem(instrument_object=selected_instrument)
+                child_item.setData(0, Qt.ItemDataRole.UserRole + 1, instrument_tree_item)
+                
+                # Expand the parent item
+                current_item.setExpanded(True)
+        
         self.update_actions()
-
-    def tree_item_from_index(self, index: QModelIndex) -> InstrumentTreeItem:
-        if index.isValid():
-            item: InstrumentTreeItem = index.internalPointer()  # type: ignore
-            if item:
-                return item
-
-        return self.model.root_item
-
-    def index_from_tree_item(self, item: InstrumentTreeItem) -> QModelIndex:
-        if item == self.model.root_item:
-            return QModelIndex()
-
-        parent_item = item.parent()
-        if not parent_item:
-            return QModelIndex()
-
-        parent_index = self.index_from_tree_item(parent_item)
-        row = parent_item.child_items.index(item)
-
-        return self.model.index(row, 0, parent_index)
-    
 
     @Slot()
     def insert_row(self) -> None:
-        index: QModelIndex = self.view.selectionModel().currentIndex()
-        model: QAbstractItemModel = self.view.model()
-        parent: QModelIndex = index.parent()
+        current_item = self.view.currentItem()
+        if not current_item:
+            # Insert at root level
+            parent = self.view.invisibleRootItem()
+        else:
+            # Insert at same level as current item
+            parent = current_item.parent()
+            if not parent:
+                parent = self.view.invisibleRootItem()
 
-        if not model.insertRow(index.row() + 1, parent):
-            return
-
-        self.update_actions()
-
-        # Set default instrument for the new row - don't try to set "[No data]" since columns aren't directly editable
         # Select instrument for the new row
-        new_index = model.index(index.row() + 1, 0, parent)
-        self.view.setCurrentIndex(new_index)
-        self.select_instrument()
+        instrument_list = self.get_available_instruments()
+        dialog = AvailableInstrumentWidget(instrument_list)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_instrument = dialog.selected_instrument
+            if selected_instrument:
+                # Create a new tree widget item
+                new_item = QTreeWidgetItem(parent)
+                new_item.setText(0, selected_instrument.nickname)
+                new_item.setText(1, selected_instrument.__class__.__bases__[0].__name__)
+                new_item.setText(2, selected_instrument.adapter)
+                new_item.setText(3, "")  # Empty semaphore initially
+                
+                # Set checkbox functionality
+                new_item.setFlags(new_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                new_item.setCheckState(0, Qt.CheckState.Unchecked)
+                
+                # Store the instrument object as user data
+                new_item.setData(0, Qt.ItemDataRole.UserRole, selected_instrument)
+                
+                # Create and store InstrumentTreeItem object for persistent data
+                from .treeitem import InstrumentTreeItem
+                instrument_tree_item = InstrumentTreeItem(instrument_object=selected_instrument)
+                new_item.setData(0, Qt.ItemDataRole.UserRole + 1, instrument_tree_item)
+                
+                # Select the new item
+                self.view.setCurrentItem(new_item)
+        
         self.update_actions()
 
     def copy_row(self) -> None:
-        index: QModelIndex = self.view.selectionModel().currentIndex()
-        if not index.isValid():
-            return
-        self.copied_item = self.tree_item_from_index(index)
+        current_item = self.view.currentItem()
+        if current_item:
+            self.copied_item = current_item
 
     def paste_row(self) -> None:
         if not self.copied_item:
             return
 
-        index: QModelIndex = self.view.selectionModel().currentIndex()
-        if not index.isValid():
-            return
+        current_item = self.view.currentItem()
+        if not current_item:
+            parent = self.view.invisibleRootItem()
+        else:
+            parent = current_item.parent()
+            if not parent:
+                parent = self.view.invisibleRootItem()
 
-        model: QAbstractItemModel = self.view.model()
-        parent: QModelIndex = index.parent()
-
-        # Insert a new row at the current index position
-        if not model.insertRow(index.row(), parent):
-            return
-
-        # Copy data from the copied item to the new row
-        child: QModelIndex = model.index(index.row(), 0, parent)
-        # If the copied item has an associated instrument object, set it in the new row
-        if self.copied_item.instrument_object:
-            self.tree_item_from_index(child).set_data(
-                self.copied_item.instrument_object, 
-                self.copied_item.item_indices, 
-                self.copied_item.final_indices, 
-                self.copied_item.semaphore
-            )
-
-
+        # Clone the copied item
+        new_item = self.copied_item.clone()
+        parent.addChild(new_item)
+        
         self.update_actions()
 
     @Slot()
-    def remove_column(self) -> None:
-        model: QAbstractItemModel = self.view.model()
-        column: int = self.view.selectionModel().currentIndex().column()
-
-        if model.removeColumn(column):
-            self.update_actions()
-
-    @Slot()
     def remove_row(self) -> None:
-        index: QModelIndex = self.view.selectionModel().currentIndex()
-        model: QAbstractItemModel = self.view.model()
-
-        if model.removeRow(index.row(), index.parent()):
-            self.update_actions()
+        current_item = self.view.currentItem()
+        if current_item:
+            parent = current_item.parent()
+            if parent:
+                parent.removeChild(current_item)
+            else:
+                # Remove from root
+                root = self.view.invisibleRootItem()
+                root.removeChild(current_item)
+        self.update_actions()
 
     @Slot()
     def update_actions(self) -> None:
-        selection_model = self.view.selectionModel()
-        has_selection: bool = not selection_model.selection().isEmpty()
-        self.remove_row_action.setEnabled(has_selection)
+        current_item = self.view.currentItem()
+        has_current = current_item is not None
+        
+        self.remove_row_action.setEnabled(has_current)
+        self.insert_row_action.setEnabled(True)  # Always enabled
 
-        current_index = selection_model.currentIndex()
-        has_current: bool = current_index.isValid()
-        self.insert_row_action.setEnabled(has_current)
-
-        if has_current:
-            self.view.closePersistentEditor(current_index)
-
+        # Update status bar with selected instruments count
+        selected_items = self.get_selected_instruments()
+        selected_count = len(selected_items)
+        if selected_count == 0:
+            self.statusBar().showMessage("Ready - No instruments selected")
+        elif selected_count == 1:
+            self.statusBar().showMessage(f"Ready - 1 instrument selected")
+        else:
+            self.statusBar().showMessage(f"Ready - {selected_count} instruments selected")
 
     @Slot()
     def select_instrument(self) -> None:
+        current_item = self.view.currentItem()
+        if not current_item:
+            return
+
         instrument_data = self.get_available_instruments()
-
-        index: QModelIndex = self.view.selectionModel().currentIndex()
-
         dialog = AvailableInstrumentWidget(instrument_data)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             selected_instrument_object = dialog.selected_instrument
             if selected_instrument_object:
-                # Set the data in the selected row to the instrument
-                self.tree_item_from_index(index).set_data(selected_instrument_object)
+                # Update the current item with the new instrument
+                current_item.setText(0, selected_instrument_object.nickname)
+                current_item.setText(1, selected_instrument_object.__class__.__bases__[0].__name__)
+                current_item.setText(2, selected_instrument_object.adapter)
+                # Keep existing semaphore value in column 3
+                
+                # Set checkbox functionality if not already set
+                current_item.setFlags(current_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                if current_item.checkState(0) == Qt.CheckState.Unchecked and current_item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                    pass  # Keep current state
+                else:
+                    current_item.setCheckState(0, Qt.CheckState.Unchecked)
+                
+                # Store the instrument object as user data
+                current_item.setData(0, Qt.ItemDataRole.UserRole, selected_instrument_object)
+                
+                # Create and store InstrumentTreeItem object for persistent data
+                from .treeitem import InstrumentTreeItem
+                instrument_tree_item = InstrumentTreeItem(instrument_object=selected_instrument_object)
+                current_item.setData(0, Qt.ItemDataRole.UserRole + 1, instrument_tree_item)
 
+    def get_selected_instruments(self) -> list:
+        """Return a list of selected (checked) instruments (copied from instrument_autoload pattern)"""
+        selected_instruments = []
+
+        def traverse(item: QTreeWidgetItem):
+            if item.checkState(0) == Qt.CheckState.Checked:
+                # Get the instrument object from user data
+                instrument_obj = item.data(0, Qt.ItemDataRole.UserRole)
+                if instrument_obj:
+                    selected_instruments.append(instrument_obj)
+            
+            # Traverse children
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child:
+                    traverse(child)
+
+        root = self.view.invisibleRootItem()
+        traverse(root)
+        return selected_instruments
+
+    @Slot()
+    def select_all_instruments(self) -> None:
+        """Select all instruments in the tree"""
+        def set_all_checked(item: QTreeWidgetItem, checked: bool):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child:
+                    # Only set checkbox for items that have instruments (user data)
+                    instrument_obj = child.data(0, Qt.ItemDataRole.UserRole)
+                    if instrument_obj:
+                        child.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+                    set_all_checked(child, checked)
+
+        root = self.view.invisibleRootItem()
+        set_all_checked(root, True)
+
+    @Slot()
+    def deselect_all_instruments(self) -> None:
+        """Deselect all instruments in the tree"""
+        def set_all_checked(item: QTreeWidgetItem, checked: bool):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child:
+                    # Only set checkbox for items that have instruments (user data)
+                    instrument_obj = child.data(0, Qt.ItemDataRole.UserRole)
+                    if instrument_obj:
+                        child.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+                    set_all_checked(child, checked)
+
+        root = self.view.invisibleRootItem()
+        set_all_checked(root, False)
+
+    @Slot()
+    def show_selected_instruments(self) -> None:
+        """Show a message box with the selected instruments"""
+        from PySide6.QtWidgets import QMessageBox
+        
+        selected_items = self.get_selected_instruments()
+        if not selected_items:
+            QMessageBox.information(self, "Selected Instruments", "No instruments are currently selected.")
+            return
+        
+        message = f"Selected {len(selected_items)} instrument(s):\n\n"
+        for item in selected_items:
+            message += f"• {item.nickname} ({item.__class__.__bases__[0].__name__}) - {item.adapter}\n"
+        
+        QMessageBox.information(self, "Selected Instruments", message)
 
     def get_available_instruments(self) -> Sequence[Movement | VisaMovement | Measurement | VisaMeasurement]:
         # Placeholder for actual instrument retrieval logic
@@ -253,7 +424,10 @@ class MainWindow(QMainWindow):
         instrument_objects = [
             Measurement('Keithley 2400'),
             Measurement('Agilent 34401A'),
-            Measurement('Tektronix TDS2024C')
+            Measurement('Tektronix TDS2024C'),
+            Movement('Newport XPS Series'),
+            Movement('Thorlabs K-Cube'),
+            Measurement('Yokogawa GS200')
         ]
 
         return instrument_objects
