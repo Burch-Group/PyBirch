@@ -1,0 +1,745 @@
+from pymeasure.instruments.newport import ESP300
+from pymeasure.adapters import VISAAdapter
+from ESPDICTIONARY import SETTINGS
+from pymeasure.log import log, console_log
+from pymeasure.display.windows import ManagedWindow
+import os
+import sys
+from PyQt5 import QtWidgets, QtCore, uic
+import logging
+from PyQt5.QtWidgets import QMainWindow, QTextEdit, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QFileDialog, QMessageBox
+import datetime
+from PyQt5.QtCore import Qt
+import json
+from typing import Any
+from save_ESP_settings import (
+    gather_settings,
+    write_settings_file,
+    read_settings_file,
+    apply_settings_to_widgets
+)
+
+
+adapter = VISAAdapter("GPIB::7::INSTR")
+adapter.connection.write_termination = "\r"
+adapter.connection.read_termination  = "\r"
+esp = ESP300(adapter)
+
+#LOG! Thanks Meg this is awesome  
+
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+class GuiLogger(logging.Handler):
+    def __init__(self, log_callback):
+        super().__init__()
+        self.log_callback = log_callback
+
+    def emit(self, record):
+        msg = self.format(record)
+        self.log_callback(msg, level=record.levelname.lower())
+      
+class MainWindow(QMainWindow):
+    def __init__(self, esp=None):
+        super().__init__()
+        self.esp = esp
+
+        ui_file_path = os.path.join(os.path.dirname(__file__), "ESPSETTINGS.ui")
+        if not os.path.exists(ui_file_path):
+            raise FileNotFoundError(f"UI file not found: {ui_file_path}")
+        uic.loadUi(ui_file_path, self)
+
+        self.log_window = getattr(self, "log_window", None) or getattr(self, "textEdit_Log", None) or getattr(self, "textEdit_log", None)
+        if self.log_window is None:
+            self.log_window = QTextEdit(self)
+            self.log_window.setObjectName("log_window")
+            self.log_window.hide()
+
+        gui_handler = GuiLogger(self.log_message)
+        gui_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        logging.getLogger().addHandler(gui_handler)
+
+        self._populate_initial_fields()
+        self._connect_signals()
+
+    # ensure instrument present before sending commands
+    def _ensure_connected(self):
+        if self.esp is None:
+            logger.error("Instrument not connected")
+            QMessageBox.warning(self, "Instrument", "No instrument connected. Use Connect to attach an ESP300.")
+            raise RuntimeError("Instrument not connected")
+
+    def _safe_call(self, fn, *args, **kwargs):
+        try:
+            self._ensure_connected()
+            return fn(*args, **kwargs)
+        except RuntimeError:
+            return None
+        except Exception as e:
+            logger.exception("Command failed: %s", e)
+            QMessageBox.critical(self, "Error", str(e))
+            return None
+
+    def _populate_initial_fields(self):
+        query_map = {
+            "lineEdit_setAccel": "1AC?",
+            "lineEdit_setAccel_2": "2AC?",
+            "lineEdit_setAccel_3": "3AC?",
+            "lineEdit_setDecel": "1AG?",
+            "lineEdit_setDecel_2": "2AG?",
+            "lineEdit_setDecel_3": "3AG?",
+            "lineEdit_VA": "1VA?",
+            "lineEdit_VA_2": "2VA?",
+            "lineEdit_VA_3": "3VA?",
+            "lineEdit_JK": "1JK?",
+            "lineEdit_JK_2": "2JK?",
+            "lineEdit_JK_3": "3JK?",
+            "lineEdit_defHome": "1DH?",
+            "lineEdit_defHome_2": "2DH?",
+            "lineEdit_defHome_3": "3DH?",
+        }
+        if self.esp is None:
+            # skip reads if no instrument
+            for widget_name in query_map:
+                w = getattr(self, widget_name, None)
+                if w is not None:
+                    try:
+                        w.setText("")
+                    except Exception:
+                        pass
+            return
+
+        for widget_name, cmd in query_map.items():
+            w = getattr(self, widget_name, None)
+            if w is None:
+                continue
+            try:
+                ask = getattr(self.esp, "ask", None) or getattr(self.esp, "query", None)
+                if ask is None:
+                    w.setText("")
+                    continue
+                resp = ask(cmd)
+                w.setText(str(resp).strip() if resp is not None else "")
+            except Exception as e:
+                logger.warning("Could not read %s (%s): %s", widget_name, cmd, e)
+                try:
+                    w.setText("")
+                except Exception:
+                    pass
+
+    def _get_text(self, name: str, default: str = "") -> str:
+        widget = getattr(self, name, None)
+        if isinstance(widget, QLineEdit):
+            return widget.text().strip()
+        if isinstance(widget, QTextEdit):
+            return widget.toPlainText().strip()
+        if isinstance(widget, QComboBox):
+            return widget.currentText()
+        return default
+
+    def _get_value(self, name: str, default: Any = 0) -> Any:
+        widget = getattr(self, name, None)
+        if widget is None:
+            return default
+        try:
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                return widget.value()
+            if hasattr(widget, "value"):
+                return widget.value()
+            t = self._get_text(name, "")
+            if t == "":
+                return default
+            if "." in str(t):
+                return float(t)
+            return int(t)
+        except Exception:
+            return default
+
+    def _safe_connect(self, name: str, func):
+        btn = getattr(self, name, None)
+        if btn is None:
+            logger.debug("Widget %s not found in UI", name)
+            return
+        def wrapper():
+            try:
+                # wrapper uses _safe_call so missing instrument is handled
+                return self._safe_call(func)
+            except Exception as e:
+                logger.exception("Error during click handler for %s: %s", name, e)
+        try:
+            btn.clicked.connect(wrapper)
+        except Exception as e:
+            logger.error("Failed to connect %s: %s", name, e)
+
+    def _connect_signals(self):
+        self.pushButton_abort.clicked.connect(lambda: SETTINGS["ABORT"](self.esp))
+        self.pushButton_abortProgram.clicked.connect(lambda: SETTINGS["ABORT_PROGRAM"](self.esp))
+        self.pushButton_RS.clicked.connect(lambda: SETTINGS["RESET_CONTROLLER"](self.esp))
+        self.pushButton_ST.clicked.connect(lambda: SETTINGS["STOP"](self.esp, axis=1))
+        self.pushButton_ST_2.clicked.connect(lambda: SETTINGS["STOP"](self.esp, axis=2))
+        self.pushButton_ST_3.clicked.connect(lambda: SETTINGS["STOP"](self.esp, axis=3))
+        self.pushButton_DONE.clicked.connect(self.done)
+        self.pushButton_LOAD.clicked.connect(self.load)
+        self.trajectory_signals()
+        self.status_signals()
+        self.motion_control()
+        self.motion_params()
+
+    def done(self):
+        widgets = self.findChildren((
+            QLineEdit, QComboBox,
+            QSpinBox, QDoubleSpinBox,
+            QTextEdit, QCheckBox
+        ))
+        settings = gather_settings(widgets)
+        saved_path = write_settings_file(self, "esp_settings.json", settings)
+        if saved_path:
+            self.statusBar().showMessage(f"Settings saved to {saved_path}", 5000)
+
+    def load(self):
+        data = read_settings_file(self)
+        if data is None:
+            return
+        widgets = self.findChildren((
+            QLineEdit, QComboBox,
+            QSpinBox, QDoubleSpinBox,
+            QTextEdit, QCheckBox
+        ))
+        apply_settings_to_widgets(widgets, data)
+        self.statusBar().showMessage("Settings loaded", 5000)
+        
+    def trajectory_signals(self):
+        self.pushButton_setAccel.clicked.connect(lambda: SETTINGS["SET_ACCEL"](self.esp, axis=1, accel=float(self.lineEdit_setAccel.text())))
+        self.pushButton_setAccel_2.clicked.connect(lambda: SETTINGS["SET_ACCEL"](self.esp, axis=2, accel=float(self.lineEdit_setAccel_2.text())))
+        self.pushButton_setAccel_3.clicked.connect(lambda: SETTINGS["SET_ACCEL"](self.esp, axis=3, accel=float(self.lineEdit_setAccel_3.text())))
+        self.pushButton_setFeed.clicked.connect(lambda: SETTINGS["SET_ACCEL_FEEDFORWARD_GAIN"](self.esp, axis =1, accel=float(self.lineEdit_setAccelFeedForward.text())))
+        self.pushButton_setFeed_2.clicked.connect(lambda: SETTINGS["SET_ACCEL_FEEDFORWARD_GAIN"](self.esp, axis =2, accel=float(self.lineEdit_setAccelFeedForward_2.text())))
+        self.pushButton_setFeed_3.clicked.connect(lambda: SETTINGS["SET_ACCEL_FEEDFORWARD_GAIN"](self.esp, axis =3, accel=float(self.lineEdit_setAccelFeedForward_3.text())))
+        self.pushButton_setmaxAccel.clicked.connect(lambda: SETTINGS["SET_MAX_ACCELDECEL"](self.esp, axis=1, max=float(self.lineEdit_setAccelMax.text())))
+        self.pushButton_setmaxAccel_2.clicked.connect(lambda: SETTINGS["SET_MAX_ACCELDECEL"](self.esp, axis=2, max=float(self.lineEdit_setAccelMax_2.text())))
+        self.pushButton_setmaxAccel_3.clicked.connect(lambda: SETTINGS["SET_MAX_ACCELDECEL"](self.esp, axis=3, max=float(self.lineEdit_setAccelMax_3.text())))
+        self.pushButton_setEDecel.clicked.connect(lambda: SETTINGS["SET_ESTOP_DECEL"](self.esp, axis=1, decel=float(self.lineEdit_setEDecel.text())))
+        self.pushButton_setEDecel_2.clicked.connect(lambda: SETTINGS["SET_ESTOP_DECEL"](self.esp, axis=2, decel=float(self.lineEdit_setEDecel_2.text())))
+        self.pushButton_setEDecel_3.clicked.connect(lambda: SETTINGS["SET_ESTOP_DECEL"](self.esp, axis=3, decel=float(self.lineEdit_setEDecel_3.text())))
+        self.pushButton_setDecel.clicked.connect(lambda: SETTINGS["SET_DECEL"](self.esp, axis=1, decel=float(self.lineEdit_setDecel.text())))
+        self.pushButton_setDecel_2.clicked.connect(lambda: SETTINGS["SET_DECEL"](self.esp, axis=2, decel=float(self.lineEdit_setDecel_2.text())))
+        self.pushButton_setDecel_3.clicked.connect(lambda: SETTINGS["SET_DECEL"](self.esp, axis=3, decel=float(self.lineEdit_setDecel_3.text())))
+        self.pushButton_setbacklash.clicked.connect(lambda: SETTINGS["BACKLASH_COMP"](self.esp, axis=1, backlash=float(self.lineEdit_backlashCompensation.text())))
+        self.pushButton_setbacklash_2.clicked.connect(lambda: SETTINGS["BACKLASH_COMP"](self.esp, axis=2, backlash=float(self.lineEdit_backlashCompensation_2.text())))
+        self.pushButton_setbacklash_3.clicked.connect(lambda: SETTINGS["BACKLASH_COMP"](self.esp, axis=3, backlash=float(self.lineEdit_backlashCompensation_3.text())))
+        self.pushButton_setLin.clicked.connect(lambda: SETTINGS["SET_LINEAR_COMPENSATION"](self.esp, axis=1, comp=float(self.lineEdit_linComp.text())))
+        self.pushButton_setLin_2.clicked.connect(lambda: SETTINGS["SET_LINEAR_COMPENSATION"](self.esp, axis=2, comp=float(self.lineEdit_linComp_2.text())))
+        self.pushButton_setLin_3.clicked.connect(lambda: SETTINGS["SET_LINEAR_COMPENSATION"](self.esp, axis=3, comp=float(self.lineEdit_linComp_3.text())))
+        self.pushButton_JH.clicked.connect(lambda: SETTINGS["JOG_HIGH"](self.esp, axis=1, speed=float(self.lineEdit_JH.text())))
+        self.pushButton_JH_2.clicked.connect(lambda: SETTINGS["JOG_HIGH"](self.esp, axis=2, speed=float(self.lineEdit_JH_2.text())))
+        self.pushButton_JH_3.clicked.connect(lambda: SETTINGS["JOG_HIGH"](self.esp, axis=3, speed=float(self.lineEdit_JH_3.text())))    
+        self.pushButton_JK.clicked.connect(lambda: SETTINGS["JERK"](self.esp, axis=1, jerk=float(self.lineEdit_JK.text())))
+        self.pushButton_JK_2.clicked.connect(lambda: SETTINGS["JERK"](self.esp, axis=2, jerk=float(self.lineEdit_JK_2.text())))
+        self.pushButton_JK_3.clicked.connect(lambda: SETTINGS["JERK"](self.esp, axis=3, jerk=float(self.lineEdit_JK_3.text())))   
+        self.pushButton_JW.clicked.connect(lambda: SETTINGS["JOG_LOW"](self.esp, axis=1, speed=float(self.lineEdit_JW.text())))
+        self.pushButton_JW_2.clicked.connect(lambda: SETTINGS["JOG_LOW"](self.esp, axis=2, speed=float(self.lineEdit_JW_2.text())))
+        self.pushButton_JW_3.clicked.connect(lambda: SETTINGS["JOG_LOW"](self.esp, axis=3, speed=float(self.lineEdit_JW_3.text())))
+        self.pushButton_UF.clicked.connect(lambda: SETTINGS["SERVO"](self.esp))
+        self.pushButton_VA.clicked.connect(lambda: SETTINGS["SET_VEL"](self.esp, axis=1, vel=float(self.lineEdit_VA.text())))
+        self.pushButton_VA_2.clicked.connect(lambda: SETTINGS["SET_VEL"](self.esp, axis=2, vel=float(self.lineEdit_VA_2.text())))
+        self.pushButton_VA_3.clicked.connect(lambda: SETTINGS["SET_VEL"](self.esp, axis=3, vel=float(self.lineEdit_VA_3.text())))
+        self.pushButton_VB.clicked.connect(lambda: SETTINGS["VEL_STEP"](self.esp, axis=1, vel=float(self.lineEdit_VB.text())))
+        self.pushButton_VB_2.clicked.connect(lambda: SETTINGS["VEL_STEP"](self.esp, axis=2, vel=float(self.lineEdit_VB_2.text())))
+        self.pushButton_VB_3.clicked.connect(lambda: SETTINGS["VEL_STEP"](self.esp, axis=3, vel=float(self.lineEdit_VB_3.text())))
+        self.pushButton_VU.clicked.connect(lambda: SETTINGS["MAX_VEL"](self.esp, axis=1, max=float(self.lineEdit_VU.text())))
+        self.pushButton_VU_2.clicked.connect(lambda: SETTINGS["MAX_VEL"](self.esp, axis=2, max=float(self.lineEdit_VU_2.text())))
+        self.pushButton_VU_3.clicked.connect(lambda: SETTINGS["MAX_VEL"](self.esp, axis=3, max=float(self.lineEdit_VU_3.text())))
+        self.pushButton_TJ.clicked.connect(lambda: SETTINGS["TRAJECTORY_MODE"](
+            self.esp,
+            axis=1,
+            units={
+                "trapezoidal mode": 0,
+                "s-curve mode": 1,
+                "jog mode" :3,
+                "slave to master’s desired position (trajectory)": 4,
+                "slave to master’s actual position (feedback)": 5, 
+                "slave to master’s actual velocity for jogging": 6
+            }.get(self.comboBox_TJ.currentText()),
+        )) 
+        self.pushButton_TJ_2.clicked.connect(lambda: SETTINGS["TRAJECTORY_MODE"](
+            self.esp,
+            axis=2,
+            units={
+                "trapezoidal mode": 0,
+                "s-curve mode": 1,
+                "jog mode" :3,
+                "slave to master’s desired position (trajectory)": 4,
+                "slave to master’s actual position (feedback)": 5, 
+                "slave to master’s actual velocity for jogging": 6,
+            }.get(self.comboBox_TJ_2.currentText()),
+        )) 
+        self.pushButton_TJ_3.clicked.connect(lambda: SETTINGS["TRAJECTORY_MODE"](
+            self.esp,
+            axis=3,
+            units={
+                "trapezoidal mode": 0,
+                "s-curve mode": 1,
+                "jog mode" :3,
+                "slave to master’s desired position (trajectory)": 4,
+                "slave to master’s actual position (feedback)": 5, 
+                "slave to master’s actual velocity for jogging": 6,
+            }.get(self.comboBox_TJ_3.currentText()),
+        )) 
+    def status_signals(self):
+        self.pushButton_DP.clicked.connect(lambda: self.update_desired_position(self.esp, axis=1, lineEdit=self.lineEdit_DP))
+        self.pushButton_DP_2.clicked.connect(lambda: self.update_desired_position(self.esp, axis=2, lineEdit=self.lineEdit_DP_2))
+        self.pushButton_DP_3.clicked.connect(lambda: self.update_desired_position(self,esp, axis=3, lineEdit=self.lineEdit_DP_3))
+        self.pushButton_DV.clicked.connect(lambda: self.update_DV(self.esp, axis=1, lineEdit=self.lineEdit_DV))
+        self.pushButton_DV_2.clicked.connect(lambda: self.update_DV(self.esp, axis=2, lineEdit=self.lineEdit_DV_2))
+        self.pushButton_DV_3.clicked.connect(lambda: self.update_DV(self.esp, axis=3, lineEdit=self.lineEdit_DV_3))
+        self.pushButton_ID.clicked.connect(lambda: self.update_ID(self.esp, axis=1, lineEdit=self.lineEdit_ID))
+        self.pushButton_ID_2.clicked.connect(lambda: self.update_ID(self.esp, axis=2, lineEdit=self.lineEdit_ID_2))
+        self.pushButton_ID_3.clicked.connect(lambda: self.update_ID(self.esp, axis=3, lineEdit=self.lineEdit_ID_3))
+        self.pushButton_PH.clicked.connect(lambda: self.update_PH(self.esp, lineEdit=self.textEdit_PH))
+        self.pushButton_RQ.clicked.connect(lambda: SETTINGS["SERVICE_REQUEST"](self.esp, interrupt=int(self.spinBox_RQ.value())))
+        self.pushButton_TP.clicked.connect(lambda: self.update_TP(self.esp, axis=1, lineEdit=self.lineEdit_TP))
+        self.pushButton_TP_2.clicked.connect(lambda: self.update_TP(self.esp, axis=2, lineEdit=self.lineEdit_TP_2))
+        self.pushButton_TP_3.clicked.connect(lambda: self.update_TP(self.esp, axis=3, lineEdit=self.lineEdit_TP_3))
+        self.pushButton_TS.clicked.connect(lambda: self.update_TS(self.esp, lineEdit=self.textEdit_TS))
+        self.pushButton_TV.clicked.connect(lambda: self.update_TV(self.esp, axis=1, lineEdit=self.lineEdit_TV))
+        self.pushButton_TV_2.clicked.connect(lambda: self.update_TV(self.esp, axis=2, lineEdit=self.lineEdit_TV_2))
+        self.pushButton_TV_3.clicked.connect(lambda: self.update_TV(self.esp, axis=3, lineEdit=self.lineEdit_TV_3))
+        self.pushButton_TX.clicked.connect(lambda: self.update_TX(self.esp, lineEdit=self.textEdit_TX))
+        self.pushButton_VE.clicked.connect(lambda: self.update_VE(self.esp, lineEdit=self.lineEdit_VE))
+        self.pushButton_XM.clicked.connect(lambda: self.update_XM(self.esp, lineEdit=self.lineEdit_XM))
+        self.pushButton_ZA.clicked.connect(lambda: SETTINGS["IO_CONFIG"](self.esp, axis=1, config=int(self.lineEdit_ZA.text())))
+        self.pushButton_ZA_2.clicked.connect(lambda: SETTINGS["IO_CONFIG"](self.esp, axis=2, config=int(self.lineEdit_ZA_2.text())))
+        self.pushButton_ZA_3.clicked.connect(lambda: SETTINGS["IO_CONFIG"](self.esp, axis=3, config=int(self.lineEdit_ZA_3.text())))
+        self.pushButton_ZB.clicked.connect(lambda: SETTINGS["FEED_CONFIG"](self.esp, axis=1, config=int(self.lineEdit_ZB.text())))
+        self.pushButton_ZB_2.clicked.connect(lambda: SETTINGS["FEED_CONFIG"](self.esp, axis=2, config=int(self.lineEdit_ZB_2.text())))
+        self.pushButton_ZB_3.clicked.connect(lambda: SETTINGS["FEED_CONFIG"](self.esp, axis=3, config=int(self.lineEdit_ZB_3.text())))
+        self.pushButton_ZE.clicked.connect(lambda: SETTINGS["E_CONFIG"](self.esp, axis=1, config=int(self.lineEdit_ZE.text())))
+        self.pushButton_ZE_2.clicked.connect(lambda: SETTINGS["E_CONFIG"](self.esp, axis=2, config=int(self.lineEdit_ZE_2.text())))
+        self.pushButton_ZE_3.clicked.connect(lambda: SETTINGS["E_CONFIG"](self.esp, axis=3, config=int(self.lineEdit_ZE_3.text())))
+        self.pushButton_ZF.clicked.connect(lambda: SETTINGS["ERR_CONFIG"](self.esp, axis=1, config=int(self.lineEdit_ZF.text())))
+        self.pushButton_ZF_2.clicked.connect(lambda: SETTINGS["ERR_CONFIG"](self.esp, axis=2, config=int(self.lineEdit_ZF_2.text())))
+        self.pushButton_ZF_3.clicked.connect(lambda: SETTINGS["ERR_CONFIG"](self.esp, axis=3, config=int(self.lineEdit_ZF_3.text())))
+        self.pushButton_ZS.clicked.connect(lambda: SETTINGS["SOFT_CONFIG"](self.esp, axis=1, config=int(self.lineEdit_ZS.text())))
+        self.pushButton_ZS_2.clicked.connect(lambda: SETTINGS["SOFT_CONFIG"](self.esp, axis=2, config=int(self.lineEdit_ZS_2.text())))
+        self.pushButton_ZS_3.clicked.connect(lambda: SETTINGS["SOFT_CONFIG"](self.esp, axis=3, config=int(self.lineEdit_ZS_3.text())))
+        self.pushButton_ZH.clicked.connect(lambda: SETTINGS["HARD_CONFIG"](self.esp, axis=1, config=int(self.lineEdit_ZH.text())))
+        self.pushButton_ZH_2.clicked.connect(lambda: SETTINGS["HARD_CONFIG"](self.esp, axis=2, config=int(self.lineEdit_ZH_2.text())))
+        self.pushButton_ZH_3.clicked.connect(lambda: SETTINGS["HARD_CONFIG"](self.esp, axis=3, config=int(self.lineEdit_ZH_3.text())))
+        self.pushButton_ZU.clicked.connect(lambda: SETTINGS["ESP_CONFIG"](self.esp, axis=1, config=int(self.lineEdit_ZU.text())))
+        self.pushButton_ZU_2.clicked.connect(lambda: SETTINGS["ESP_CONFIG"](self.esp, axis=2, config=int(self.lineEdit_ZU_2.text())))
+        self.pushButton_ZU_3.clicked.connect(lambda: SETTINGS["ESP_CONFIG"](self.esp, axis=3, config=int(self.lineEdit_ZU_3.text())))
+        self.pushButton_ZZ.clicked.connect(lambda: SETTINGS["SYS_CONFIG"](self.esp, axis=1, config=int(self.lineEdit_ZZ.text())))
+        self.pushButton_ZZ_2.clicked.connect(lambda: SETTINGS["SYS_CONFIG"](self.esp, axis=2, config=int(self.lineEdit_ZZ_2.text())))
+        self.pushButton_ZZ_3.clicked.connect(lambda: SETTINGS["SYS_CONFIG"](self.esp, axis=3, config=int(self.lineEdit_ZZ_3.text())))
+    def update_XM(self, lineEdit):
+        resp = SETTINGS["MEMORY"](self.esp)
+        lineEdit.setText(f"{resp}")
+    def update_VE(self, lineEdit):
+        resp = SETTINGS["FIRMWARE"](self.esp)
+        lineEdit.setText(f"{resp}")
+    def update_TS(self, lineEdit):
+        resp = SETTINGS["CONTROLLER_STATUS"](self.esp)
+        lineEdit.setText(f"{resp}")
+    def update_TX(self, lineEdit):
+        resp = SETTINGS["CONTROLLER_ACTIVITY"](self.esp)
+        lineEdit.setText(f"{resp}")
+    def update_TV(self, lineEdit):
+        resp = SETTINGS["ACTUAL_VELOCITY"](self.esp)
+        lineEdit.setText(f"{resp}")
+    def update_TP(self, axis, lineEdit):
+        resp = SETTINGS["ACTUAL_POSITION"](self.esp, axis=axis)
+        lineEdit.setText(f"{resp}")
+    def update_DV(self, axis, lineEdit):
+        velocity = SETTINGS["READ_VELOCITY"](self.esp, axis=axis)
+        lineEdit.setText(f"{velocity}")
+    def update_desired_position(self, axis, lineEdit):
+        position = SETTINGS["READ_POSITION"](self.esp, axis=axis)
+        lineEdit.setText(f"{position}")  
+    def update_ID(self, axis, lineEdit):
+        resp = SETTINGS["GET_MODEL"](self.esp, axis=axis)
+        lineEdit.setText(f"{resp}")
+    def update_PH(self, lineEdit):
+        resp = SETTINGS["HARWARE"](self.esp)
+        lineEdit.setText(f"{resp}")
+
+    def motion_control(self):
+        self.pushButton_defHome.clicked.connect(lambda: SETTINGS["SET_HOME"](self.esp, axis=1, pos=float(self.lineEdit_defHome.text())))
+        self.pushButton_defHome_2.clicked.connect(lambda: SETTINGS["SET_HOME"](self.esp, axis=2, pos=float(self.lineEdit_defHome_2.text())))
+        self.pushButton_defHome_3.clicked.connect(lambda: SETTINGS["SET_HOME"](self.esp, axis=3, pos=float(self.lineEdit_defHome_3.text())))
+        self.pushButton_MT.clicked.connect(lambda: SETTINGS["TRAVEL_LIMIT"](self.esp, axis=1, direction=chr(self.comboBox_MT.currentText())))
+        self.pushButton_MT_2.clicked.connect(lambda: SETTINGS["TRAVEL_LIMIT"](self.esp, axis=2, direction=chr(self.comboBox_MT_2.currentText())))
+        self.pushButton_MT_3.clicked.connect(lambda: SETTINGS["TRAVEL_LIMIT"](self.esp, axis=3, direction=chr(self.comboBox_MT_3.currentText())))
+        self.pushButton_MV.clicked.connect(lambda: SETTINGS["MOVE_INDEFINITE"](self.esp, axis=1, direction=chr(self.comboBox_MV.currentText())))
+        self.pushButton_MV_2.clicked.connect(lambda: SETTINGS["MOVE_INDEFINITE"](self.esp, axis=2, direction=chr(self.comboBox_MV_2.currentText())))
+        self.pushButton_MV_3.clicked.connect(lambda: SETTINGS["MOVE_INDEFINITE"](self.esp, axis=3, direction=chr(self.comboBox_MV_3.currentText())))
+        self.pushButton_MZ.clicked.connect(lambda: SETTINGS["MOVE_INDEX"](self.esp, axis=1, direction=chr(self.comboBox_MZ.currentText())))
+        self.pushButton_MZ_2.clicked.connect(lambda: SETTINGS["MOVE_INDEX"](self.esp, axis=2, direction=chr(self.comboBox_MZ_2.currentText())))
+        self.pushButton_MZ_3.clicked.connect(lambda: SETTINGS["MOVE_INDEX"](self.esp, axis=3, direction=chr(self.comboBox_MZ_3.currentText())))  
+        self.pushButton_SH.clicked.connect(lambda: SETTINGS["HOME_PRESET"](self.esp, axis=1, position=float(self.lineEdit_SH.text())))
+        self.pushButton_SH_2.clicked.connect(lambda: SETTINGS["HOME_PRESET"](self.esp, axis=2, position=float(self.lineEdit_SH.text())))
+        self.pushButton_SH_3.clicked.connect(lambda: SETTINGS["HOME_PRESET"](self.esp, axis=3, position=float(self.lineEdit_SH.text())))  
+        self.pushButton_OH.clicked.connect(lambda: SETTINGS["HOME_HIGH"](self.esp, axis=1, speed=float(self.lineEdit_OH.text())))
+        self.pushButton_OH_2.clicked.connect(lambda: SETTINGS["HOME_HIGH"](self.esp, axis=2, speed=float(self.lineEdit_OH_2.text())))
+        self.pushButton_OH_3.clicked.connect(lambda: SETTINGS["HOME_HIGH"](self.esp, axis=3, speed=float(self.lineEdit_OH_3.text())))    
+        self.pushButton_OL.clicked.connect(lambda: SETTINGS["HOME_LOW"](self.esp, axis=1, speed=float(self.lineEdit_OL.text())))
+        self.pushButton_OL_2.clicked.connect(lambda: SETTINGS["HOME_LOW"](self.esp, axis=2, speed=float(self.lineEdit_OL_2.text())))
+        self.pushButton_OL_3.clicked.connect(lambda: SETTINGS["HOME_LOW"](self.esp, axis=3, speed=float(self.lineEdit_OL_3.text())))  
+        self.pushButton_OR.clicked.connect(lambda: SETTINGS["SEARCH_HOME"](self.esp, axis=1))
+        self.pushButton_OR_2.clicked.connect(lambda: SETTINGS["SEARCH_HOME"](self.esp, axis=2))
+        self.pushButton_OR_3.clicked.connect(lambda: SETTINGS["SEARCH_HOME"](self.esp, axis=3)) 
+
+        self.pushButton_OM.clicked.connect(lambda: SETTINGS["HOME_MODE"](
+            self.esp,
+            axis=1,
+            mode={
+                "Find +0 Position Count": 0,
+                "Find Home and Index Signals": 1,
+                "Find Home Signal": 2,
+                "Find Positive Limit Signal" :3,
+                "Find Negative Limit Signal": 4,
+                "Find Positive Limit and Index Signals": 5,
+                "Find Negative Limit and Index Signals":6
+            }.get(self.comboBox_OM.currentText()),
+        )) 
+        self.pushButton_OM_2.clicked.connect(lambda: SETTINGS["HOME_MODE"](
+            self.esp,
+            axis=2,
+            mode={
+                "Find +0 Position Count": 0,
+                "Find Home and Index Signals": 1,
+                "Find Home Signal": 2,
+                "Find Positive Limit Signal" :3,
+                "Find Negative Limit Signal": 4,
+                "Find Positive Limit and Index Signals": 5,
+                "Find Negative Limit and Index Signals":6
+            }.get(self.comboBox_OM_2.currentText()),
+        )) 
+        self.pushButton_OM_3.clicked.connect(lambda: SETTINGS["HOME_MODE"](
+            self.esp,
+            axis=3,
+            mode={
+                "Find +0 Position Count": 0,
+                "Find Home and Index Signals": 1,
+                "Find Home Signal": 2,
+                "Find Positive Limit Signal" :3,
+                "Find Negative Limit Signal": 4,
+                "Find Positive Limit and Index Signals": 5,
+                "Find Negative Limit and Index Signals":6
+            }.get(self.comboBox_OM_3.currentText()),
+        ))
+        self.pushButton_QD.clicked.connect(lambda: SETTINGS["MOTOR_DRIVE"](self.esp, axis=1))
+        self.pushButton_QD_2.clicked.connect(lambda: SETTINGS["MOTOR_DRIVE"](self.esp, axis=2))
+        self.pushButton_QD_3.clicked.connect(lambda: SETTINGS["MOTOR_DRIVE"](self.esp, axis=3))  
+        self.pushButton_QG.clicked.connect(lambda: SETTINGS["GEAR_CONSTANT"](self.esp, axis=1, gear=float(self.lineEdit_QG.text())))
+        self.pushButton_QG_2.clicked.connect(lambda: SETTINGS["GEAR_CONSTANT"](self.esp, axis=2, gear=float(self.lineEdit_QG_2.text())))
+        self.pushButton_QG_3.clicked.connect(lambda: SETTINGS["GEAR_CONSTANT"](self.esp, axis=3, gear=float(self.lineEdit_QG_3.text())))  
+        self.pushButton_QI.clicked.connect(lambda: SETTINGS["MOTOR_MAX"](self.esp, axis=1, max=float(self.lineEdit_QI.text())))
+        self.pushButton_QI_2.clicked.connect(lambda: SETTINGS["MOTOR_MAX"](self.esp, axis=2, max=float(self.lineEdit_QI_2.text())))
+        self.pushButton_QI_3.clicked.connect(lambda: SETTINGS["MOTOR_MAX"](self.esp, axis=3, max=float(self.lineEdit_QI_3.text())))  
+        self.pushButton_QM.clicked.connect(lambda: SETTINGS["MOTOR_TYPE"](
+            self.esp,
+            axis=1,
+            motor={
+                "Undefined": 0,
+                "DC Servo": 1,
+                "Commutated Step Motor" :3,
+                "Commutated Brushless DC Servo motor": 4
+            }.get(self.comboBox_QM.currentText()),
+        )) 
+        self.pushButton_QM_2.clicked.connect(lambda: SETTINGS["MOTOR_TYPE"](
+            self.esp,
+            axis=2,
+            motor={
+                "Undefined": 0,
+                "DC Servo": 1,
+                "Commutated Step Motor" :3,
+                "Commutated Brushless DC Servo motor": 4
+            }.get(self.comboBox_QM_2.currentText()),
+        )) 
+        self.pushButton_QM_3.clicked.connect(lambda: SETTINGS["MOTOR_TYPE"](
+            self.esp,
+            axis=3,
+            motor={
+                "Undefined": 0,
+                "DC Servo": 1,
+                "Commutated Step Motor" :3,
+                "Commutated Brushless DC Servo motor": 4
+            }.get(self.comboBox_QM_3.currentText()),
+        ))
+    def motion_params(self):
+        self.pushButton_FE.clicked.connect(lambda: SETTINGS["FOLLOWING_THRESHOLD"](self.esp, axis=1, max=float(self.lineEdit_FE.text())))
+        self.pushButton_FE_2.clicked.connect(lambda: SETTINGS["FOLLOWING_THRESHOLD"](self.esp, axis=2, max=float(self.lineEdit_FE_2.text())))
+        self.pushButton_FE_3.clicked.connect(lambda: SETTINGS["FOLLOWING_THRESHOLD"](self.esp, axis=3, max=float(self.lineEdit_FE_3.text())))
+        self.pushButton_FP.clicked.connect(lambda: SETTINGS["POSITION_RESOLUTION"](self.esp, axis=1, resolution=int(self.spinBox_FP.value())))
+        self.pushButton_FP_2.clicked.connect(lambda: SETTINGS["POSITION_RESOLUTION"](self.esp, axis=2, resolution=int(self.spinBox_FP.value())))
+        self.pushButton_FP_3.clicked.connect(lambda: SETTINGS["POSITION_RESOLUTION"](self.esp, axis=3, resolution=int(self.spinBox_FP.value())))
+        self.pushButton_FR.clicked.connect(lambda: SETTINGS["ENCODER_RESOLUTION"](self.esp, axis=1, resolution=float(self.lineEdit_FR.text())))
+        self.pushButton_FR_2.clicked.connect(lambda: SETTINGS["ENCODER_RESOLUTION"](self.esp, axis=2, resolution=float(self.lineEdit_FR_2.text())))
+        self.pushButton_FR_3.clicked.connect(lambda: SETTINGS["ENCODER_RESOLUTION"](self.esp, axis=3, resolution=float(self.lineEdit_FR_3.text())))
+        self.pushButton_MF.clicked.connect(lambda: SETTINGS["MOTOR_OFF"](self.esp, axis=1))
+        self.pushButton_MF_2.clicked.connect(lambda: SETTINGS["MOTOR_OFF"](self.esp, axis=2))
+        self.pushButton_MF_3.clicked.connect(lambda: SETTINGS["MOTOR_OFF"](self.esp, axis=3))
+        self.pushButton_MO.clicked.connect(lambda: SETTINGS["MOTOR_ON"](self.esp, axis=1))
+        self.pushButton_MO_2.clicked.connect(lambda: SETTINGS["MOTOR_ON"](self.esp, axis=2))
+        self.pushButton_MO_3.clicked.connect(lambda: SETTINGS["MOTOR_ON"](self.esp, axis=3))
+        self.pushButton_QR.clicked.connect(lambda: SETTINGS["MOTOR_TORQUE"](self.esp, axis=1, delay=int(self.spinBox_QR.value()), reduction=float(self.doubleSpinBox_QR.value())))
+        self.pushButton_QR_2.clicked.connect(lambda: SETTINGS["MOTOR_TORQUE"](self.esp, axis=2, delay=int(self.spinBox_QR_2.value()), reduction=float(self.doubleSpinBox_QR.value())))
+        self.pushButton_QR_3.clicked.connect(lambda: SETTINGS["MOTOR_TORQUE"](self.esp, axis=3, delay=int(self.spinBox_QR_3.value()), reduction=float(self.doubleSpinBox_QR.value()))) 
+        self.pushButton_QS.clicked.connect(lambda: SETTINGS["MICROSTEP_FACTOR"](self.esp, axis=1, microstep=int(self.spinBox_QS.value())))
+        self.pushButton_QS_2.clicked.connect(lambda: SETTINGS["MICROSTEP_FACTOR"](self.esp, axis=2, microstep=int(self.spinBox_QS_2.value())))
+        self.pushButton_QS_3.clicked.connect(lambda: SETTINGS["MICROSTEP_FACTOR"](self.esp, axis=3, microstep=int(self.spinBox_QS_3.value()))) 
+        self.pushButton_QT.clicked.connect(lambda: SETTINGS["TACHOMETER_GAIN"](self.esp, axis=1, gain=float(self.doubleSpinBox_QT.value())))
+        self.pushButton_QT_2.clicked.connect(lambda: SETTINGS["TACHOMETER_GAIN"](self.esp, axis=2, gain=float(self.doubleSpinBox_QT_2.value())))
+        self.pushButton_QT_3.clicked.connect(lambda: SETTINGS["TACHOMETER_GAIN"](self.esp, axis=3, gain=float(self.doubleSpinBox_QT_3.value())))       
+        self.pushButton_QV.clicked.connect(lambda: SETTINGS["AVERAGE_VOLTAGE"](self.esp, axis=1, voltage=int(self.lineEdit_QV.text())))
+        self.pushButton_QV_2.clicked.connect(lambda: SETTINGS["AVERAGE_VOLTAGE"](self.esp, axis=2, voltage=int(self.lineEdit_QV_2.text())))
+        self.pushButton_QV_3.clicked.connect(lambda: SETTINGS["AVERAGE_VOLTAGE"](self.esp, axis=3, voltage=int(self.lineEdit_QV_3.text())))     
+        self.pushButton_SL.clicked.connect(lambda: SETTINGS["LEFT_LIMIT"](self.esp, axis=1, position=float(self.lineEdit_SL.text())))
+        self.pushButton_SL_2.clicked.connect(lambda: SETTINGS["LEFT_LIMIT"](self.esp, axis=2, position=float(self.lineEdit_SL_2.text())))
+        self.pushButton_SL_3.clicked.connect(lambda: SETTINGS["LEFT_LIMIT"](self.esp, axis=3, position=float(self.lineEdit_SL_3.text())))    
+        self.pushButton_SR.clicked.connect(lambda: SETTINGS["RIGHT_LIMIT"](self.esp, axis=1, position=float(self.lineEdit_SR.text())))
+        self.pushButton_SR_2.clicked.connect(lambda: SETTINGS["RIGHT_LIMIT"](self.esp, axis=2, position=float(self.lineEdit_SR_2.text())))
+        self.pushButton_SR_3.clicked.connect(lambda: SETTINGS["RIGHTLIMIT"](self.esp, axis=3, position=float(self.lineEdit_SR_3.text())))  
+        self.pushButton_SN.clicked.connect(lambda: SETTINGS["UNITS"](
+            self.esp,
+            axis=1,
+            units={
+                "encoder count": 0,
+                "motor step": 1,
+                "millimeter" :3,
+                "micrometer": 4,
+                "inches": 5, 
+                "milli-inches": 6,
+                "micro-inches": 7,
+                "degree":8, 
+                "gradient":9,
+                "radian":10,
+                "milliradian":11,
+                "microradian":12
+            }.get(self.comboBox_SN.currentText()),
+        )) 
+        self.pushButton_SN_2.clicked.connect(lambda: SETTINGS["UNITS"](
+            self.esp,
+            axis=2,
+            units={
+                "encoder count": 0,
+                "motor step": 1,
+                "millimeter" :3,
+                "micrometer": 4,
+                "inches": 5, 
+                "milli-inches": 6,
+                "micro-inches": 7,
+                "degree":8, 
+                "gradient":9,
+                "radian":10,
+                "milliradian":11,
+                "microradian":12
+            }.get(self.comboBox_SN_2.currentText()),
+        )) 
+        self.pushButton_SN_3.clicked.connect(lambda: SETTINGS["UNITS"](
+            self.esp,
+            axis=3,
+            units={
+                "encoder count": 0,
+                "motor step": 1,
+                "millimeter" :3,
+                "micrometer": 4,
+                "inches": 5, 
+                "milli-inches": 6,
+                "micro-inches": 7,
+                "degree":8, 
+                "gradient":9,
+                "radian":10,
+                "milliradian":11,
+                "microradian":12
+            }.get(self.comboBox_SN_3.currentText()),
+        )) 
+        self.pushButton_SU.clicked.connect(lambda: SETTINGS["ENCODER_RESOLUTION"](self.esp, axis=1, resolution=float(self.lineEdit_SU.text())))
+        self.pushButton_SU_2.clicked.connect(lambda: SETTINGS["ENCODER_RESOLUTION"](self.esp, axis=2, resolution=float(self.lineEdit_SU_2.text())))
+        self.pushButton_SU_3.clicked.connect(lambda: SETTINGS["ENCODER_RESOLUTION"](self.esp, axis=3, resolution=float(self.lineEdit_SU_3.text())))
+        self.pushButton_TB.clicked.connect(lambda:self.update_TB(self.esp, lineEdit=self.textEdit_TB))
+        self.pushButton_TE.clicked.connect(lambda:self.update_TE(self.esp, lineEdit=self.textEdit_TE))
+    def update_TE(self, lineEdit):
+        resp = SETTINGS["ERROR_CODE"](self.esp)
+        lineEdit.setText(f"{resp}") 
+    def update_TB(self, lineEdit):
+        resp = SETTINGS["ERRORS"](self.esp)
+        lineEdit.setText(f"{resp}")  
+
+    def programming(self):
+        self.pushButton_EO.clicked.connect(lambda: SETTINGS["AUTOMATIC_EXECUTION"](self.esp, program=int(self.spinBox_EO.value(), repeats=int(self.spinBox_EOex.value()))))
+        self.pushButton_EP.clicked.connect(lambda: SETTINGS["PROGRAM_MODE"](self.esp, program=int(self.spinBox_EP.value())))
+        self.pushButton_EX.clicked.connect(lambda: SETTINGS["EXECUTE"](self.esp, program=int(self.spinBox_EX.value(), repeats=int(self.spinBox_EXex.value()))))
+        self.pushButton_LP.clicked.connect(lambda: self.update_LP(self.esp, program=int(self.spinBox_LP.value()), lineEdit=self.textEdit_LP))
+        self.pushButton_QP.clicked.connect(lambda: SETTINGS["QUIT_PROGRAM_MODE"](self.esp))
+        self.pushButton_SM.clicked.connect(lambda: SETTINGS["SAVE"](self.esp))
+        self.pushButton_WP.clicked.connect(lambda: SETTINGS["WAIT_POS"](self.esp, axis=1, pos=float(self.lineEdit_WP.text())))
+        self.pushButton_WP_2.clicked.connect(lambda: SETTINGS["WAIT_POS"](self.esp, axis=2, pos=float(self.lineEdit_WP_2.text())))
+        self.pushButton_WP_3.clicked.connect(lambda: SETTINGS["WAIT_POS"](self.esp, axis=3,  pos=float(self.lineEdit_WP_3.text())))
+        self.pushButton_XX.clicked.connect(lambda: SETTINGS["ERASE_PROGRAM"](self.esp, program=int(self.spinBox_XX.value())))
+
+    def update_LP(self, program, lineEdit):
+        resp = SETTINGS["LIST_PROGRAM"](self.esp, program=program)
+        lineEdit.setText(f"{resp}")
+
+    def flow_control(self):
+        self.pushButton_DL.clicked.connect(lambda: SETTINGS["DEFINE_LABEL"](self.esp, label=int(self.spinBox_DL.value())))
+        self.pushButton_JL.clicked.connect(lambda: SETTINGS["JUMP_LABEL"](self.esp, label=int(self.spinBox_JL.value()), loop=int(self.spinBox_JL_2.value())))    
+        self.pushButton_WS.clicked.connect(lambda: SETTINGS["STOP_TIME"](self.esp, axis=1, delay=float(self.lineEdit_WS.text())))
+        self.pushButton_WS_2.clicked.connect(lambda: SETTINGS["STOP_TIME"](self.esp, axis=2, delay=float(self.lineEdit_WS_2.text())))
+        self.pushButton_WS_3.clicked.connect(lambda: SETTINGS["STOP_TIME"](self.esp, axis=3,  delay=float(self.lineEdit_WS_3.text())))
+        self.pushButton_WT.clicked.connect(lambda: SETTINGS["WAIT"](self.esp, axis=1, delay=float(self.lineEdit_WT.text())))
+        self.pushButton_WT_2.clicked.connect(lambda: SETTINGS["WAIT"](self.esp, axis=2, delay=float(self.lineEdit_WT_2.text())))
+        self.pushButton_WT_3.clicked.connect(lambda: SETTINGS["WAIT"](self.esp, axis=3,  delay=float(self.lineEdit_WT_3.text())))
+        self.pushButton_SA.clicked.connect(lambda: SETTINGS["ADDRESS"](self.esp, address=int(self.spinBox_SA.value())))    
+
+
+    def io(self):
+        self.pushButton_dataSetup.clicked.connect(lambda: SETTINGS["SET_DATA_ACQUISITION"](
+            self.esp,
+            axis=int(self.comboBox_dataAxis.currentText()),
+            param=0,
+            rate=int(self.spinBox_dataRate.value()),
+            samples=int(self.spinBox_dataSamples.value()),
+            mode={
+                "Start immediately": 0,
+                "Start when trigger axis starts motion": 1,
+                "Start when trigger axis reaches slew": 2
+            }.get(self.comboBox_dataMode.currentText()),
+            secparam={
+                "none": 0,
+                "channel 1": 1,
+                "channel 2": 2,
+                "channel 1 and 2": 3,
+                "channel 3": 4,
+                "channel 1 & 3": 5,
+                "channel 2 & 4": 6,
+                "channel 1,2,3": 7
+            }.get(self.comboBox_param4.currentText()) 
+        ))
+        self.checkBox_enableDIO.stateChanged.connect(lambda state: SETTINGS["ENABLE_DIO_INHIBIT"](self.esp, axis =1, level=1 if state==Qt.Checked else 0))
+        self.checkBox_enableDIO_2.stateChanged.connect(lambda state: SETTINGS["ENABLE_DIO_INHIBIT"](self.esp, axis =2, level=1 if state==Qt.Checked else 0))
+        self.checkBox_enableDIO_3.stateChanged.connect(lambda state: SETTINGS["ENABLE_DIO_INHIBIT"](self.esp, axis=3, level=1 if state==Qt.Checked else 0))
+        self.pushButton_DIOinhibit.clicked.connect(lambda: SETTINGS["SET_DIO_INHIBIT"](self.esp, axis=1, bit=int(self.comboBox_inhibitBit.currentText()), level=int(self.comboBox_inhibitLevel.currentText())))
+        self.pushButton_DIOinhibit_2.clicked.connect(lambda: SETTINGS["SET_DIO_INHIBIT"](self.esp, axis=2, bit=int(self.comboBox_inhibitBit_2.currentText()), level=int(self.comboBox_inhibitLevel_2.currentText())))
+        self.pushButton_DIOinhibit_3.clicked.connect(lambda: SETTINGS["SET_DIO_INHIBIT"](self.esp, axis=3, bit=int(self.comboBox_inhibitBit_3.currentText()), level=int(self.comboBox_inhibitLevel_3.currentText())))
+        self.checkBox_notify.stateChanged.connect(lambda state: SETTINGS["ENABLEDISABLE_DIO_MOTION"](self.esp, axis =1, level=1 if state==Qt.Checked else 0))
+        self.checkBox_notify_2.stateChanged.connect(lambda state: SETTINGS["ENABLEDISABLE_DIO_MOTION"](self.esp, axis =2, level=1 if state==Qt.Checked else 0))
+        self.checkBox_notify_3.stateChanged.connect(lambda state: SETTINGS["ENABLEDISABLE_DIO_MOTION"](self.esp, axis=3, level=1 if state==Qt.Checked else 0))  
+        self.pushButton_DIOmotion.clicked.connect(lambda: SETTINGS["SET_DIO_MOTION"](self.esp, axis=1, bit=int(self.comboBox_notifyBit.currentText()), level=int(self.comboBox_notifyLevel.currentText())))
+        self.pushButton_DIOmotion_2.clicked.connect(lambda: SETTINGS["SET_DIO_MOTION"](self.esp, axis=2, bit=int(self.comboBox_notifyBit_2.currentText()), level=int(self.comboBox_notifyLevel_2.currentText())))
+        self.pushButton_DIOmotion_3.clicked.connect(lambda: SETTINGS["SET_DIO_MOTION"](self.esp, axis=3, bit=int(self.comboBox_notifyBit_3.currentText()), level=int(self.comboBox_notifyLevel_3.currentText())))
+        self.checkBox_jog.stateChanged.connect(lambda state: SETTINGS["ENABLE_DIO_JOG"](self.esp, axis =1, level=1 if state==Qt.Checked else 0))
+        self.checkBox_jog_2.stateChanged.connect(lambda state: SETTINGS["ENABLE_DIO_JOG"](self.esp, axis =2, level=1 if state==Qt.Checked else 0))
+        self.checkBox_jog_3.stateChanged.connect(lambda state: SETTINGS["ENABLE_DIO_JOG"](self.esp, axis=3, level=1 if state==Qt.Checked else 0))  
+        self.pushButton_DIOjog.clicked.connect(lambda: SETTINGS["SET_DIO_JOG"](self.esp, axis=1, bit=int(self.comboBox_jogBit.currentText()), level=int(self.comboBox_jogLevel.currentText())))
+        self.pushButton_DIOjog_2.clicked.connect(lambda: SETTINGS["SET_DIO_JOG"](self.esp, axis=2, bit=int(self.comboBox_jogBit_2.currentText()), level=int(self.comboBox_jogLevel_2.currentText())))
+        self.pushButton_DIOjog_3.clicked.connect(lambda: SETTINGS["SET_DIO_JOG"](self.esp, axis=3, bit=int(self.comboBox_jogBit_3.currentText()), level=int(self.comboBox_jogLevel_3.currentText())))
+        self.pushButton_dataStatus.clicked.connect(lambda: self.update_DD(self.esp, lineEdit=self.lineEdit_dataStatus))
+        self.checkBox_DE.stateChanged.connect(lambda state: SETTINGS["ENABLE_DATA"](self.esp, enable=1 if state==Qt.Checked else 0))
+        self.pushButton_getData.clicked.connect(lambda: self.update_DG(self.esp, lineEdit=self.textEdit_Data))
+        self.pushButton_getSamples.clicked.connect(lambda: self.update_DF(self.esp, lineEdit=self.lineEdit_getSamples))
+        self.pushButton_ES.clicked.connect(lambda: SETTINGS["EVENT_ACTION"](self.esp, command=str(self.lineEdit_ES.text())))
+        self.pushButton_BG.clicked.connect(lambda: SETTINGS["SET_DIO_EXECUTE"](self.esp, bit=int(self.comboBox_BG.currentText()), program=str(self.lineEdit_BG.text())))
+        self.pushButton_SB.clicked.connect(lambda:SETTINGS["DIO_PORT"](self.esp, port=int(self.lineEdit_SB.text())))
+        self.pushButton_SB_2.clicked.connect(lambda: self.update_SB(self.esp, lineEdit=self.lineEdit_SB_2))
+        self.pushButton_BO.clicked.connect(lambda: SETTINGS["SET_DIO_DIRECTION"](self.esp, direction=int(self.lineEdit_BO.text())))
+        self.pushButton_UH.clicked.connect(lambda: SETTINGS["WAIT_DIO_HIGH"](self.esp, bit=int(self.comboBox_UH.currentText())))
+        self.pushButton_UL.clicked.connect(lambda: SETTINGS["WAIT_DIO_LOW"](self.esp, bit=int(self.comboBox_UL.currentText())))
+
+    def update_DD(self, lineEdit):
+        resp = SETTINGS["DATA_DONE"](self.esp)
+        if resp==0:
+            lineEdit.setText(f"NOT DONE")
+        if resp==1:
+            lineEdit.setText(f"DONE")
+    def update_DF(self, lineEdit):
+        resp=SETTINGS["SAMPLE_COUNT"](self.esp)
+        lineEdit.setText(f"{resp}")
+    def update_DG(self, lineEdit):
+        resp=SETTINGS["GET_DATA"](self.esp)
+        lineEdit.setText(f"{resp}")
+    def update_SB(self, lineEdit):
+        resp=esp.query("SB?")
+        lineEdit.setText(f"{resp}")
+        
+    def group(self):
+        self.pushButton_HA.clicked.connect(lambda:SETTINGS["GROUP_ACCEL"](self.esp, group=int(self.spinBox_HA.value()), accel=float(self.lineEdit_HA.text())))
+        self.pushButton_HC.clicked.connect(lambda:SETTINGS["GROUP_ARC"](self.esp, number=int(self.spinBox_HC.value()),coordinate1=float(self.lineEdit_HC.text()), coordinate2=float(self.lineEdit_HC_2.text()), angle=float(self.lineEdit_HC_3.text())))
+        self.pushButton_HB.clicked.connect(lambda: self.update_HB(self.esp, lineEdit=self.textEdit_HB))
+        self.pushbutton_HD.clicked.connect(lambda:SETTINGS["GROUP_DECEL"](self.esp, group=int(self.spinBox_HD.value()), decel=float(self.lineEdit_HD.text())))
+        self.pushbutton_HE.clicked.connect(lambda:SETTINGS["GROUP_ESTOP_DECEL"](self.esp, group=int(self.spinBox_HE.value()), decel=float(self.lineEdit_HE.text())))
+        self.pushbutton_HF.clicked.connect(lambda:SETTINGS["GROUP_OFF"](self.esp, group=int(self.spinBox_HF.value())))
+        self.pushbutton_HJ.clicked.connect(lambda:SETTINGS["GROUP_JERK"](self.esp, group=int(self.spinBox_HG.value()), jerk=float(self.lineEdit_HJ.text())))
+        self.pushButton_HL.clicked.connect(lambda:SETTINGS["GROUP_LINE"](self.esp, group=int(self.spinBox_HL.value()),target1=float(self.lineEdit_HL.text()), target2=float(self.lineEdit_HL_2.text()), target3=float(self.lineEdit_HL_3.text())))
+        self.pushButton_HN.clicked.connect(lambda:SETTINGS["CREATE_GROUP"](self.esp, group=int(self.spinBox_HN.text.value()),axes=int([i+1 for  i, cb in enumerate ((self.checkBox_HN, self.checkBox_HN_2, self.checkBox_HN_3)) if cb.isChecked()] )))
+        self.pushbutton_HO.clicked.connect(lambda:SETTINGS["GROUP_ON"](self.esp, group=int(self.spinBox_HO.value())))
+        self.pushButton_HP.clicked.connect(lambda: self.update_HP(self.esp, group=int(self.spinBox_HP.value()), lineEdit=self.lineEdit_HP))
+        self.pushButton_HQ.clicked.connect(lambda:SETTINGS["GROUP_BUFFER"](self.esp, group=int(self.spinBox_HQ.value()), time=float(self.doubleSpinBox_HQ.value())))
+        self.pushbutton_HS.clicked.connect(lambda:SETTINGS["STOP_GROUP"](self.esp, group=int(self.spinBox_HS.value())))
+        self.pushbutton_HV.clicked.connect(lambda:SETTINGS["GROUP_VEL"](self.esp, group=int(self.spinBox_HV.value()), velocity=float(self.lineEdit_HV.text())))
+        self.pushButton_HW.clicked.connect(lambda:SETTINGS["WAIT_GROUP_STOP"](self.esp, group=int(self.spinBox_HW.value()), time=float(self.doubleSpinBox_HW.value())))
+        self.pushbutton_HX.clicked.connect(lambda:SETTINGS["DELETE_GROUP"](self.esp, group=int(self.spinBox_HX.value())))
+        self.pushButton_HZ.clicked.connect(lambda:self.update_HZ(self.esp, group=int(self.spinBox_HZ.value()), lineEdit=self.lineEdit_HZ))
+    def update_HB(self, lineEdit):
+        resp = SETTINGS["GROUP_LIST"](self.esp)
+        lineEdit.setText(f"{resp}")
+    def update_HP(self, group, lineEdit):
+        resp = SETTINGS["GROUP_POSITION"](self.esp, group)
+        lineEdit.setText(f"{resp}")
+    def update_HZ(self, group, lineEdit):
+        resp = SETTINGS["GROUP_SIZE"](self.esp, group)
+        lineEdit.setText(f"{resp}")
+        
+    def digital(self):
+        self.pushButton_DAC.clicked.connect(lambda:SETTINGS["SET_DAC_OFFSET"](self.esp, channel=1, offset=float(self.lineEdit_DAC.text())))
+        self.pushButton_DAC_2.clicked.connect(lambda:SETTINGS["SET_DAC_OFFSET"](self.esp, channel=2, offset=float(self.lineEdit_DAC_2.text())))
+        self.pushButton_DAC_3.clicked.connect(lambda:SETTINGS["SET_DAC_OFFSET"](self.esp, channel=3, offset=float(self.lineEdit_DAC_3.text())))
+        self.pushButton_update.clicked.connect(lambda: SETTINGS["SET_LOOP_UPDATE"](self.esp, axis=1, interval=int(self.lineEdit_update.text())))
+        self.pushButton_update_2.clicked.connect(lambda: SETTINGS["SET_LOOP_UPDATE"](self.esp, axis=2, interval=int(self.lineEdit_update_2.text())))
+        self.pushButton_update_3.clicked.connect(lambda: SETTINGS["SET_LOOP_UPDATE"](self.esp, axis=3, interval=int(self.lineEdit_update_3.text())))
+        self.pushButton_deadband.clicked.connect(lambda: SETTINGS["SET_POSITION_DEADBAND"](self.esp, axis=1, band=float(self.lineEdit_deadband.text())))
+        self.pushButton_deadband_2.clicked.connect(lambda: SETTINGS["SET_POSITION_DEADBAND"](self.esp, axis=2, band=float(self.lineEdit_deadband_2.text())))
+        self.pushButton_deadband_3.clicked.connect(lambda: SETTINGS["SET_POSITION_DEADBAND"](self.esp, axis=3, band=float(self.lineEdit_deadband_3.text())))
+        self.pushButton_KD.clicked.connect(lambda: SETTINGS["DERIVATIVE_GAIN"](self.esp, axis=1, gain=float(self.lineEdit_KD.text())))
+        self.pushButton_KD_2.clicked.connect(lambda: SETTINGS["DERIVATIVE_GAIN"](self.esp, axis=2, gain=float(self.lineEdit_KD_2.text())))
+        self.pushButton_KD_3.clicked.connect(lambda: SETTINGS["DERIVATIVE_GAIN"](self.esp, axis=3, gain=float(self.lineEdit_KD_3.text())))  
+        self.pushButton_KI.clicked.connect(lambda: SETTINGS["INTEGRAL_GAIN"](self.esp, axis=1, gain=float(self.lineEdit_KI.text())))
+        self.pushButton_KI_2.clicked.connect(lambda: SETTINGS["INTEGRAL_GAIN"](self.esp, axis=2, gain=float(self.lineEdit_KI_2.text())))
+        self.pushButton_KI_3.clicked.connect(lambda: SETTINGS["INTEGRAL_GAIN"](self.esp, axis=3, gain=float(self.lineEdit_KI_3.text())))   
+        self.pushButton_KP.clicked.connect(lambda: SETTINGS["PROPORTIONAL_GAIN"](self.esp, axis=1, gain=float(self.lineEdit_KP.text())))
+        self.pushButton_KP_2.clicked.connect(lambda: SETTINGS["PROPORTIONAL_GAIN"](self.esp, axis=2, gain=float(self.lineEdit_KP_2.text())))
+        self.pushButton_KP_3.clicked.connect(lambda: SETTINGS["PROPORTIONAL_GAIN"](self.esp, axis=3, gain=float(self.lineEdit_KP_3.text())))
+        self.pushButton_KS.clicked.connect(lambda: SETTINGS["SATURATION"](self.esp, axis=1, saturation=float(self.lineEdit_KS.text())))
+        self.pushButton_KS_2.clicked.connect(lambda: SETTINGS["SATURATION"](self.esp, axis=2, saturatiohn=float(self.lineEdit_KS_2.text())))
+        self.pushButton_KS_3.clicked.connect(lambda: SETTINGS["SATURATION"](self.esp, axis=3, saturation=float(self.lineEdit_KS_3.text())))      
+        self.pushButton_VF.clicked.connect(lambda: SETTINGS["SET_VEL_FEEDFORWARD"](self.esp, axis=1, vel=float(self.lineEdit_VF.text())))
+        self.pushButton_VF_2.clicked.connect(lambda: SETTINGS["SET_VEL_FEEDFORWARD"](self.esp, axis=2, vel=float(self.lineEdit_VF_2.text())))
+        self.pushButton_VF_3.clicked.connect(lambda: SETTINGS["SET_VEL_FEEDFORWARD"](self.esp, axis=3, vel=float(self.lineEdit_VF_3.text()))) 
+    def master(self):
+        self.pushButton_GR.clicked.connect(lambda: SETTINGS["MASTER_RATIO"](self.esp, axis=1, ratio=float(self.doubleSpinBox_GR.value())))
+        self.pushButton_GR_2.clicked.connect(lambda: SETTINGS["MASTER_RATIO"](self.esp, axis=2, ratio=float(self.doubleSpinBox_GR_2.value())))
+        self.pushButton_GR_3.clicked.connect(lambda: SETTINGS["MASTER_RATIO"](self.esp, axis=3, ratio=float(self.doubleSpinBox_GR_3.value())))
+        self.pushButton_SI.clicked.connect(lambda: SETTINGS["MASTER_JOG"](self.esp, interval=int(self.spinBox_SI.value())))
+        self.pushButton_SK.clicked.connect(lambda: SETTINGS["SCALING"](self.esp, coeff1=float(self.lineEdit_SK.text()), coeff2=float(self.lineEdit_SK_2.text())))
+        self.pushButton_SS.clicked.connect(lambda: SETTINGS["MASER_SLAVE"](
+            self.esp,
+            samples=int(self.spinBox_dataSamples.value()),
+            slave={
+                "X":1,
+                "Y":2,
+                "Z":3
+            }.get(self.comboBox_SS.currentText()),
+            master={
+                "X":1,
+                "Y":2,
+                "Z":3
+            }.get(self.comboBox_SS_2.currentText())
+        ))
+
+def main():
+    app = QtWidgets.QApplication(sys.argv)
+    window = MainWindow(esp=None)
+    window.show()
+    sys.exit(app.exec_())
+
