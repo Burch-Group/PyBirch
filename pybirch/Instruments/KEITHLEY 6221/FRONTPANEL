@@ -1,0 +1,736 @@
+import sys
+import threading
+import queue
+import time
+from typing import Optional, Callable
+
+try:
+    import pyvisa
+    from pyvisa.resources import MessageBasedResource
+except Exception:
+    pyvisa = None
+
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
+    QGridLayout, QComboBox, QLineEdit, QSlider, QLCDNumber, QSpinBox, QGroupBox,
+    QMessageBox, QSizePolicy
+)
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QFont
+
+# -------------------------
+# Simple threaded VISA wrapper (real connectivity only)
+# -------------------------
+class SimpleKeithley6221:
+    def __init__(self, timeout_ms: int = 5000):
+        if not pyvisa:
+            raise RuntimeError("pyvisa is required for real instrument connectivity.")
+        self._rm = pyvisa.ResourceManager()
+        self._inst: Optional[MessageBasedResource] = None
+        self.timeout_ms = int(timeout_ms)
+        self._lock = threading.RLock()
+        self._queue = queue.Queue()
+        self._worker_stop = threading.Event()
+        self._worker_thread = threading.Thread(target=self._worker, daemon=True)
+        self._worker_thread.start()
+
+    def list_resources(self):
+        try:
+            return list(self._rm.list_resources())
+        except Exception:
+            return []
+
+    def connect(self, resource_name: str):
+        with self._lock:
+            if self._inst:
+                raise RuntimeError("Already connected.")
+            self._inst = self._rm.open_resource(resource_name)
+            try:
+                self._inst.timeout = int(self.timeout_ms)
+            except Exception:
+                pass
+            try:
+                self._inst.write("*CLS")
+            except Exception:
+                pass
+
+    def close(self):
+        with self._lock:
+            self._worker_stop.set()
+            try:
+                self._queue.put(("__QUIT__", None), block=False)
+            except Exception:
+                pass
+            try:
+                if self._inst:
+                    self._inst.close()
+            except Exception:
+                pass
+            self._inst = None
+            try:
+                if self._worker_thread.is_alive():
+                    self._worker_thread.join(timeout=1.0)
+            except Exception:
+                pass
+
+    def is_connected(self):
+        return self._inst is not None
+
+    def _write(self, cmd: str):
+        with self._lock:
+            if not self._inst:
+                raise ConnectionError("Not connected to instrument.")
+            return self._inst.write(cmd)
+
+    def _query(self, cmd: str) -> str:
+        with self._lock:
+            if not self._inst:
+                raise ConnectionError("Not connected to instrument.")
+            return str(self._inst.query(cmd)).strip()
+
+    def queue(self, command: str, callback: Optional[Callable[[Optional[str]], None]] = None):
+        self._queue.put((command, callback))
+
+    def _worker(self):
+        while not self._worker_stop.is_set():
+            try:
+                item = self._queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            cmd, cb = item
+            if cmd == "__QUIT__":
+                try:
+                    self._queue.task_done()
+                except Exception:
+                    pass
+                break
+            try:
+                if cmd.strip().endswith("?"):
+                    resp = self._query(cmd)
+                    if cb:
+                        try:
+                            cb(resp)
+                        except Exception:
+                            pass
+                else:
+                    self._write(cmd)
+                    if cb:
+                        try:
+                            cb(None)
+                        except Exception:
+                            pass
+            except Exception as e:
+                if cb:
+                    try:
+                        cb(f"__ERROR__:{e}")
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    self._queue.task_done()
+                except Exception:
+                    pass
+
+# -------------------------
+# Widgets & styling helpers
+# -------------------------
+def led_style(on: bool, color_on="#39FF14", color_off="#233"):
+    if on:
+        return f"background-color: {color_on}; border-radius: 8px; border: 1px solid #666;"
+    else:
+        return f"background-color: {color_off}; border-radius: 8px; border: 1px solid #222;"
+
+
+def big_button_style():
+    return (
+        "QPushButton{"
+        "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ddd, stop:1 #aaa);"
+        "border: 2px solid #333; border-radius: 8px; font-weight: bold; font-size: 14px; padding: 8px;"
+        "}"
+        "QPushButton:pressed{background: #888;}"
+    )
+
+
+def mode_button_style(selected=False):
+    if selected:
+        return (
+            "QPushButton{"
+            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #3a7, stop:1 #2a6);"
+            "color: white; font-weight: bold; border-radius:6px; padding:6px;"
+            "}"
+        )
+    else:
+        return (
+            "QPushButton{"
+            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #eee, stop:1 #ccc);"
+            "border: 1px solid #444; border-radius:6px; padding:6px;"
+            "}"
+        )
+
+# -------------------------
+# Main front panel UI
+# -------------------------
+class KeithleyFrontPanel(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Keithley 6221 — Front Panel (VISA required)")
+        self.setFixedSize(900, 500)
+
+        if not pyvisa:
+            QMessageBox.critical(self, "Missing dependency", "pyvisa is required for real instrument connectivity.")
+            raise SystemExit(1)
+
+        self.instr = SimpleKeithley6221()
+        self._state_lock = threading.RLock()
+
+        self.mode = "DC"
+        self.output_on = False
+        self.current_setpoint = 0.0
+        self.compliance_v = 10.0
+        self.error_text = "0,\"No error\""
+        self.connected_resource = None
+        self._last_idn = None
+        self._last_meas = None
+
+        self._build_ui()
+        self._apply_styles()
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._periodic_ui_update)
+        self.timer.start(800)
+
+    def _build_ui(self):
+        w = QWidget()
+        self.setCentralWidget(w)
+        main = QHBoxLayout(w)
+
+        # LEFT: Display and softkeys
+        left = QVBoxLayout()
+
+        disp_box = QGroupBox()
+        disp_layout = QVBoxLayout(disp_box)
+
+        # Top status row
+        status_row = QHBoxLayout()
+        self.idn_label = QLabel("IDN: (not connected)")
+        self.idn_label.setStyleSheet("color: #ddd; font-size: 11px;")
+        status_row.addWidget(self.idn_label)
+
+        self.error_led = QLabel("ERR")
+        self.error_led.setFixedSize(60, 22)
+        self.error_led.setStyleSheet(led_style(False, color_off="#222"))
+        status_row.addWidget(self.error_led)
+        disp_layout.addLayout(status_row)
+
+        # Mode + LCD
+        self.mode_display = QLabel("Mode: DC")
+        self.mode_display.setAlignment(Qt.AlignCenter)
+        self.mode_display.setStyleSheet("color: #aaa; font-weight: bold;")
+        disp_layout.addWidget(self.mode_display)
+
+        self.big_display = QLCDNumber()
+        self.big_display.setSegmentStyle(QLCDNumber.Filled)
+        self.big_display.setDigitCount(12)
+        self.big_display.display("0.000")
+        disp_layout.addWidget(self.big_display)
+
+        # Compliance + Output
+        bottom_row = QHBoxLayout()
+        self.compliance_label = QLabel("Compliance: 10.000 V")
+        self.compliance_label.setStyleSheet("color: #ddd; font-size: 12px;")
+        bottom_row.addWidget(self.compliance_label)
+
+        self.output_indicator = QLabel("OUTPUT OFF")
+        self.output_indicator.setAlignment(Qt.AlignCenter)
+        self.output_indicator.setFixedWidth(160)
+        self.output_indicator.setStyleSheet("background:#222; color:#f88; font-weight:bold; border-radius:6px;")
+        bottom_row.addWidget(self.output_indicator)
+        disp_layout.addLayout(bottom_row)
+
+        left.addWidget(disp_box)
+
+        # Softkeys
+        soft_row = QHBoxLayout()
+        for name in ("LOCAL", "EDIT", "CONFIG", "FILT"):
+            b = QPushButton(name)
+            b.setFixedHeight(30)
+            b.setStyleSheet("QPushButton{background:#444;color:white;border-radius:4px;} QPushButton:pressed{background:#666}")
+            soft_row.addWidget(b)
+        left.addLayout(soft_row)
+
+        main.addLayout(left, 2)
+
+        # RIGHT: Controls
+        right = QVBoxLayout()
+
+        # Connection
+        conn_box = QGroupBox("Connection")
+        conn_layout = QHBoxLayout(conn_box)
+        self.res_combo = QComboBox()
+        self.res_combo.setFixedWidth(420)
+        self.refresh_btn = QPushButton("Refresh")
+        self.connect_btn = QPushButton("Connect")
+        conn_layout.addWidget(self.res_combo)
+        conn_layout.addWidget(self.refresh_btn)
+        conn_layout.addWidget(self.connect_btn)
+        right.addWidget(conn_box)
+
+        self.refresh_btn.clicked.connect(self._refresh_resources)
+        self.connect_btn.clicked.connect(self._connect_toggle)
+
+        # Mode buttons
+        mode_box = QGroupBox("Mode")
+        mode_layout = QHBoxLayout(mode_box)
+        self.mode_buttons = {}
+        for m in ("DC", "AC", "DELTA", "SWEEP"):
+            b = QPushButton(m)
+            b.setCheckable(True)
+            b.clicked.connect(self._make_mode_handler(m))
+            mode_layout.addWidget(b)
+            self.mode_buttons[m] = b
+        right.addWidget(mode_box)
+
+        # Output toggle
+        out_box = QGroupBox()
+        out_layout = QHBoxLayout(out_box)
+        self.output_btn = QPushButton("OUTPUT OFF")
+        self.output_btn.setCheckable(True)
+        self.output_btn.setFixedHeight(60)
+        self.output_btn.setFont(QFont("Sans", 14, QFont.Bold))
+        self.output_btn.clicked.connect(self._toggle_output)
+        out_layout.addWidget(self.output_btn)
+        right.addWidget(out_box)
+
+        # Setpoint section
+        set_box = QGroupBox("Setpoint (current)")
+        set_layout = QHBoxLayout(set_box)
+
+        # Keypad column
+        keypad_col = QVBoxLayout()
+        self.key_entry = QLineEdit()
+        self.key_entry.setPlaceholderText("Enter value then press Enter")
+        self.key_entry.returnPressed.connect(self._enter_key_value)
+        keypad_col.addWidget(self.key_entry)
+
+        grid = QGridLayout()
+        keys = [
+            ("7", 0, 0), ("8", 0, 1), ("9", 0, 2),
+            ("4", 1, 0), ("5", 1, 1), ("6", 1, 2),
+            ("1", 2, 0), ("2", 2, 1), ("3", 2, 2),
+            ("0", 3, 0), (".", 3, 1), ("BS", 3, 2),
+        ]
+        for label, r, c in keys:
+            b = QPushButton(label)
+            b.setFixedSize(60, 36)
+            if label == "BS":
+                b.clicked.connect(self._key_backspace)
+            else:
+                b.clicked.connect(lambda _, t=label: self._key_pressed(t))
+            grid.addWidget(b, r, c)
+        keypad_col.addLayout(grid)
+        set_layout.addLayout(keypad_col)
+
+        # Display + unit column
+        display_col = QVBoxLayout()
+        self.small_lcd = QLCDNumber()
+        self.small_lcd.setDigitCount(8)
+        self.small_lcd.setSegmentStyle(QLCDNumber.Filled)
+        self.small_lcd.display("0.000")
+        display_col.addWidget(self.small_lcd)
+
+        self.unit_label = QLabel("mA")
+        self.unit_label.setAlignment(Qt.AlignCenter)
+        self.unit_label.setStyleSheet("color:#ddd; font-weight:bold;")
+        display_col.addWidget(self.unit_label)
+
+        self.fine_step_spin = QSpinBox()
+        self.fine_step_spin.setRange(0, 9)
+        self.fine_step_spin.setValue(3)
+        display_col.addWidget(QLabel("Fine digits"))
+        display_col.addWidget(self.fine_step_spin)
+        set_layout.addLayout(display_col)
+
+        # Controls column
+        control_col = QVBoxLayout()
+        self.up_btn = QPushButton("▲")
+        self.down_btn = QPushButton("▼")
+        self.up_btn.setFixedSize(44, 36)
+        self.down_btn.setFixedSize(44, 36)
+        self.up_btn.clicked.connect(lambda: self._nudge_setpoint(+1))
+        self.down_btn.clicked.connect(lambda: self._nudge_setpoint(-1))
+        control_col.addWidget(self.up_btn)
+        control_col.addWidget(self.down_btn)
+
+        self.unit_combo = QComboBox()
+        self.unit_combo.addItems(["A", "mA", "uA", "nA", "pA"])
+        self.unit_combo.setCurrentText("mA")
+        self.unit_combo.currentTextChanged.connect(self._unit_changed)
+        control_col.addWidget(self.unit_combo)
+
+        self.knob = QSlider(Qt.Horizontal)
+        self.knob.setRange(-10000, 10000)
+        self.knob.setTickInterval(1000)
+        self.knob.setValue(0)
+        self.knob.sliderReleased.connect(self._knob_released)
+        self.knob.valueChanged.connect(self._knob_moved)
+        control_col.addWidget(QLabel("Coarse knob"))
+        control_col.addWidget(self.knob)
+        set_layout.addLayout(control_col)
+
+        right.addWidget(set_box)
+
+        # Compliance
+        comp_box = QGroupBox("Compliance")
+        comp_layout = QHBoxLayout(comp_box)
+        self.comp_edit = QLineEdit("10.000")
+        self.comp_set_btn = QPushButton("Set Compliance")
+        self.comp_set_btn.clicked.connect(self._set_compliance_from_field)
+        comp_layout.addWidget(QLabel("OVP (V):"))
+        comp_layout.addWidget(self.comp_edit)
+        comp_layout.addWidget(self.comp_set_btn)
+        right.addWidget(comp_box)
+
+        # Status
+        status_row = QHBoxLayout()
+        self.status_label = QLabel("Ready")
+        status_row.addWidget(self.status_label)
+        right.addLayout(status_row)
+
+        main.addLayout(right, 3)
+
+        # Final setup
+        self._refresh_resources()
+        self._update_display()
+
+
+    def _apply_styles(self):
+        self.setStyleSheet(
+            "QMainWindow{background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #1d1f21, stop:1 #151617);} "
+            "QGroupBox{color:#ddd; border:1px solid #333; border-radius:6px; padding:6px; margin-top:6px;} "
+            "QLabel{color:#ddd;}"
+        )
+        self.output_btn.setStyleSheet(big_button_style())
+
+    def _display_current_value_for_lcd(self, value_amp: float):
+        unit = self.unit_combo.currentText() if hasattr(self, "unit_combo") else "mA"
+        if unit == "A":
+            return value_amp
+        elif unit == "mA":
+            return value_amp * 1e3
+        elif unit == "uA":
+            return value_amp * 1e6
+        elif unit == "nA":
+            return value_amp * 1e9
+        else:
+            return value_amp * 1e12
+
+    def _update_display(self):
+        self.mode_display.setText(f"Mode: {self.mode}")
+        lcd_val = self._display_current_value_for_lcd(self.current_setpoint)
+        digits = max(0, self.fine_step_spin.value())
+        try:
+            self.big_display.display(round(lcd_val, digits))
+        except Exception:
+            self.big_display.display(lcd_val)
+        self.compliance_label.setText(f"Compliance: {self.compliance_v:.3f} V")
+        if self.output_on:
+            self.output_indicator.setText("OUTPUT ON")
+            self.output_indicator.setStyleSheet("background:#067; color:#cff; font-weight:bold; border-radius:6px;")
+            self.output_btn.setChecked(True)
+            self.output_btn.setText("OUTPUT ON")
+        else:
+            self.output_indicator.setText("OUTPUT OFF")
+            self.output_indicator.setStyleSheet("background:#222; color:#f88; font-weight:bold; border-radius:6px;")
+            self.output_btn.setChecked(False)
+            self.output_btn.setText("OUTPUT OFF")
+
+        err = self.error_text
+        if err and not err.upper().startswith('0,"NO ERROR"'):
+            self.error_led.setStyleSheet(led_style(True, color_on="#ff3a3a"))
+            self.error_led.setToolTip(err)
+        else:
+            self.error_led.setStyleSheet(led_style(False, color_off="#222"))
+            self.error_led.setToolTip("No errors")
+
+        with self._state_lock:
+            if self._last_idn:
+                self.idn_label.setText(f"IDN: {self._last_idn}")
+            else:
+                self.idn_label.setText("IDN: (connected)" if self.instr.is_connected() else "IDN: (not connected)")
+
+    def _refresh_resources(self):
+        self.res_combo.clear()
+        try:
+            resources = self.instr.list_resources()
+            if resources:
+                self.res_combo.addItems(resources)
+            else:
+                self.res_combo.addItem("No VISA resources found")
+        except Exception:
+            self.res_combo.addItem("Error listing resources")
+
+    def _connect_toggle(self):
+        if not self.instr.is_connected():
+            selected = self.res_combo.currentText()
+            if not selected or selected.startswith("No VISA"):
+                QMessageBox.information(self, "Select Resource", "Select a VISA resource from the list before connecting.")
+                return
+            try:
+                self.instr.connect(selected)
+                self.connected_resource = selected
+                self.connect_btn.setText("Disconnect")
+                QMessageBox.information(self, "Connected", f"Connected to {selected}")
+                self.instr.queue("*IDN?", self._handle_idn)
+                self.instr.queue("SOUR:VOLT:PROT?", self._handle_ovp)
+                self.instr.queue("OUTP?", self._handle_outp)
+                self.instr.queue("MEAS:CURR?", self._handle_meas)
+            except Exception as e:
+                QMessageBox.critical(self, "Connect Error", f"Failed to connect:\n{e}")
+        else:
+            try:
+                self.instr.close()
+                self.connect_btn.setText("Connect")
+                QMessageBox.information(self, "Disconnected", "Instrument disconnected.")
+                self.connected_resource = None
+                with self._state_lock:
+                    self._last_idn = None
+            except Exception:
+                pass
+        self._update_display()
+
+    def _make_mode_handler(self, mode_name):
+        def handler():
+            self.mode = mode_name
+            self._update_mode_buttons()
+            if mode_name == "DC":
+                cmd = "SOUR:FUNC CURR"
+            elif mode_name == "AC":
+                cmd = "SOUR:FUNC:MODE MULT; SOUR:WAVE:FUNC SINE"
+            elif mode_name == "DELTA":
+                cmd = "SOUR:FUNC CURR; SOUR:CURR:DELTA ON"
+            elif mode_name == "SWEEP":
+                cmd = "SOUR:FUNC CURR; SOUR:CURR:MODE SWE"
+            else:
+                cmd = ""
+            if cmd and self.instr.is_connected():
+                try:
+                    self.instr.queue(cmd, lambda r: None)
+                except Exception:
+                    pass
+            self._update_display()
+        return handler
+
+    def _update_mode_buttons(self):
+        for m, btn in self.mode_buttons.items():
+            if m == self.mode:
+                btn.setStyleSheet(mode_button_style(selected=True))
+                btn.setChecked(True)
+            else:
+                btn.setStyleSheet(mode_button_style(selected=False))
+                btn.setChecked(False)
+
+    def _toggle_output(self):
+        self.output_on = not self.output_on
+        cmd = "OUTP ON" if self.output_on else "OUTP OFF"
+        if self.instr.is_connected():
+            try:
+                self.instr.queue(cmd, lambda r: None)
+            except Exception:
+                pass
+        self._update_display()
+
+    def _key_pressed(self, token):
+        txt = self.key_entry.text()
+        txt += token
+        self.key_entry.setText(txt)
+
+    def _key_backspace(self):
+        txt = self.key_entry.text()
+        self.key_entry.setText(txt[:-1])
+
+    def _enter_key_value(self):
+        txt = self.key_entry.text().strip()
+        if not txt:
+            return
+        val_amp = None
+        try:
+            val_amp = float(txt)
+            unit = self.unit_combo.currentText()
+            if unit == "A":
+                pass
+            elif unit == "mA":
+                val_amp = val_amp * 1e-3
+            elif unit == "uA":
+                val_amp = val_amp * 1e-6
+            elif unit == "nA":
+                val_amp = val_amp * 1e-9
+            elif unit == "pA":
+                val_amp = val_amp * 1e-12
+        except Exception:
+            try:
+                t = txt.replace(" ", "")
+                multipliers = {"MA": 1e-3, "UA": 1e-6, "NA": 1e-9, "PA": 1e-12, "A": 1.0}
+                for suf, mul in multipliers.items():
+                    if t.upper().endswith(suf):
+                        num = float(t[:-len(suf)])
+                        val_amp = num * mul
+                        break
+            except Exception:
+                val_amp = None
+        if val_amp is None:
+            QMessageBox.warning(self, "Parse error", f"Could not interpret '{txt}' as a current value.")
+            return
+        self.current_setpoint = val_amp
+        if self.instr.is_connected():
+            amp = self.current_setpoint
+            cmd = f"SOUR:FUNC CURR; SOUR:CURR:LEV {amp:.12g}"
+            try:
+                self.instr.queue(cmd, lambda r: None)
+            except Exception:
+                pass
+        self.key_entry.clear()
+        self._update_display()
+
+    def _nudge_setpoint(self, direction: int):
+        unit = self.unit_combo.currentText()
+        base_step = 10 ** (-self.fine_step_spin.value())
+        if unit == "A":
+            delta = base_step
+        elif unit == "mA":
+            delta = base_step * 1e-3
+        elif unit == "uA":
+            delta = base_step * 1e-6
+        elif unit == "nA":
+            delta = base_step * 1e-9
+        else:
+            delta = base_step * 1e-12
+        self.current_setpoint += direction * delta
+        if self.instr.is_connected():
+            cmd = f"SOUR:FUNC CURR; SOUR:CURR:LEV {self.current_setpoint:.12g}"
+            try:
+                self.instr.queue(cmd, lambda r: None)
+            except Exception:
+                pass
+        self._update_display()
+
+    def _unit_changed(self, new_unit):
+        self._update_display()
+
+    def _knob_moved(self, val):
+        span = 0.02
+        base = max(abs(self.current_setpoint), 1e-6)
+        frac = (val / 10000.0) * span
+        new = self.current_setpoint * (1.0 + frac)
+        if abs(self.current_setpoint) < 1e-12:
+            new = frac * 1e-3
+        self._temp_knob_value = new
+        self.big_display.display(self._display_current_value_for_lcd(new))
+
+    def _knob_released(self):
+        val = getattr(self, "_temp_knob_value", None)
+        if val is None:
+            return
+        self.current_setpoint = val
+        if self.instr.is_connected():
+            cmd = f"SOUR:FUNC CURR; SOUR:CURR:LEV {self.current_setpoint:.12g}"
+            try:
+                self.instr.queue(cmd, lambda r: None)
+            except Exception:
+                pass
+        self.knob.setValue(0)
+        self._update_display()
+
+    def _set_compliance_from_field(self):
+        txt = self.comp_edit.text().strip()
+        try:
+            v = float(txt)
+            self.compliance_v = v
+            if self.instr.is_connected():
+                cmd = f"SOUR:VOLT:PROT {v:.12g}"
+                self.instr.queue(cmd, lambda r: None)
+            self._update_display()
+        except Exception:
+            QMessageBox.warning(self, "Parse error", f"Could not parse compliance value '{txt}'")
+
+    def _handle_idn(self, resp):
+        if resp is None:
+            return
+        if isinstance(resp, str) and resp.startswith("__ERROR__"):
+            with self._state_lock:
+                self._last_idn = f"(IDN read error)"
+        else:
+            with self._state_lock:
+                self._last_idn = str(resp)
+
+    def _handle_ovp(self, resp):
+        if resp is None:
+            return
+        if isinstance(resp, str) and resp.startswith("__ERROR__"):
+            return
+        try:
+            v = float(resp)
+            with self._state_lock:
+                self.compliance_v = v
+        except Exception:
+            pass
+
+    def _handle_outp(self, resp):
+        if resp is None:
+            return
+        if isinstance(resp, str) and resp.startswith("__ERROR__"):
+            return
+        st = str(resp).strip().upper()
+        with self._state_lock:
+            self.output_on = st in ("1", "ON", "TRUE")
+
+    def _handle_meas(self, resp):
+        if resp is None:
+            return
+        if isinstance(resp, str) and resp.startswith("__ERROR__"):
+            return
+        try:
+            v = float(resp)
+            with self._state_lock:
+                self._last_meas = v
+        except Exception:
+            pass
+
+    def _handle_serr(self, resp):
+        if resp is None:
+            return
+        if isinstance(resp, str) and resp.startswith("__ERROR__"):
+            with self._state_lock:
+                self.error_text = "(poll error)"
+            return
+        with self._state_lock:
+            self.error_text = str(resp)
+
+    def _periodic_ui_update(self):
+        if self.instr.is_connected():
+            try:
+                self.instr.queue("SYST:ERR?", self._handle_serr)
+                self.instr.queue("OUTP?", self._handle_outp)
+                self.instr.queue("MEAS:CURR?", self._handle_meas)
+                self.instr.queue("*IDN?", self._handle_idn)
+                self.instr.queue("SOUR:VOLT:PROT?", self._handle_ovp)
+            except Exception:
+                pass
+        with self._state_lock:
+            pass
+        self._update_display()
+
+    def closeEvent(self, event):
+        try:
+            self.instr.close()
+        except Exception:
+            pass
+        event.accept()
+
+def main():
+    app = QApplication(sys.argv)
+    win = KeithleyFrontPanel()
+    win.show()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()

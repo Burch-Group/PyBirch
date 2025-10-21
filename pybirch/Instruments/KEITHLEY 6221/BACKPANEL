@@ -1,0 +1,1494 @@
+import sys
+import os
+import time
+import math
+import json
+import threading
+import queue
+from typing import Optional, List, Dict, Any, Callable
+
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer, QThread
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
+    QLabel, QPushButton, QComboBox, QGroupBox, QDoubleSpinBox, QSpinBox,
+    QPlainTextEdit, QLineEdit, QFileDialog, QMessageBox, QCheckBox,
+    QTabWidget, QProgressBar, QTextEdit
+)
+
+try:
+    import pyvisa
+    from pyvisa.resources import MessageBasedResource
+except Exception as e:
+    raise ImportError("pyvisa is required: pip install pyvisa\n" + str(e))
+
+
+# Device limits (manual-derived)
+MAX_CURRENT_A = 0.105
+MIN_CURRENT_A = 1e-13
+MAX_COMPLIANCE_V = 105.0
+MIN_COMPLIANCE_V = 0.1
+
+def _fmt(val: float) -> str:
+    return f"{val:.12g}"
+
+def _to_amps(value: float, unit: str) -> float:
+    u = unit.lower()
+    if u in ("a","amp","amps"): return value
+    if u in ("ma","milli","milliamps"): return value * 1e-3
+    if u in ("ua","µa","micro","microamp","ua"): return value * 1e-6
+    if u in ("na","nano","nanoamp"): return value * 1e-9
+    if u in ("pa","pico","picoamp"): return value * 1e-12
+    return value
+
+# Central SCPI mapping (editable)
+command_map = {
+    "idn":"*IDN?",
+    "reset":"*RST",
+    "clear":"*CLS",
+    "stb":"*STB?",
+    "syst_err":"SYST:ERR?",
+    "output_on":"OUTP ON",
+    "output_off":"OUTP OFF",
+    "output_q":"OUTP?",
+    # source
+    "sour_func_curr":"SOUR:FUNC CURR",
+    "sour_curr_lev":"SOUR:CURR:LEV {val}",
+    "sour_curr_start":"SOUR:CURR:START {val}",
+    "sour_curr_stop":"SOUR:CURR:STOP {val}",
+    "sour_curr_step":"SOUR:CURR:STEP {val}",
+    "sour_curr_dwell":"SOUR:CURR:DWELL {val}",
+    "sour_curr_rang":"SOUR:CURR:RANG {val}",
+    "sour_curr_rang_auto":"SOUR:CURR:RANG:AUTO {onoff}",
+    "sour_curr_pol":"SOUR:CURR:POL {pol}",
+    "sour_volt_prot":"SOUR:VOLT:PROT {val}",
+    # wave
+    "sour_wave_mode":"SOUR:FUNC:MODE MULT",
+    "sour_wave_func":"SOUR:WAVE:FUNC {type}",
+    "sour_wave_ampl":"SOUR:WAVE:AMPL {val}",
+    "sour_wave_freq":"SOUR:WAVE:FREQ {val}",
+    "sour_wave_offs":"SOUR:WAVE:OFFS {val}",
+    "sour_wave_duty":"SOUR:WAVE:DUTY {val}",
+    "sour_wave_phas":"SOUR:WAVE:PHAS {val}",
+    "sour_wave_burs":"SOUR:WAVE:BURS {onoff}",
+    "sour_wave_burs_count":"SOUR:WAVE:BURS:COUNT {val}",
+    "sour_wave_phasmk":"SOUR:WAVE:PHAS:MARK {onoff}",
+    # trig
+    "trig_source":"TRIG:SOUR {src}",
+    "trig_delay":"TRIG:DEL {val}",
+    "trig_count":"TRIG:COUN {val}",
+    "trig_out_puls_wid":"TRIG:OUT:PULS:WID {val}",
+    # meas/averaging
+    "sens_aver_stat":"SENS:AVER:STAT {onoff}",
+    "sens_aver_count":"SENS:AVER:COUNT {val}",
+    "sens_range_volt":"SENS:VOLT:RANG {val}",
+    "sens_range_curr":"SENS:CURR:RANG {val}",
+    "format_ascii":"FORM:DATA ASCII",
+    # trace
+    "trac_cle":"TRAC:CLE",
+    "trac_poin":"TRAC:POIN {n}",
+    "trac_feed":"TRAC:FEED {feed}",
+    "trac_feed_sour":"TRAC:FEED:SOUR \"{src}\"",
+    # memory
+    "setup_write":"SYST:SETup:WRIte {slot}",
+    "setup_read":"SYST:SETup:READ {slot}",
+    "setup_power":"SYST:SET:POWER {slot}",
+    "panel_lock":"SYST:LOCK {onoff}",
+    # diag
+    "self_test":"*TST?",
+    "diag":"SYST:DIAG?"
+}
+
+
+# ----------------- Driver -----------------
+class DriverSignals(QObject):
+    cmd_result = pyqtSignal(str, object)
+    cmd_error = pyqtSignal(str, str)
+    log = pyqtSignal(str)
+
+class FullDriver(QObject):
+    def __init__(self, visa_backend: Optional[str] = None, timeout_ms: int = 5000):
+        super().__init__()
+        self.signals = DriverSignals()
+        try:
+            self.rm = pyvisa.ResourceManager(visa_backend) if visa_backend else pyvisa.ResourceManager()
+        except Exception as e:
+            self.rm = None
+            self.signals.log.emit(f"VISA init failed: {e}")
+        self.inst: Optional[MessageBasedResource] = None
+        self._lock = threading.RLock()
+        self.timeout_ms = int(timeout_ms)
+        self._queue: "queue.Queue[tuple]" = queue.Queue()
+        self._stop = threading.Event()
+        self._worker: Optional[threading.Thread] = None
+        self.write_termination = "\n"
+        self.read_termination = "\n"
+        self.eoi = True
+# Insert into FullDriver
+    def query_options_and_firmware(self):
+        result = {"idn": "", "vers": "", "options": []}
+        try:
+            result["idn"] = self.query("*IDN?")
+        except Exception:
+            pass
+        # some firmwares expose SYST:OPT? or SYST:VERS?; try both
+        try:
+            vers = self.query("SYST:VERS?")
+            result["vers"] = vers
+        except Exception:
+            pass
+        # try known option query token (firmware-dependent)
+        try:
+            opts = self.query("SYST:OPT?")
+            # parse comma-separated option list if present
+            result["options"] = [o.strip() for o in str(opts).split(",") if o.strip()]
+        except Exception:
+            pass
+        self.signals.log.emit(f"Options detection: {result}")
+        return result
+# Insert into FullDriver
+
+    def stream_trace_to_file_resilient(self, outfile: str, buffer_name: str = "defbuffer1", chunk_size: int = 1000, interval_s: float = 1.0, circular: bool = False, stop_event: threading.Event = None, reconnect_attempts:int=3):
+        def _stream():
+            self.signals.log.emit(f"Starting resilient stream to {outfile}")
+            with open(outfile, "ab") as fh:
+                offset = 1
+                attempts = 0
+                while stop_event is None or not stop_event.is_set():
+                    try:
+                        raw = self.query(f"TRAC:DATA? {offset},{offset+chunk_size-1},\"{buffer_name}\"")
+                        fh.write((raw + "\n").encode('utf-8'))
+                        fh.flush()
+                        offset += chunk_size
+                        attempts = 0
+                        time.sleep(interval_s)
+                        if circular:
+                            offset = 1
+                    except Exception as e:
+                        attempts += 1
+                        self.signals.log.emit(f"Stream read error (attempt {attempts}): {e}")
+                        if attempts > reconnect_attempts:
+                            self.signals.log.emit("Reconnection attempts exhausted; stopping stream")
+                            break
+                        time.sleep(1.0)
+            self.signals.log.emit("Resilient trace stream stopped")
+        tstop = stop_event or threading.Event()
+        th = threading.Thread(target=_stream, daemon=True)
+        th.start()
+        return tstop
+
+    def set_trigger_matrix(self, matrix: dict):
+        """
+        matrix: dict of {output_name: {'route': target, 'polarity': 'POS'|'NEG', 'threshold_v': float}}
+        Example: {"TRIGOUT1": {"route":"SAMPLE","polarity":"POS","threshold_v":3.3}}
+        This function composes commands per instrument syntax. Adjust tokens for firmware.
+        """
+        for out, spec in matrix.items():
+            # example command pattern (firmware-specific): TRIG:OUT<n>:ROUTe <target>
+            try:
+                route_cmd = f"TRIG:{out}:ROUT {spec['route']}"
+                self.queue(route_cmd)
+                if 'polarity' in spec:
+                    self.queue(f"TRIG:{out}:POL {spec['polarity']}")
+                if 'threshold_v' in spec:
+                    self.queue(f"TRIG:{out}:THR {float(spec['threshold_v'])}")
+                self.signals.log.emit(f"Set trigger {out} -> {spec}")
+            except Exception as e:
+                self.signals.log.emit(f"Trigger matrix set error for {out}: {e}")
+
+    # Core resource methods
+    def list_resources(self) -> List[str]:
+        if not self.rm: return []
+        try:
+            return list(self.rm.list_resources())
+        except Exception as e:
+            self.signals.log.emit(f"list_resources failed: {e}")
+            return []
+
+    def connect(self, resource_name: str) -> None:
+        with self._lock:
+            if not self.rm:
+                raise RuntimeError("VISA not initialized")
+            if self.inst: return
+            self.inst = self.rm.open_resource(resource_name, timeout=self.timeout_ms)
+            try:
+                self.inst.write_termination = self.write_termination
+                self.inst.read_termination = self.read_termination
+            except Exception:
+                pass
+            try:
+                self.inst.write("*CLS")
+            except Exception:
+                pass
+            self._stop.clear()
+            self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+            self._worker.start()
+            self.signals.log.emit(f"Connected {resource_name}")
+
+    def close(self) -> None:
+        with self._lock:
+            try:
+                self._stop.set()
+                self._queue.put(("__QUIT__", None))
+                if self._worker:
+                    self._worker.join(timeout=1.0)
+            except Exception:
+                pass
+            try:
+                if self.inst:
+                    self.inst.close()
+            except Exception:
+                pass
+            finally:
+                self.inst = None
+                self.signals.log.emit("Disconnected")
+
+    def is_connected(self) -> bool:
+        return self.inst is not None
+
+    # Low-level send/query and queueing
+    def send(self, cmd: str) -> None:
+        with self._lock:
+            if not self.inst:
+                raise ConnectionError("Not connected")
+            self.inst.write(cmd)
+
+    def query(self, cmd: str) -> str:
+        with self._lock:
+            if not self.inst:
+                raise ConnectionError("Not connected")
+            return str(self.inst.query(cmd)).strip()
+
+    def read_raw(self, nbytes:int=-1) -> bytes:
+        with self._lock:
+            if not self.inst:
+                raise ConnectionError("Not connected")
+            try:
+                if nbytes <= 0:
+                    return self.inst.read_raw()
+                else:
+                    return self.inst.read_bytes(nbytes)
+            except Exception as e:
+                raise
+
+    def set_terminators(self, read_term:str, write_term:str):
+        self.read_termination = read_term
+        self.write_termination = write_term
+        if self.inst:
+            try:
+                self.inst.read_termination = read_term
+                self.inst.write_termination = write_term
+            except Exception:
+                pass
+        self.signals.log.emit(f"Terminators set R:'{read_term}' W:'{write_term}'")
+
+    def set_eoi(self, enable: bool):
+        self.eoi = enable
+        if self.inst:
+            try:
+                # best-effort; pyvisa backends vary
+                self.inst.session.set_visa_attribute(pyvisa.constants.VI_ATTR_SEND_END_EN, int(enable))
+            except Exception:
+                pass
+        self.signals.log.emit(f"EOI set to {enable}")
+
+    def set_timeout(self, ms:int):
+        self.timeout_ms = int(ms)
+        if self.inst:
+            try:
+                self.inst.timeout = int(ms)
+            except Exception:
+                pass
+        self.signals.log.emit(f"Timeout set to {ms} ms")
+
+    def queue(self, cmd: str):
+        self._queue.put((cmd, None))
+
+    def _worker_loop(self):
+        while not self._stop.is_set():
+            try:
+                cmd, _ = self._queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                if cmd == "__QUIT__":
+                    break
+                if cmd.strip().endswith("?"):
+                    try:
+                        resp = self.query(cmd)
+                        self.signals.cmd_result.emit(cmd, resp)
+                        self.signals.log.emit(f"? {cmd} -> {resp}")
+                    except Exception as e:
+                        self.signals.cmd_error.emit(cmd, str(e))
+                else:
+                    try:
+                        self.send(cmd)
+                        self.signals.cmd_result.emit(cmd, None)
+                        self.signals.log.emit(f"> {cmd}")
+                    except Exception as e:
+                        self.signals.cmd_error.emit(cmd, str(e))
+            finally:
+                try:
+                    self._queue.task_done()
+                except Exception:
+                    pass
+
+    # Convenience helpers
+    def idn(self): return self.query(command_map["idn"])
+    def reset(self): self.send(command_map["reset"])
+    def clear(self): self.send(command_map["clear"])
+    def output_on(self): self.send(command_map["output_on"])
+    def output_off(self): self.send(command_map["output_off"])
+    def syst_err(self): return self.query(command_map["syst_err"])
+    def stb(self): return self.query(command_map["stb"])
+
+    def set_current(self, amps: float):
+        self.queue(command_map["sour_func_curr"])
+        self.queue(command_map["sour_curr_lev"].format(val=_fmt(amps)))
+
+    def set_compliance(self, volts: float):
+        self.queue(command_map["sour_volt_prot"].format(val=_fmt(volts)))
+
+    def set_range(self, rng: str):
+        if rng.strip().upper() in ("AUTO","ON"):
+            self.queue(command_map["sour_curr_rang_auto"].format(onoff="ON"))
+        elif rng.strip().upper() in ("OFF","NONE"):
+            self.queue(command_map["sour_curr_rang_auto"].format(onoff="OFF"))
+        else:
+            self.queue(command_map["sour_curr_rang"].format(val=rng))
+
+    def set_polarity(self, pol: str):
+        self.queue(command_map["sour_curr_pol"].format(pol=pol))
+
+    def configure_wave(self, params: dict):
+        self.queue(command_map["sour_wave_mode"])
+        self.queue(command_map["sour_wave_func"].format(type=params.get("type","SINE")))
+        self.queue(command_map["sour_wave_ampl"].format(val=_fmt(params.get("amp",0.0))))
+        self.queue(command_map["sour_wave_freq"].format(val=_fmt(params.get("freq",1.0))))
+        self.queue(command_map["sour_wave_offs"].format(val=_fmt(params.get("offset",0.0))))
+        if "duty" in params: self.queue(command_map["sour_wave_duty"].format(val=_fmt(params["duty"])))
+        if "phase" in params: self.queue(command_map["sour_wave_phas"].format(val=_fmt(params["phase"])))
+        if params.get("burst_on", False):
+            self.queue(command_map["sour_wave_burs"].format(onoff="ON"))
+            if "burst_count" in params: self.queue(command_map["sour_wave_burs_count"].format(val=int(params["burst_count"])))
+        else:
+            self.queue(command_map["sour_wave_burs"].format(onoff="OFF"))
+        if params.get("phase_marker", False):
+            self.queue(command_map["sour_wave_phasmk"].format(onoff="ON"))
+        else:
+            self.queue(command_map["sour_wave_phasmk"].format(onoff="OFF"))
+
+    # LIST upload (chunked or single)
+    def upload_list(self, vals: List[float], chunked: bool=False, chunk_size:int=1000, progress_cb:Optional[Callable[[int,int],None]]=None):
+        total = len(vals)
+        if not chunked:
+            csv = ",".join(_fmt(v) for v in vals)
+            self.queue(command_map["sour_func_curr"])
+            # many firmwares use SOUR:LIST:LEV
+            self.queue(f"SOUR:LIST:LEV {csv}")
+            self.queue("SOUR:CURR:MODE LIST")
+            if progress_cb: progress_cb(total, total)
+        else:
+            self.queue(command_map["sour_func_curr"])
+            sent = 0
+            while sent < total:
+                chunk = vals[sent:sent+chunk_size]
+                csv = ",".join(_fmt(v) for v in chunk)
+                self.queue(f"SOUR:LIST:LEV {csv}")
+                sent += len(chunk)
+                if progress_cb: progress_cb(sent, total)
+            self.queue("SOUR:CURR:MODE LIST")
+
+    # ---------- New helpers requested ----------
+    # Guard and floating output
+    def set_guard(self, enable: bool):
+        self.queue("SOUR:SAFE:GUARD ON" if enable else "SOUR:SAFE:GUARD OFF")
+        self.signals.log.emit(f"Guard {'enabled' if enable else 'disabled'}")
+
+    def set_output_floating(self, floating: bool):
+        self.queue("OUTP:FLOAT ON" if floating else "OUTP:FLOAT OFF")
+        self.signals.log.emit(f"Output floating set to {floating}")
+
+    # Trace / TRAC configuration
+    def configure_trace(self, feed: str = "SENSE", points: int = 1000, source: str = "defbuffer1"):
+        self.queue(command_map["trac_feed"].format(feed=feed))
+        self.queue(command_map["trac_poin"].format(n=int(points)))
+        self.queue(command_map["trac_feed_sour"].format(src=source))
+        self.signals.log.emit(f"Trace configured feed={feed} points={points} source={source}")
+
+    def read_trace_ascii(self, start:int=1, stop:int=1000, buffer_name:str="defbuffer1"):
+        self.queue(f"TRAC:DATA? {start},{stop},\"{buffer_name}\"")
+
+    # Binary block parse helper (IEEE-488.2)
+    def parse_ieee488_binary_block(self, data: bytes) -> bytes:
+        if not data or data[0:1] != b'#':
+            return data
+        try:
+            nlen = int(chr(data[1]))
+            numbytes = int(data[2:2+nlen].decode('ascii'))
+            payload = data[2+nlen:2+nlen+numbytes]
+            return payload
+        except Exception as e:
+            raise ValueError(f"Binary block parse failed: {e}")
+# Insert into FullDriver class (after parse_ieee488_binary_block)
+
+# Strict IEEE-488.2 definite-length binary block parser with validation
+    def parse_ieee488_definite_block(self, data: bytes) -> bytes:
+        if not data:
+            raise ValueError("Empty block")
+        if data[0:1] != b'#':
+            # not a binary block; caller should handle ASCII fallback
+            return data
+        # format: '#' + <nlen digit ascii> + <nlen ascii digits> + <payload>
+        try:
+            if len(data) < 2:
+                raise ValueError("Incomplete header")
+            nlen_char = chr(data[1])
+            if not nlen_char.isdigit():
+                raise ValueError("Invalid length-of-length")
+            nlen = int(nlen_char)
+            header_len = 2 + nlen
+            if len(data) < header_len:
+                raise ValueError("Incomplete length digits")
+            payload_len = int(data[2:2+nlen].decode("ascii"))
+            expected_total = header_len + payload_len
+            if len(data) < expected_total:
+                raise ValueError(f"Incomplete payload expected {payload_len} bytes got {len(data)-header_len}")
+            payload = data[header_len:header_len+payload_len]
+            # optional: trailing newline(s) are allowed; ignore extras
+            return payload
+        except Exception as e:
+            raise ValueError(f"IEEE-488.2 parse error: {e}")
+
+    # High-level binary query that tries pyvisa.query_binary_values then falls back to raw read and validated parse
+    def query_binary_block_safe(self, cmd: str, datatype='B') -> bytes:
+        with self._lock:
+            if not self.inst:
+                raise ConnectionError("Not connected")
+            try:
+                # preferred pyvisa helper (returns list/array)
+                vals = self.inst.query_binary_values(cmd, datatype=datatype, container=bytes)
+                if isinstance(vals, (bytes, bytearray)):
+                    return bytes(vals)
+                if isinstance(vals, list):
+                    return bytes(vals)
+            except Exception:
+                # fallback to manual raw read then parse definite block
+                try:
+                    # write then raw read (some backends allow query_binary_values; others do not)
+                    self.inst.write(cmd)
+                    raw = self.inst.read_raw()
+                    if isinstance(raw, (bytes, bytearray)) and raw.startswith(b'#'):
+                        return self.parse_ieee488_definite_block(raw)
+                    # if not a block, return raw as bytes
+                    return raw if isinstance(raw, (bytes,bytearray)) else str(raw).encode('utf-8')
+                except Exception as e:
+                    raise IOError(f"Binary query failed: {e}")
+
+# TRAC full configuration helper exposing feed mode (CONT or TRIG), feed source and point limits
+    def configure_trac_full(self, feed: str = "SENSE", feed_mode: str = "CONT", feed_source: str = "defbuffer1", points: int = 1000):
+        # enforce sensible limits (hardware may allow more; GUI should reflect manual limits)
+        if points < 1 or points > 1000000:
+            raise ValueError("Points out of allowable range")
+        # TRAC:FEED <feed> ; TRAC:FEED:MODE <CONT|TRIG> ; TRAC:FEED:SOUR "<src>" ; TRAC:POIN <n>
+        self.queue(f"TRAC:FEED {feed}")
+        self.queue(f"TRAC:FEED:MODE {feed_mode}")
+        self.queue(f"TRAC:FEED:SOUR \"{feed_source}\"")
+        self.queue(f"TRAC:POIN {int(points)}")
+        self.signals.log.emit(f"TRAC configured feed={feed} mode={feed_mode} source={feed_source} points={points}")
+
+    def query_binary_raw(self, cmd: str) -> bytes:
+        with self._lock:
+            if not self.inst:
+                raise ConnectionError("Not connected")
+            self.inst.write(cmd)
+            raw = self.inst.read_raw()
+            return raw
+# Insert into FullDriver class
+
+# Read ESE and SRE and return integer values
+    def read_ese_sre(self) -> dict:
+        ese = None; sre = None
+        try:
+            ese = int(self.query("SYST:ESE?"))
+        except Exception:
+            pass
+        try:
+            sre = int(self.query("SYST:SRE?"))
+        except Exception:
+            pass
+        self.signals.log.emit(f"ESE={ese} SRE={sre}")
+        return {"ese": ese, "sre": sre}
+
+    # Read event/status registers: returns tuple (stat_ques, stat_oper, stb)
+    def read_status_registers(self) -> dict:
+        q = None; o = None; s = None
+        try:
+            q = self.query("STAT:QUES?")
+        except Exception: pass
+        try:
+            o = self.query("STAT:OPER?")
+        except Exception: pass
+        try:
+            s = self.query("*STB?")
+        except Exception: pass
+        self.signals.log.emit(f"STAT:QUES={q} STAT:OPER={o} *STB={s}")
+        return {"ques": q, "oper": o, "stb": s}
+
+    # Decode event bits into human labels (base mapping; extend with manual bit definitions)
+    def decode_event_bits(self, val: int) -> dict:
+        # minimal mapping; consult manual for full bit meanings and extend
+        mapping = {
+            0x0001: "Master summary",
+            0x0002: "ESR event",
+            0x0004: "Command error",
+            0x0008: "Measurement complete",
+        }
+        flags = {name: bool(val & mask) for mask, name in mapping.items()}
+        return {"value": val, "flags": flags}
+
+    # SRQ / event masks
+    def set_event_status_enable(self, ese_mask:int):
+        self.queue(f"SYST:ESE {int(ese_mask)}")
+        self.signals.log.emit(f"ESE set to {ese_mask}")
+
+    def set_service_request_enable(self, sre_mask:int):
+        self.queue(f"SYST:SRE {int(sre_mask)}")
+        self.signals.log.emit(f"SRE set to {sre_mask}")
+
+    def read_event_registers(self):
+        self.queue("STAT:QUES?")
+        self.queue("STAT:OPER?")
+        self.queue("*STB?")
+
+    # Status byte decode helper
+    def decode_status_byte(self, val:int) -> dict:
+        return {
+            "val": val,
+            "message": {
+                0: "No pending status",
+                1: "Operation complete",
+                2: "Questionable status",
+                3: "Message available",
+            }.get(val & 0x0F, "Other")
+        }
+
+    # Option and firmware detection
+    def query_options_and_firmware(self):
+        try:
+            idn = self.query("*IDN?")
+        except Exception:
+            idn = ""
+        try:
+            vers = self.query("SYST:VERS?")
+        except Exception:
+            vers = ""
+        self.signals.log.emit(f"IDN: {idn}; VERS: {vers}")
+        return {"idn": idn, "vers": vers}
+
+    # Trigger routing helper (simple)
+    def set_trigger_output_route(self, route_spec: str):
+        self.queue(route_spec)
+        self.signals.log.emit(f"Trigger route set: {route_spec}")
+
+    # Stream trace to disk
+    def stream_trace_to_file(self, outfile: str, buffer_name: str = "defbuffer1", chunk_size: int = 1000, interval_s: float = 1.0, circular: bool = False, stop_event: threading.Event = None):
+        def _stream():
+            self.signals.log.emit(f"Starting trace stream to {outfile}")
+            with open(outfile, "ab") as fh:
+                offset = 1
+                while stop_event is None or not stop_event.is_set():
+                    try:
+                        raw = self.query(f"TRAC:DATA? {offset},{offset+chunk_size-1},\"{buffer_name}\"")
+                        fh.write((raw + "\n").encode('utf-8'))
+                        fh.flush()
+                        offset += chunk_size
+                        time.sleep(interval_s)
+                        if circular:
+                            offset = 1
+                    except Exception as e:
+                        self.signals.log.emit(f"Trace stream error: {e}")
+                        break
+            self.signals.log.emit("Trace stream stopped")
+        tstop = stop_event or threading.Event()
+        th = threading.Thread(target=_stream, daemon=True)
+        th.start()
+        return tstop
+
+    # Per-command VISA override best-effort
+    def send_with_visa_override(self, cmd: str, timeout_ms: Optional[int] = None, eoi: Optional[bool] = None):
+        with self._lock:
+            if not self.inst:
+                raise ConnectionError("Not connected")
+            old_timeout = getattr(self.inst, "timeout", None)
+            try:
+                if timeout_ms is not None:
+                    self.inst.timeout = int(timeout_ms)
+                if eoi is not None:
+                    try:
+                        self.inst.session.set_visa_attribute(pyvisa.constants.VI_ATTR_SEND_END_EN, int(eoi))
+                    except Exception:
+                        pass
+                self.inst.write(cmd)
+                self.signals.log.emit(f"Sent (override): {cmd}")
+            finally:
+                try:
+                    if old_timeout is not None:
+                        self.inst.timeout = old_timeout
+                except Exception:
+                    pass
+
+    # Protection/readback
+    def read_protection_state(self):
+        try:
+            ovp = self.query("SOUR:VOLT:PROT?")
+        except Exception:
+            ovp = None
+        try:
+            inter = self.query("SYST:INT?")
+        except Exception:
+            inter = None
+        self.signals.log.emit(f"Protection read ovp={ovp} interlock={inter}")
+        return {"ovp": ovp, "interlock": inter}
+
+    # Front-panel display write
+    def write_display_text(self, line:int, text:str):
+        self.queue(f"SYST:DISP:TEXT {line},\"{text}\"")
+        self.signals.log.emit(f"Display line {line} -> {text}")
+
+    # GPIB helpers
+    def gpib_talk(self, addr:int):
+        self.queue(f"SYST:COMM:GPIB:TALK {int(addr)}")
+    def gpib_listen(self, addr:int):
+        self.queue(f"SYST:COMM:GPIB:LIST {int(addr)}")
+
+    # Error classification
+    def classify_syst_err(self, err_str: str) -> dict:
+        try:
+            code = int(err_str.split(",")[0])
+        except Exception:
+            code = None
+        severity = "ok" if code == 0 else ("fatal" if code is not None and code < -100 else "recoverable")
+        return {"code": code, "severity": severity, "text": err_str}
+
+
+# ----------------- Sweep Worker -----------------
+class SweepWorker(QThread):
+    progress = pyqtSignal(int)
+    log = pyqtSignal(str)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, driver: FullDriver, seq: List[float], dwell: float, measure: bool=True):
+        super().__init__()
+        self.driver = driver
+        self.seq = seq
+        self.dwell = dwell
+        self._abort = False
+        self.measure = measure
+
+    def run(self):
+        res = []
+        total = max(1, len(self.seq))
+        for i, v in enumerate(self.seq):
+            if self._abort:
+                break
+            val = v
+            if abs(val) > MAX_CURRENT_A:
+                val = math.copysign(MAX_CURRENT_A, val)
+                self.log.emit(f"Clamped to {val} A")
+            try:
+                self.driver.set_current(val)
+            except Exception as e:
+                self.error.emit(f"Set failed: {e}")
+                break
+            elapsed = 0.0
+            while elapsed < self.dwell:
+                if self._abort: break
+                time.sleep(0.05)
+                elapsed += 0.05
+            meas = None
+            if self.measure and not self._abort:
+                try:
+                    meas = self.driver.query("MEAS:VOLT?")
+                except Exception as e:
+                    self.log.emit(f"Measure failed: {e}")
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            res.append({"set": val, "meas": meas, "time": ts})
+            self.progress.emit(int((i+1)/total*100))
+        self.finished.emit(res)
+
+    def abort(self):
+        self._abort = True
+
+
+# ----------------- GUI -----------------
+class FullApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Keithley 6221 — Complete Controller")
+        self.resize(1400, 920)
+
+        self.driver = FullDriver()
+        self.driver.signals.cmd_result.connect(self._on_cmd_result)
+        self.driver.signals.cmd_error.connect(self._on_cmd_error)
+        self.driver.signals.log.connect(self._on_log)
+
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_l = QVBoxLayout(central)
+        main_l.setContentsMargins(6,6,6,6)
+        main_l.setSpacing(8)
+
+        # Top row
+        top = QHBoxLayout()
+        self.res_combo = QComboBox()
+        self.refresh_btn = QPushButton("Refresh")
+        self.manual_res = QLineEdit()
+        self.connect_btn = QPushButton("Connect")
+        self.disconnect_btn = QPushButton("Disconnect")
+        self.idn_label = QLabel("IDN: (n/c)")
+        self.emergency_btn = QPushButton("EMERGENCY OFF")
+        self.emergency_btn.setStyleSheet("background-color:#ff4444;font-weight:bold;")
+        top.addWidget(QLabel("VISA Resource:"))
+        top.addWidget(self.res_combo,1)
+        top.addWidget(self.refresh_btn)
+        top.addWidget(QLabel("Manual:"))
+        top.addWidget(self.manual_res)
+        top.addWidget(self.connect_btn)
+        top.addWidget(self.disconnect_btn)
+        top.addWidget(self.idn_label,2)
+        top.addWidget(self.emergency_btn)
+        main_l.addLayout(top)
+
+        # Tabs
+        self.tabs = QTabWidget()
+        main_l.addWidget(self.tabs,1)
+        self.tabs.addTab(self._tab_main(), "Main")
+        self.tabs.addTab(self._tab_trig_meas(), "Trigger & Measure")
+        self.tabs.addTab(self._tab_list_sweep(), "LIST & Sweep")
+        self.tabs.addTab(self._tab_guard(), "Guard & Wiring")
+        self.tabs.addTab(self._tab_trace(), "Trace & Binary")
+        self.tabs.addTab(self._tab_srq(), "SRQ & Events")
+        self.tabs.addTab(self._tab_options(), "Firmware & Options")
+        self.tabs.addTab(self._tab_route(), "Trigger Routing")
+        self.tabs.addTab(self._tab_protection(), "Protection & Interlock")
+        self.tabs.addTab(self._tab_advanced(), "Advanced")
+
+        # Console
+        self.console = QPlainTextEdit(); self.console.setReadOnly(True)
+        main_l.addWidget(QLabel("Console Log:"))
+        main_l.addWidget(self.console,2)
+
+        # Hooks
+        self.refresh_btn.clicked.connect(self._refresh_resources)
+        self.connect_btn.clicked.connect(self._connect)
+        self.disconnect_btn.clicked.connect(self._disconnect)
+        self.emergency_btn.clicked.connect(self._emergency_off)
+
+        # Periodic error poll
+        self.err_timer = QTimer(self); self.err_timer.timeout.connect(self._poll_syst_err); self.err_timer.start(3000)
+
+        self.sweep_worker: Optional[SweepWorker] = None
+        self._trace_stream_stop: Optional[threading.Event] = None
+        self._logfile = os.path.join(os.getcwd(), "keithley6221_complete.log")
+        self._append("GUI started")
+        self._refresh_resources()
+
+    # ----- Tab builders (core) -----
+    def _tab_main(self) -> QWidget:
+        w = QWidget(); h = QHBoxLayout(w)
+        left = QVBoxLayout(); left.addWidget(self._build_source_group()); left.addWidget(self._build_wave_group()); left.addStretch(1)
+        right = QVBoxLayout(); right.addWidget(self._build_quick_controls()); right.addStretch(1)
+        h.addLayout(left,2); h.addLayout(right,1)
+        return w
+
+    def _build_source_group(self) -> QGroupBox:
+        g = QGroupBox("Source")
+        f = QFormLayout()
+        self.src_level = QDoubleSpinBox(); self.src_level.setDecimals(12); self.src_level.setRange(-1.0,1.0); self.src_level.setValue(0.001)
+        self.src_unit = QComboBox(); self.src_unit.addItems(["A","mA","uA","nA","pA"])
+        w = QWidget(); wh = QHBoxLayout(w); wh.setContentsMargins(0,0,0,0); wh.addWidget(self.src_level); wh.addWidget(self.src_unit)
+        f.addRow("Level:", w)
+        self.src_range_edit = QLineEdit(); self.src_range_edit.setPlaceholderText("AUTO or numeric")
+        self.src_range_query = QPushButton("Query Range")
+        re_w = QWidget(); reh = QHBoxLayout(re_w); reh.setContentsMargins(0,0,0,0); reh.addWidget(self.src_range_edit); reh.addWidget(self.src_range_query)
+        f.addRow("Range:", re_w)
+        self.src_range_query.clicked.connect(lambda: self.driver.queue("SOUR:CURR:RANG?"))
+        self.autorange_chk = QCheckBox("Autorange")
+        self.polarity_combo = QComboBox(); self.polarity_combo.addItems(["POS","NEG"])
+        self.src_mode_combo = QComboBox(); self.src_mode_combo.addItems(["SOURCE","SINK","MULT"])
+        aux_w = QWidget(); aux_h = QHBoxLayout(aux_w); aux_h.setContentsMargins(0,0,0,0); aux_h.addWidget(self.autorange_chk); aux_h.addWidget(QLabel("Polarity")); aux_h.addWidget(self.polarity_combo); aux_h.addWidget(QLabel("Mode")); aux_h.addWidget(self.src_mode_combo)
+        f.addRow(aux_w)
+        self.comp_spin = QDoubleSpinBox(); self.comp_spin.setRange(MIN_COMPLIANCE_V, MAX_COMPLIANCE_V); self.comp_spin.setDecimals(3); self.comp_spin.setValue(10.0)
+        self.set_level_btn = QPushButton("Set Level")
+        self.set_range_btn = QPushButton("Apply Range")
+        self.set_comp_btn = QPushButton("Set Compliance")
+        btn_w = QWidget(); bh = QHBoxLayout(btn_w); bh.setContentsMargins(0,0,0,0); bh.addWidget(self.set_level_btn); bh.addWidget(self.set_range_btn); bh.addWidget(self.set_comp_btn)
+        f.addRow("Compliance (V):", self.comp_spin)
+        f.addRow(btn_w)
+        self.set_level_btn.clicked.connect(self._set_level)
+        self.set_range_btn.clicked.connect(self._apply_range)
+        self.set_comp_btn.clicked.connect(self._apply_comp)
+        quick = QWidget(); qh = QHBoxLayout(quick); qh.setContentsMargins(0,0,0,0)
+        self.out_on_btn = QPushButton("Output ON"); self.out_off_btn = QPushButton("Output OFF"); self.query_outp_btn = QPushButton("Query OUTP")
+        qh.addWidget(self.out_on_btn); qh.addWidget(self.out_off_btn); qh.addWidget(self.query_outp_btn)
+        self.out_on_btn.clicked.connect(lambda: self.driver.queue(command_map["output_on"]))
+        self.out_off_btn.clicked.connect(lambda: self.driver.queue(command_map["output_off"]))
+        self.query_outp_btn.clicked.connect(lambda: self.driver.queue(command_map["output_q"]))
+        f.addRow(quick)
+        g.setLayout(f)
+        self.autorange_chk.stateChanged.connect(lambda s: self.driver.set_range("AUTO" if s else "OFF"))
+        self.polarity_combo.currentTextChanged.connect(lambda p: self.driver.set_polarity(p))
+        self.src_mode_combo.currentTextChanged.connect(lambda m: self.driver.queue(f"SOUR:FUNC:MODE {m}"))
+        return g
+
+    def _build_wave_group(self) -> QGroupBox:
+        g = QGroupBox("Waveform & Burst")
+        f = QFormLayout()
+        self.wave_type = QComboBox(); self.wave_type.addItems(["SINE","SQUARE","TRIANGLE","PULSE"])
+        self.wave_amp = QDoubleSpinBox(); self.wave_amp.setRange(0, MAX_CURRENT_A); self.wave_amp.setDecimals(12)
+        self.wave_freq = QDoubleSpinBox(); self.wave_freq.setRange(1e-6,1e6); self.wave_freq.setDecimals(6); self.wave_freq.setValue(1.0)
+        self.wave_offs = QDoubleSpinBox(); self.wave_offs.setRange(-MAX_CURRENT_A, MAX_CURRENT_A); self.wave_offs.setDecimals(12)
+        self.wave_phase = QDoubleSpinBox(); self.wave_phase.setRange(0,360); self.wave_phase.setValue(0)
+        self.wave_duty = QDoubleSpinBox(); self.wave_duty.setRange(0.1,99.9); self.wave_duty.setDecimals(2); self.wave_duty.setValue(50)
+        self.wave_burst_chk = QCheckBox("Burst")
+        self.wave_burst_count = QSpinBox(); self.wave_burst_count.setRange(1,1000000); self.wave_burst_count.setValue(1)
+        self.wave_burst_mode = QComboBox(); self.wave_burst_mode.addItems(["CONT","ONE"])
+        self.wave_burst_trig = QComboBox(); self.wave_burst_trig.addItems(["IMM","EXT","BUS"])
+        self.wave_burst_delay = QDoubleSpinBox(); self.wave_burst_delay.setDecimals(6); self.wave_burst_delay.setRange(0,1000); self.wave_burst_delay.setValue(0)
+        self.wave_phase_mark = QCheckBox("Phase marker")
+        self.wave_apply_btn = QPushButton("Apply Waveform")
+        f.addRow("Type:", self.wave_type)
+        f.addRow("Amplitude (A):", self.wave_amp)
+        f.addRow("Freq (Hz):", self.wave_freq)
+        f.addRow("Offset (A):", self.wave_offs)
+        f.addRow("Phase (deg):", self.wave_phase)
+        f.addRow("Duty (%):", self.wave_duty)
+        b_w = QWidget(); bh = QHBoxLayout(b_w); bh.setContentsMargins(0,0,0,0)
+        bh.addWidget(self.wave_burst_chk); bh.addWidget(QLabel("Count:")); bh.addWidget(self.wave_burst_count); bh.addWidget(QLabel("Mode:")); bh.addWidget(self.wave_burst_mode); bh.addWidget(QLabel("Trig:")); bh.addWidget(self.wave_burst_trig); bh.addWidget(QLabel("Delay:")); bh.addWidget(self.wave_burst_delay)
+        f.addRow(b_w)
+        f.addRow(self.wave_phase_mark)
+        f.addRow(self.wave_apply_btn)
+        self.wave_apply_btn.clicked.connect(self._apply_waveform)
+        g.setLayout(f)
+        return g
+
+    def _build_quick_controls(self) -> QGroupBox:
+        g = QGroupBox("Quick Controls")
+        v = QVBoxLayout()
+        self.terminator_read = QLineEdit(); self.terminator_read.setPlaceholderText("\\n or \\r\\n")
+        self.terminator_write = QLineEdit(); self.terminator_write.setPlaceholderText("\\n or \\r\\n")
+        self.set_terms_btn = QPushButton("Set Terminators")
+        self.set_eoi_chk = QCheckBox("EOI on write")
+        self.visa_timeout = QSpinBox(); self.visa_timeout.setRange(100, 600000); self.visa_timeout.setValue(5000)
+        v.addWidget(QLabel("Read Term:")); v.addWidget(self.terminator_read)
+        v.addWidget(QLabel("Write Term:")); v.addWidget(self.terminator_write)
+        v.addWidget(self.set_terms_btn); v.addWidget(self.set_eoi_chk); v.addWidget(QLabel("VISA timeout (ms):")); v.addWidget(self.visa_timeout)
+        self.set_terms_btn.clicked.connect(self._apply_terminators)
+        self.set_eoi_chk.stateChanged.connect(lambda s: self.driver.set_eoi(bool(s)))
+        self.visa_timeout.valueChanged.connect(lambda t: self.driver.set_timeout(int(t)))
+        self.verif_chk = QCheckBox("Verify after state changes")
+        v.addWidget(self.verif_chk)
+        g.setLayout(v)
+        return g
+
+    # ----- Trigger & Meas Tab -----
+    def _tab_trig_meas(self) -> QWidget:
+        w = QWidget(); v = QVBoxLayout(w)
+        trig_g = QGroupBox("Trigger")
+        tf = QFormLayout()
+        self.trig_src = QComboBox(); self.trig_src.addItems(["IMM","EXT","BUS","MAN"])
+        self.trig_slope = QComboBox(); self.trig_slope.addItems(["POS","NEG"])
+        self.trig_level = QDoubleSpinBox(); self.trig_level.setDecimals(6); self.trig_level.setRange(-100, 100)
+        self.trig_delay = QDoubleSpinBox(); self.trig_delay.setDecimals(6); self.trig_delay.setRange(0,1000)
+        self.trig_count = QSpinBox(); self.trig_count.setRange(1,1000000); self.trig_count.setValue(1)
+        self.trig_apply = QPushButton("Apply Trigger")
+        tf.addRow("Source:", self.trig_src); tf.addRow("Slope:", self.trig_slope); tf.addRow("Level:", self.trig_level); tf.addRow("Delay(s):", self.trig_delay); tf.addRow("Count:", self.trig_count); tf.addRow(self.trig_apply)
+        trig_g.setLayout(tf)
+        self.trig_apply.clicked.connect(self._apply_trigger)
+        v.addWidget(trig_g)
+
+        meas_g = QGroupBox("Measurement")
+        mf = QFormLayout()
+        self.meas_func = QComboBox(); self.meas_func.addItems(["MEAS:VOLT?","MEAS:CURR?"])
+        self.nplc_spin = QDoubleSpinBox(); self.nplc_spin.setRange(0.0001,10); self.nplc_spin.setDecimals(6); self.nplc_spin.setValue(0.1)
+        self.aver_enable = QCheckBox("Enable Averaging")
+        self.aver_count = QSpinBox(); self.aver_count.setRange(1,1000); self.aver_count.setValue(10)
+        self.filter_enable = QCheckBox("Analog Filter")
+        self.filter_time = QDoubleSpinBox(); self.filter_time.setRange(0,100); self.filter_time.setDecimals(6); self.filter_time.setValue(0.0)
+        self.meas_read = QPushButton("Single Read")
+        mf.addRow("Function:", self.meas_func)
+        mf.addRow("NPLC:", self.nplc_spin)
+        mf.addRow(self.aver_enable, self.aver_count)
+        mf.addRow(self.filter_enable, self.filter_time)
+        mf.addRow(self.meas_read)
+        self.meas_read.clicked.connect(lambda: self.driver.queue(self.meas_func.currentText()))
+        self.aver_enable.stateChanged.connect(lambda s: self.driver.queue(command_map["sens_aver_stat"].format(onoff="ON" if s else "OFF")))
+        self.aver_count.valueChanged.connect(lambda v: self.driver.queue(command_map["sens_aver_count"].format(val=int(v))))
+        meas_g.setLayout(mf)
+        v.addWidget(meas_g)
+        return w
+
+    # ----- LIST & Sweep Tab -----
+    def _tab_list_sweep(self) -> QWidget:
+        w = QWidget(); v = QVBoxLayout(w)
+        list_g = QGroupBox("LIST Manager")
+        lv = QVBoxLayout()
+        self.list_editor = QPlainTextEdit()
+        self.list_chunked = QCheckBox("Chunked Upload")
+        self.list_chunk_size = QSpinBox(); self.list_chunk_size.setRange(10,10000); self.list_chunk_size.setValue(1000)
+        self.list_slot = QSpinBox(); self.list_slot.setRange(0,9)
+        self.list_upload_btn = QPushButton("Upload LIST")
+        self.list_import = QPushButton("Import CSV")
+        self.list_export = QPushButton("Export CSV")
+        lh = QWidget(); lhh = QHBoxLayout(lh); lhh.setContentsMargins(0,0,0,0)
+        lhh.addWidget(QLabel("Slot:")); lhh.addWidget(self.list_slot); lhh.addWidget(self.list_chunked); lhh.addWidget(QLabel("Chunk size:")); lhh.addWidget(self.list_chunk_size); lhh.addWidget(self.list_upload_btn)
+        lh2 = QWidget(); lhh2 = QHBoxLayout(lh2); lhh2.setContentsMargins(0,0,0,0); lhh2.addWidget(self.list_import); lhh2.addWidget(self.list_export)
+        lv.addWidget(self.list_editor); lv.addWidget(lh); lv.addWidget(lh2)
+        list_g.setLayout(lv)
+        self.list_upload_btn.clicked.connect(self._upload_list)
+        self.list_import.clicked.connect(self._import_list); self.list_export.clicked.connect(self._export_list)
+        v.addWidget(list_g)
+
+        sweep_g = QGroupBox("Sweep")
+        sv = QFormLayout()
+        self.swp_type = QComboBox(); self.swp_type.addItems(["LINEAR","LOG","STEP","LIST"])
+        self.swp_start = QDoubleSpinBox(); self.swp_start.setDecimals(12)
+        self.swp_stop = QDoubleSpinBox(); self.swp_stop.setDecimals(12)
+        self.swp_step = QDoubleSpinBox(); self.swp_step.setDecimals(12)
+        self.swp_points = QSpinBox(); self.swp_points.setRange(2,200000); self.swp_points.setValue(50)
+        self.swp_dwell = QDoubleSpinBox(); self.swp_dwell.setDecimals(6); self.swp_dwell.setRange(0.0,3600.0); self.swp_dwell.setValue(0.1)
+        sv.addRow("Type:", self.swp_type); sv.addRow("Start (A):", self.swp_start); sv.addRow("Stop (A):", self.swp_stop); sv.addRow("Step (A):", self.swp_step); sv.addRow("Points:", self.swp_points); sv.addRow("Dwell:", self.swp_dwell)
+        sh = QWidget(); shh = QHBoxLayout(sh); shh.setContentsMargins(0,0,0,0)
+        self.swp_preview = QPushButton("Preview"); self.swp_init = QPushButton("INIT"); self.swp_arm = QPushButton("ARM"); self.swp_abort = QPushButton("ABOR")
+        shh.addWidget(self.swp_preview); shh.addWidget(self.swp_init); shh.addWidget(self.swp_arm); shh.addWidget(self.swp_abort)
+        sv.addRow(sh)
+        self.swp_preview.clicked.connect(self._preview_sweep)
+        self.swp_init.clicked.connect(self._start_sweep)
+        self.swp_arm.clicked.connect(lambda: self.driver.queue("ARM"))
+        self.swp_abort.clicked.connect(lambda: self.driver.queue("ABOR"))
+        sweep_g.setLayout(sv)
+        v.addWidget(sweep_g)
+        return w
+
+    # ----- Guard & Wiring Tab -----
+    def _tab_guard(self) -> QWidget:
+        w = QWidget(); v = QVBoxLayout(w)
+        gb = QGroupBox("Guard & Wiring")
+        f = QFormLayout()
+        self.guard_enable_chk = QCheckBox("Enable Guard")
+        self.float_output_chk = QCheckBox("Float Output")
+        self.guard_help_btn = QPushButton("Show Wiring Help")
+        f.addRow(self.guard_enable_chk)
+        f.addRow(self.float_output_chk)
+        f.addRow(self.guard_help_btn)
+        gb.setLayout(f)
+        v.addWidget(gb)
+        # Add in Guard & Wiring UI:
+        self.guard_safety_ack = QCheckBox("I have read the wiring guidance and accept responsibility")
+        self.guard_enable_chk.setEnabled(False)  # enable only after acknowledge
+        f.addRow(self.guard_safety_ack)
+        # connect acknowledgment toggle
+        self.guard_safety_ack.stateChanged.connect(lambda s: self.guard_enable_chk.setEnabled(bool(s)))
+        # enforce mutual exclusivity: if both float and guard could cause hazard, block
+        self.float_output_chk.stateChanged.connect(self._guard_float_check)
+
+
+        self.guard_enable_chk.stateChanged.connect(lambda s: self.driver.set_guard(bool(s)))
+        self.float_output_chk.stateChanged.connect(lambda s: self.driver.set_output_floating(bool(s)))
+        self.guard_help_btn.clicked.connect(lambda: QMessageBox.information(self, "Guard wiring", "Refer to the Keithley manual section on guard/sense wiring for diagrams and safety guidance."))
+        return w
+
+    def _guard_float_check(self, state):
+        if self.float_output_chk.isChecked() and self.guard_enable_chk.isChecked():
+            # warn and block if unsafe; require explicit confirmation
+            reply = QMessageBox.warning(self, "Potential hazard", "Floating output with guard may be hazardous. Continue?", QMessageBox.Yes | QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                self.float_output_chk.setChecked(False)
+
+    # ----- Trace & Binary Tab -----
+    def _tab_trace(self) -> QWidget:
+        w = QWidget(); v = QVBoxLayout(w)
+        tg = QGroupBox("Trace & Binary")
+        vf = QFormLayout()
+        self.trace_feed = QComboBox(); self.trace_feed.addItems(["SENSE","SOURCE"])
+        self.trace_points = QSpinBox(); self.trace_points.setRange(1,1000000); self.trace_points.setValue(1000)
+        self.trace_buf = QLineEdit("defbuffer1")
+        vf.addRow("Feed:", self.trace_feed); vf.addRow("Points:", self.trace_points); vf.addRow("Buffer:", self.trace_buf)
+        btn_cfg = QPushButton("Configure Trace"); btn_read = QPushButton("Read Trace (ASCII)"); btn_read_bin = QPushButton("Read Trace (Binary)")
+        btn_stream = QPushButton("Start Stream to File"); btn_stop_stream = QPushButton("Stop Stream")
+        vf.addRow(btn_cfg); vf.addRow(btn_read); vf.addRow(btn_read_bin); vf.addRow(btn_stream); vf.addRow(btn_stop_stream)
+        tg.setLayout(vf); v.addWidget(tg)
+        btn_cfg.clicked.connect(lambda: self.driver.configure_trace(self.trace_feed.currentText(), int(self.trace_points.value()), self.trace_buf.text()))
+        btn_read.clicked.connect(lambda: self.driver.read_trace_ascii(1, int(self.trace_points.value()), self.trace_buf.text()))
+        btn_read_bin.clicked.connect(lambda: threading.Thread(target=self._do_binary_trace_read, daemon=True).start())
+        btn_stream.clicked.connect(self._start_trace_stream_ui)
+        btn_stop_stream.clicked.connect(self._stop_trace_stream_ui)
+        return w
+
+    def _do_binary_trace_read(self):
+        try:
+            raw = self.driver.query_binary_raw(f"TRAC:DATA? 1,{self.trace_points.value()},\"{self.trace_buf.text()}\"")
+            if isinstance(raw, (bytes, bytearray)):
+                payload = self.driver.parse_ieee488_binary_block(raw)
+                self._append(f"Binary trace read {len(payload)} bytes")
+            else:
+                self._append(f"Binary trace read (non-bytes) len {len(str(raw))}")
+        except Exception as e:
+            self._append(f"Binary trace read failed: {e}")
+
+    def _start_trace_stream_ui(self):
+        p, _ = QFileDialog.getSaveFileName(self, "Stream Trace to", os.getcwd(), "CSV Files (*.csv)")
+        if not p: return
+        if self._trace_stream_stop and not self._trace_stream_stop.is_set():
+            QMessageBox.information(self, "Streaming", "Already streaming")
+            return
+        self._trace_stream_stop = threading.Event()
+        self.driver.stream_trace_to_file(p, buffer_name=self.trace_buf.text(), chunk_size=1000, interval_s=1.0, stop_event=self._trace_stream_stop)
+        self._append(f"Started streaming trace to {p}")
+
+    def _stop_trace_stream_ui(self):
+        if self._trace_stream_stop:
+            self._trace_stream_stop.set()
+            self._append("Trace stream stop requested")
+
+    # ----- SRQ & Events Tab -----
+    def _tab_srq(self) -> QWidget:
+        w = QWidget(); v = QVBoxLayout(w)
+        gb = QGroupBox("SRQ & Event Registers")
+        f = QFormLayout()
+        self.ese_spin = QSpinBox(); self.ese_spin.setRange(0,65535)
+        self.sre_spin = QSpinBox(); self.sre_spin.setRange(0,65535)
+        set_ese = QPushButton("Set ESE"); set_sre = QPushButton("Set SRE"); read_stat = QPushButton("Read STAT registers")
+        f.addRow("ESE Mask:", self.ese_spin); f.addRow(set_ese); f.addRow("SRE Mask:", self.sre_spin); f.addRow(set_sre); f.addRow(read_stat)
+        gb.setLayout(f); v.addWidget(gb)
+        # In FullApp._tab_srq, add:
+        self.ese_read_btn = QPushButton("Read ESE/SRE")
+        self.ese_write_btn = QPushButton("Write ESE from Mask")
+        self.srq_bits_editor = QPlainTextEdit()  # simple bit->label editor; one "mask,label" per line
+        f.addRow(self.ese_read_btn); f.addRow(self.ese_write_btn); f.addRow(QLabel("Bit mapping (mask,label)"), self.srq_bits_editor)
+
+        self.ese_read_btn.clicked.connect(lambda: threading.Thread(target=self._read_ese_sre_ui, daemon=True).start())
+        self.ese_write_btn.clicked.connect(lambda: self.driver.set_event_status_enable(int(self.ese_spin.value())))
+
+        set_ese.clicked.connect(lambda: self.driver.set_event_status_enable(int(self.ese_spin.value())))
+        set_sre.clicked.connect(lambda: self.driver.set_service_request_enable(int(self.sre_spin.value())))
+        read_stat.clicked.connect(lambda: self.driver.read_event_registers())
+        return w
+    def _read_ese_sre_ui(self):
+        info = self.driver.read_ese_sre()
+        regs = self.driver.read_status_registers()
+        dec = {}
+        try:
+            if regs.get("ques") is not None:
+                qval = int(regs["ques"])
+                dec = self.driver.decode_event_bits(qval)
+        except Exception:
+            pass
+        self._append(f"ESE/SRE: {info} ; STATUS: {regs} ; DECODE: {dec}")
+
+    # ----- Options & Firmware Tab -----
+    def _tab_options(self) -> QWidget:
+        w = QWidget(); v = QVBoxLayout(w)
+        gb = QGroupBox("Firmware & Options")
+        f = QFormLayout()
+        self.q_idn_btn = QPushButton("Query IDN and Options")
+        self.idn_display = QLineEdit()
+        f.addRow(self.q_idn_btn); f.addRow(self.idn_display)
+        gb.setLayout(f); v.addWidget(gb)
+        self.q_idn_btn.clicked.connect(lambda: threading.Thread(target=self._query_options_ui, daemon=True).start())
+        return w
+
+    def _query_options_ui(self):
+        info = self.driver.query_options_and_firmware()
+        self.idn_display.setText(info.get("idn",""))
+        self._append(f"Options/firmware: {info}")
+        # Example gating
+        info = self.driver.query_options_and_firmware()
+        opts = info.get("options", [])
+        # if 'TRACEX' not in opts then disable trace streaming features
+        if "TRAC" not in ",".join(opts).upper():
+            self.trace_feed.setEnabled(False)
+            self.trace_points.setEnabled(False)
+            self._append("Trace controls disabled (firmware options not present)")
+
+
+    # ----- Trigger Routing Tab -----
+    def _tab_route(self) -> QWidget:
+        w = QWidget(); v = QVBoxLayout(w)
+        gb = QGroupBox("Trigger Routing")
+        f = QFormLayout()
+        self.troute_spec = QTextEdit()
+        self.troute_apply = QPushButton("Apply Route Spec")
+        f.addRow(QLabel("Route SCPI line:"), self.troute_spec)
+        f.addRow(self.troute_apply)
+        gb.setLayout(f); v.addWidget(gb)
+        self.troute_apply.clicked.connect(lambda: self.driver.set_trigger_output_route(self.troute_spec.toPlainText().strip()))
+        return w
+
+    # ----- Protection Tab -----
+    def _tab_protection(self) -> QWidget:
+        w = QWidget(); v = QVBoxLayout(w)
+        gb = QGroupBox("Protection & Interlock")
+        f = QFormLayout()
+        self.read_prot_btn = QPushButton("Read Protection State")
+        self.prot_display = QLineEdit()
+        f.addRow(self.read_prot_btn); f.addRow(self.prot_display)
+        gb.setLayout(f); v.addWidget(gb)
+        self.read_prot_btn.clicked.connect(lambda: threading.Thread(target=self._read_prot_ui, daemon=True).start())
+        return w
+
+    def _read_prot_ui(self):
+        st = self.driver.read_protection_state()
+        self.prot_display.setText(str(st))
+        self._append(f"Protection: {st}")
+
+    # ----- Advanced Tab -----
+    def _tab_advanced(self) -> QWidget:
+        w = QWidget(); v = QVBoxLayout(w)
+        diag_g = QGroupBox("Diagnostics")
+        dh = QHBoxLayout()
+        self.self_test_btn = QPushButton("Self Test (*TST?)"); self.diag_btn = QPushButton("SYST:DIAG?")
+        dh.addWidget(self.self_test_btn); dh.addWidget(self.diag_btn)
+        diag_g.setLayout(dh)
+        v.addWidget(diag_g)
+        buf_g = QGroupBox("Trace / Buffer")
+        bf = QHBoxLayout()
+        self.buf_clear = QPushButton("Clear Trace")
+        self.buf_read = QPushButton("Read Trace (ASCII)")
+        self.buf_read_bin = QPushButton("Read Trace (Binary)")
+        self.buf_save = QPushButton("Save Trace to File")
+        bf.addWidget(self.buf_clear); bf.addWidget(self.buf_read); bf.addWidget(self.buf_read_bin); bf.addWidget(self.buf_save)
+        buf_g.setLayout(bf)
+        v.addWidget(buf_g)
+        self.self_test_btn.clicked.connect(lambda: self.driver.queue(command_map["self_test"]))
+        self.diag_btn.clicked.connect(lambda: self.driver.queue(command_map["diag"]))
+        self.buf_clear.clicked.connect(lambda: self.driver.queue(command_map["trac_cle"]))
+        self.buf_read.clicked.connect(lambda: self.driver.queue("TRAC:DATA? 1,1000,\"defbuffer1\""))
+        self.buf_read_bin.clicked.connect(lambda: threading.Thread(target=self._do_binary_trace_read, daemon=True).start())
+        self.buf_save.clicked.connect(self._save_trace_file)
+        return w
+
+    def _save_trace_file(self):
+        p, _ = QFileDialog.getSaveFileName(self, "Save Trace", os.getcwd(), "CSV Files (*.csv)")
+        if not p: return
+        def rd_save():
+            try:
+                data = self.driver.query("TRAC:DATA? 1,100000,\"defbuffer1\"")
+                with open(p, "w") as f: f.write(str(data) + "\n")
+                self._append(f"Trace saved {p}")
+            except Exception as e:
+                self._append(f"Trace save failed: {e}")
+        threading.Thread(target=rd_save, daemon=True).start()
+
+    # ----- Actions & helpers -----
+    def _refresh_resources(self):
+        self.res_combo.clear()
+        try:
+            res = self.driver.list_resources()
+            self.res_combo.addItems(res)
+            self._append(f"Resources: {res}")
+        except Exception as e:
+            self._append(f"Resource refresh error: {e}")
+
+    def _connect(self):
+        res = self.manual_res.text().strip() or self.res_combo.currentText().strip()
+        if not res:
+            QMessageBox.warning(self, "No resource", "Choose a resource or enter one manually")
+            return
+        try:
+            self.driver.connect(res)
+            self.driver.queue(command_map["idn"])
+        except Exception as e:
+            QMessageBox.critical(self, "Connect failed", str(e))
+
+    def _disconnect(self):
+        try:
+            self.driver.close()
+            self.idn_label.setText("IDN: (n/c)")
+        except Exception as e:
+            self._append(f"Disconnect error: {e}")
+
+    def _emergency_off(self):
+        try:
+            self.driver.queue(command_map["output_off"])
+            self.driver.queue("ABOR")
+            self._append("Emergency OFF issued (OUTP OFF + ABOR)")
+        except Exception as e:
+            self._append(f"Emergency failed: {e}")
+
+    # Source actions
+    def _set_level(self):
+        try:
+            val = float(self.src_level.value()); unit = self.src_unit.currentText(); amps = _to_amps(val, unit)
+            if abs(amps) < MIN_CURRENT_A:
+                if QMessageBox.question(self, "Very small current", f"Requested {amps} A is below instrument min. Continue?") != QMessageBox.Yes:
+                    return
+            if abs(amps) > MAX_CURRENT_A:
+                if QMessageBox.question(self, "Clamp current", f"Requested {amps} A exceeds max {MAX_CURRENT_A} A. Clamp?") != QMessageBox.Yes:
+                    return
+                amps = math.copysign(MAX_CURRENT_A, amps)
+            self.driver.set_current(amps)
+            if self.verif_chk.isChecked():
+                def vr():
+                    time.sleep(0.12)
+                    try:
+                        resp = self.driver.query("SOUR:CURR:LEV?")
+                        self._append(f"Set verify: {resp}")
+                    except Exception as e:
+                        self._append(f"Verify failed: {e}")
+                threading.Thread(target=vr, daemon=True).start()
+        except Exception as e:
+            QMessageBox.critical(self, "Set level error", str(e))
+
+    def _apply_range(self):
+        rng = self.src_range_edit.text().strip()
+        if not rng:
+            QMessageBox.warning(self, "Range", "Enter AUTO or numeric")
+            return
+        self.driver.set_range(rng)
+        self._append(f"Range applied: {rng}")
+
+    def _apply_comp(self):
+        try:
+            v = float(self.comp_spin.value())
+            if v < MIN_COMPLIANCE_V or v > MAX_COMPLIANCE_V:
+                QMessageBox.warning(self, "Compliance", f"Compliance must be between {MIN_COMPLIANCE_V} and {MAX_COMPLIANCE_V} V")
+                return
+            self.driver.set_compliance(v)
+            self._append(f"Set compliance: {v} V")
+        except Exception as e:
+            QMessageBox.critical(self, "Compliance error", str(e))
+
+    def _apply_waveform(self):
+        try:
+            params = {
+                "type": self.wave_type.currentText(),
+                "amp": float(self.wave_amp.value()),
+                "freq": float(self.wave_freq.value()),
+                "offset": float(self.wave_offs.value()),
+                "phase": float(self.wave_phase.value()),
+                "duty": float(self.wave_duty.value()),
+                "burst_on": bool(self.wave_burst_chk.isChecked()),
+                "burst_count": int(self.wave_burst_count.value()),
+                "burst_mode": self.wave_burst_mode.currentText(),
+                "burst_trigger": self.wave_burst_trig.currentText(),
+                "burst_delay": float(self.wave_burst_delay.value()),
+                "phase_marker": bool(self.wave_phase_mark.isChecked())
+            }
+            if abs(params["amp"]) > MAX_CURRENT_A:
+                QMessageBox.warning(self, "Amplitude", f"Exceeds device max {MAX_CURRENT_A} A")
+                return
+            self.driver.configure_wave(params)
+            self._append("Waveform configure queued")
+        except Exception as e:
+            QMessageBox.critical(self, "Waveform error", str(e))
+
+    def _apply_trigger(self):
+        src = self.trig_src.currentText(); slope = self.trig_slope.currentText(); level = float(self.trig_level.value()); delay = float(self.trig_delay.value()); count = int(self.trig_count.value())
+        self.driver.queue(command_map["trig_source"].format(src=src))
+        self.driver.queue(command_map["trig_delay"].format(val=_fmt(delay)))
+        self.driver.queue(command_map["trig_count"].format(val=count))
+        self.driver.queue(f"TRIG:SLOP {slope}")
+        self.driver.queue(f"TRIG:LEV {_fmt(level)}")
+        self._append("Trigger configured queued")
+
+    # LIST manager actions
+    def _upload_list(self):
+        text = self.list_editor.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, "Empty", "Enter list values")
+            return
+        try:
+            vals = [float(l.strip()) for l in text.splitlines() if l.strip()]
+            if any(abs(v) > MAX_CURRENT_A for v in vals):
+                QMessageBox.warning(self, "Value out of range", "List contains values outside device limits")
+                return
+            chunked = bool(self.list_chunked.isChecked()); chunk_size = int(self.list_chunk_size.value())
+            def upl():
+                try:
+                    self.driver.upload_list(vals, chunked=chunked, chunk_size=chunk_size, progress_cb=lambda s,t: self._append(f"Uploaded {s}/{t}"))
+                    self._append("List upload queued")
+                except Exception as e:
+                    self._append(f"Upload failed: {e}")
+            threading.Thread(target=upl, daemon=True).start()
+        except Exception as e:
+            QMessageBox.critical(self, "Parse error", str(e))
+
+    def _import_list(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Import list", os.getcwd(), "CSV Files (*.csv);;All Files (*)")
+        if not p: return
+        try:
+            with open(p, "r") as f:
+                txt = f.read().strip()
+            vals = txt.replace(",", "\n").splitlines()
+            self.list_editor.setPlainText("\n".join(v.strip() for v in vals if v.strip()))
+            self._append(f"Imported {len(vals)} values from {p}")
+        except Exception as e:
+            self._append(f"Import failed: {e}")
+
+    def _export_list(self):
+        p, _ = QFileDialog.getSaveFileName(self, "Export list", os.getcwd(), "CSV Files (*.csv)")
+        if not p: return
+        try:
+            txt = self.list_editor.toPlainText().strip()
+            if not txt:
+                QMessageBox.warning(self, "Empty", "No list to export")
+                return
+            vals = [v.strip() for v in txt.splitlines() if v.strip()]
+            with open(p, "w") as f:
+                f.write(",".join(vals))
+            self._append(f"Exported list to {p}")
+        except Exception as e:
+            self._append(f"Export failed: {e}")
+
+    # Sweep preview/start
+    def _preview_sweep(self):
+        typ = self.swp_type.currentText()
+        if typ == "LIST":
+            text = self.list_editor.toPlainText().strip()
+            if not text:
+                QMessageBox.warning(self, "Empty", "Provide list")
+                return
+            vals = [float(l) for l in text.splitlines() if l.strip()]
+            self._append(f"Preview LIST: {len(vals)} points, min {min(vals)} max {max(vals)}")
+        else:
+            start = float(self.swp_start.value()); stop = float(self.swp_stop.value()); step = float(self.swp_step.value())
+            if step == 0:
+                QMessageBox.warning(self, "Step=0", "Step cannot be zero")
+                return
+            n = int(abs((stop - start) / step)) + 1
+            self._append(f"Preview {typ}: {n} points from {start} to {stop} step {step}")
+
+    def _start_sweep(self):
+        typ = self.swp_type.currentText()
+        dwell = float(self.swp_dwell.value())
+        seq: List[float] = []
+        if typ == "LIST":
+            text = self.list_editor.toPlainText().strip()
+            if not text:
+                QMessageBox.warning(self, "Empty", "Provide list")
+                return
+            seq = [float(l.strip()) for l in text.splitlines() if l.strip()]
+        else:
+            start = float(self.swp_start.value()); stop = float(self.swp_stop.value()); step = float(self.swp_step.value())
+            if step == 0:
+                QMessageBox.warning(self, "Invalid", "Step cannot be zero")
+                return
+            n = int(abs((stop - start) / step)) + 1
+            if n > 200000:
+                QMessageBox.warning(self, "Too many points", "Reduce points")
+                return
+            seq = [start + i * (stop - start) / max(1, n - 1) for i in range(n)]
+        seq = [math.copysign(MAX_CURRENT_A, v) if abs(v) > MAX_CURRENT_A else v for v in seq]
+        if hasattr(self, "sweep_worker") and self.sweep_worker and self.sweep_worker.isRunning():
+            QMessageBox.warning(self, "Running", "Abort current sweep first")
+            return
+        self.sweep_worker = SweepWorker(self.driver, seq, dwell, measure=True)
+        self.sweep_worker.progress.connect(lambda p: None)
+        self.sweep_worker.log.connect(self._append)
+        self.sweep_worker.error.connect(self._append)
+        self.sweep_worker.finished.connect(lambda r: self._append(f"Sweep finished {len(r)} pts"))
+        self.sweep_worker.start()
+        self._append("Sweep started")
+
+    # Comm & trace helpers
+    def _apply_terminators(self):
+        r = self.terminator_read.text()
+        w = self.terminator_write.text()
+        r_eval = r.encode('utf-8').decode('unicode_escape') if r else "\n"
+        w_eval = w.encode('utf-8').decode('unicode_escape') if w else "\n"
+        self.driver.set_terminators(r_eval, w_eval)
+        self._append(f"Terminators set R:'{r_eval}' W:'{w_eval}'")
+
+    def _apply_comm(self):
+        try:
+            # apply if present in command_map; else use common tokens
+            if "comm_gpib_addr" in command_map:
+                self.driver.queue(command_map["comm_gpib_addr"].format(addr=int(self.gpib_addr.value())))
+            else:
+                self.driver.queue(f"SYST:COMM:GPIB:ADDR {int(self.gpib_addr.value())}")
+            self._append("Comm queued")
+        except Exception as e:
+            self._append(f"Comm apply failed: {e}")
+
+    # Trace binary helpers above
+
+    # Options query
+    def _query_options_ui(self):
+        info = self.driver.query_options_and_firmware()
+        self._append(f"Options/firmware: {info}")
+        try:
+            self.idn_label.setText(f"IDN: {info.get('idn','')}")
+        except Exception:
+            pass
+
+    # Protection UI done above
+
+    # Polling and driver callbacks
+    def _poll_syst_err(self):
+        if not self.driver.is_connected(): return
+        self.driver.queue(command_map["syst_err"])
+
+    def _on_cmd_result(self, cmd: str, resp: object):
+        if resp is None:
+            self._append(f"Sent: {cmd}")
+        else:
+            self._append(f"Reply: {cmd} -> {resp}")
+            if cmd.strip().upper().startswith("SYST:ERR"):
+                s = str(resp)
+                if not s.startswith("0"):
+                    cls = self.driver.classify_syst_err(s)
+                    QMessageBox.critical(self, "Instrument error", f"{s}\nSeverity: {cls.get('severity')}")
+            if cmd.strip().upper().startswith("*IDN"):
+                try:
+                    self.idn_label.setText(f"IDN: {resp}")
+                except Exception:
+                    pass
+
+    def _on_cmd_error(self, cmd: str, err: str):
+        self._append(f"Command error '{cmd}': {err}")
+
+    def _on_log(self, msg: str):
+        self._append(msg)
+
+    def _append(self, msg: str):
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{ts}] {msg}"
+        try:
+            self.console.appendPlainText(line)
+        except Exception:
+            pass
+        try:
+            with open(self._logfile, "a") as f:
+                f.write(line + "\n")
+        except Exception:
+            pass
+
+    def closeEvent(self, ev):
+        try:
+            if hasattr(self, "sweep_worker") and self.sweep_worker and self.sweep_worker.isRunning():
+                self.sweep_worker.abort()
+                self.sweep_worker.wait(500)
+        except Exception:
+            pass
+        try:
+            if self._trace_stream_stop and not self._trace_stream_stop.is_set():
+                self._trace_stream_stop.set()
+        except Exception:
+            pass
+        try:
+            self.driver.close()
+        except Exception:
+            pass
+        super().closeEvent(ev)
+
+
+def main():
+    app = QApplication(sys.argv)
+    w = FullApp()
+    w.show()
+    sys.exit(app.exec_())
+
+if __name__ == "__main__":
+    main()
