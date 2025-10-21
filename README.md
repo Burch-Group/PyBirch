@@ -23,6 +23,8 @@ Items:
 - [x] Scan List -- Deprecated
 - [x] Queue Title Bar
 - [x] Instrument Autoload
+- [x] Main Scan Page
+- [x] User Fields Box
 - [ ] Instrument Page Serialization
 - [ ] Scan Serialization
 - [ ] Queue Serialization
