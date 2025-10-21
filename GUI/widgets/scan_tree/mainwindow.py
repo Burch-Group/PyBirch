@@ -38,6 +38,12 @@ class MainWindow(QMainWindow):
         self.view.setAnimated(False)
         self.view.setAllColumnsShowFocus(True)
         
+        # Enable drag and drop for reordering items
+        self.view.setDragEnabled(True)
+        self.view.setAcceptDrops(True)
+        self.view.setDropIndicatorShown(True)
+        self.view.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        
         # Connect itemChanged signal for checkbox handling (like instrument_autoload)
         self.view.itemChanged.connect(self.handle_item_changed)
         self.setCentralWidget(self.view)
@@ -62,11 +68,14 @@ class MainWindow(QMainWindow):
         self.insert_child_action.setShortcut("Ctrl+N")
         self.insert_child_action.triggered.connect(self.insert_child)
         actions_menu.addSeparator()
-        self.copy_row_action = actions_menu.addAction("Copy Row")  # Placeholder for future functionality
+        self.copy_row_action = actions_menu.addAction("Copy Row")
         self.copy_row_action.setShortcut("Ctrl+C")
         self.copy_row_action.triggered.connect(self.copy_row)
+        self.cut_row_action = actions_menu.addAction("Cut Row")
+        self.cut_row_action.setShortcut("Ctrl+X")
+        self.cut_row_action.triggered.connect(self.cut_row)
         actions_menu.addSeparator()
-        self.paste_row_action = actions_menu.addAction("Paste Row")  # Placeholder for future functionality
+        self.paste_row_action = actions_menu.addAction("Paste Row")
         self.paste_row_action.setShortcut("Ctrl+V")
         self.paste_row_action.triggered.connect(self.paste_row)
         actions_menu.addSeparator()
@@ -96,6 +105,7 @@ class MainWindow(QMainWindow):
         self.view.addAction(self.remove_row_action)
         self.view.addAction(self.insert_child_action)
         self.view.addAction(self.copy_row_action)
+        self.view.addAction(self.cut_row_action)
         self.view.addAction(self.paste_row_action)
         self.view.addAction(self.select_instrument_action)
         # Add separator and checkbox actions
@@ -123,6 +133,7 @@ class MainWindow(QMainWindow):
             selection_model.selectionChanged.connect(self.update_actions)
 
         self.copied_item: QTreeWidgetItem | None = None
+        self.cut_item: QTreeWidgetItem | None = None  # Track cut item for deletion
 
         self.update_actions()
         
@@ -267,6 +278,13 @@ class MainWindow(QMainWindow):
         current_item = self.view.currentItem()
         if current_item:
             self.copied_item = current_item
+            self.cut_item = None  # Clear any cut operation
+
+    def cut_row(self) -> None:
+        current_item = self.view.currentItem()
+        if current_item:
+            self.copied_item = current_item
+            self.cut_item = current_item  # Mark for deletion on paste
 
     def paste_row(self) -> None:
         if not self.copied_item:
@@ -283,6 +301,18 @@ class MainWindow(QMainWindow):
         # Clone the copied item
         new_item = self.copied_item.clone()
         parent.addChild(new_item)
+        
+        # If this was a cut operation, remove the original item
+        if self.cut_item and self.cut_item == self.copied_item:
+            cut_parent = self.cut_item.parent()
+            if cut_parent:
+                cut_parent.removeChild(self.cut_item)
+            else:
+                # Remove from root
+                root = self.view.invisibleRootItem()
+                root.removeChild(self.cut_item)
+            # Clear the cut operation
+            self.cut_item = None
         
         self.update_actions()
 
@@ -306,6 +336,9 @@ class MainWindow(QMainWindow):
         
         self.remove_row_action.setEnabled(has_current)
         self.insert_row_action.setEnabled(True)  # Always enabled
+        self.copy_row_action.setEnabled(has_current)
+        self.cut_row_action.setEnabled(has_current)
+        self.paste_row_action.setEnabled(self.copied_item is not None)
 
         # Update status bar with selected instruments count
         selected_items = self.get_selected_instruments()

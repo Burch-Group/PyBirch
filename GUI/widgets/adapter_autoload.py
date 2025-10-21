@@ -51,6 +51,7 @@ class InstrumentManager(QtWidgets.QWidget):
 
         self.placeholder_count = 0
         self.instrument_names = ["Oscilloscope", "Multimeter", "Power Supply", "Signal Generator", "Custom"]
+        self.instrument_classes = [BaseInstrument]  # Add actual instrument classes here
 
         # UI Layout
         layout = QtWidgets.QVBoxLayout(self)
@@ -61,26 +62,129 @@ class InstrumentManager(QtWidgets.QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         layout.addWidget(self.table)
 
-        # Buttons
+        # Buttons - Single row
         button_layout = QtWidgets.QHBoxLayout()
         self.refresh_button = QtWidgets.QPushButton("Refresh Adapters")
         self.add_placeholder_button = QtWidgets.QPushButton("Add Placeholder")
-        self.merge_button = QtWidgets.QPushButton("Merge Selected")
         self.check_button = QtWidgets.QPushButton("Check Connections")
+        self.autopair_button = QtWidgets.QPushButton("Autopair")
+        self.front_panel_button = QtWidgets.QPushButton("Front Panel")
+        self.settings_button = QtWidgets.QPushButton("Settings")
 
         button_layout.addWidget(self.refresh_button)
         button_layout.addWidget(self.add_placeholder_button)
-        button_layout.addWidget(self.merge_button)
         button_layout.addWidget(self.check_button)
+        button_layout.addWidget(self.autopair_button)
+        button_layout.addWidget(self.front_panel_button)
+        button_layout.addWidget(self.settings_button)
         layout.addLayout(button_layout)
 
         # Connections
         self.refresh_button.clicked.connect(self.load_adapters)
         self.add_placeholder_button.clicked.connect(self.add_placeholder)
-        self.merge_button.clicked.connect(self.merge_selected)
         self.check_button.clicked.connect(self.check_connections)
+        self.front_panel_button.clicked.connect(self.open_front_panel)
+        self.settings_button.clicked.connect(self.open_settings)
+        self.autopair_button.clicked.connect(self.run_autopair)
+
+        # Setup context menu and shortcuts
+        self.setup_context_menu()
+        self.setup_shortcuts()
 
         self.load_adapters()
+
+    def setup_context_menu(self):
+        """Setup right-click context menu for the table."""
+        self.table.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_context_menu)
+
+    def setup_shortcuts(self):
+        """Setup keyboard shortcuts."""
+        # Refresh Adapters
+        refresh_shortcut = QtGui.QShortcut(QtGui.QKeySequence("F5"), self)
+        refresh_shortcut.activated.connect(self.load_adapters)
+        
+        # Add Placeholder
+        add_placeholder_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+N"), self)
+        add_placeholder_shortcut.activated.connect(self.add_placeholder)
+        
+        # Check Connections
+        check_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+T"), self)
+        check_shortcut.activated.connect(self.check_connections)
+        
+        # Autopair
+        autopair_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+A"), self)
+        autopair_shortcut.activated.connect(self.run_autopair)
+        
+        # Front Panel
+        front_panel_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+F"), self)
+        front_panel_shortcut.activated.connect(self.open_front_panel)
+        
+        # Settings
+        settings_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+S"), self)
+        settings_shortcut.activated.connect(self.open_settings)
+        
+        # Duplicate
+        duplicate_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+D"), self)
+        duplicate_shortcut.activated.connect(self.duplicate_selected)
+        
+        # Merge
+        merge_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+M"), self)
+        merge_shortcut.activated.connect(self.merge_selected)
+        
+        # Delete/Remove
+        delete_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Delete"), self)
+        delete_shortcut.activated.connect(self.delete_selected)
+
+    def show_context_menu(self, position):
+        """Show context menu at the given position."""
+        item = self.table.itemAt(position)
+        menu = QtWidgets.QMenu(self)
+
+        if item is None:
+            # Right-clicked on empty space
+            add_placeholder_action = menu.addAction("Add Placeholder")
+            add_placeholder_action.triggered.connect(self.add_placeholder)
+            
+            menu.addSeparator()
+            
+            refresh_action = menu.addAction("Refresh Adapters")
+            refresh_action.triggered.connect(self.load_adapters)
+        else:
+            # Right-clicked on an item
+            row = item.row()
+            
+            # Get adapter and instrument info for the row
+            adapter = self.table.item(row, 0).text()
+            instrument_type = self.table.cellWidget(row, 1).currentText()
+
+            # Context menu actions
+            duplicate_action = menu.addAction("Duplicate\tCtrl+D")
+            duplicate_action.triggered.connect(lambda: self.duplicate_row(row))
+
+            merge_action = menu.addAction("Merge Selected\tCtrl+M")
+            merge_action.triggered.connect(self.merge_selected)
+
+            menu.addSeparator()
+
+            front_panel_action = menu.addAction("Open Front Panel\tCtrl+F")
+            front_panel_action.triggered.connect(lambda: self.open_front_panel_for_row(row))
+
+            settings_action = menu.addAction("Open Settings\tCtrl+S")
+            settings_action.triggered.connect(lambda: self.open_settings_for_row(row))
+
+            menu.addSeparator()
+
+            check_connection_action = menu.addAction("Check Connection\tCtrl+T")
+            check_connection_action.triggered.connect(lambda: self.check_connection_for_row(row))
+
+            if not adapter.startswith("placeholder_"):
+                menu.addSeparator()
+                remove_action = menu.addAction("Remove\tDel")
+                remove_action.triggered.connect(lambda: self.remove_row(row))
+
+        # Show menu
+        menu.exec(self.table.mapToGlobal(position))
 
     def load_adapters(self):
         """Load adapters from VISA resource manager."""
@@ -210,6 +314,135 @@ class InstrumentManager(QtWidgets.QWidget):
                     if index >= 0:
                         combo.setCurrentIndex(index)
                     break
+
+    def get_selected_instrument(self):
+        """Get the first selected instrument's adapter and type."""
+        selected_rows = self.get_selected_rows()
+        if not selected_rows:
+            return None, None
+        
+        row = selected_rows[0]
+        adapter = self.table.item(row, 0).text()
+        instrument_type = self.table.cellWidget(row, 1).currentText()
+        return adapter, instrument_type
+
+    def open_front_panel(self):
+        """Open the front panel UI for the selected instrument."""
+        adapter, instrument_type = self.get_selected_instrument()
+        if not adapter or not instrument_type:
+            QtWidgets.QMessageBox.warning(self, "Selection Error",
+                                          "Please select an instrument first.")
+            return
+        
+        # TODO: Implement front panel UI opening based on instrument type
+        QtWidgets.QMessageBox.information(self, "Front Panel",
+                                          f"Opening front panel for {instrument_type} on {adapter}\n"
+                                          "(Front panel UI not yet implemented)")
+
+    def open_settings(self):
+        """Open the settings UI for the selected instrument."""
+        adapter, instrument_type = self.get_selected_instrument()
+        if not adapter or not instrument_type:
+            QtWidgets.QMessageBox.warning(self, "Selection Error",
+                                          "Please select an instrument first.")
+            return
+        
+        # TODO: Implement settings UI opening based on instrument type
+        QtWidgets.QMessageBox.information(self, "Settings",
+                                          f"Opening settings for {instrument_type} on {adapter}\n"
+                                          "(Settings UI not yet implemented)")
+
+    def run_autopair(self):
+        """Run the autopair function with available instrument classes."""
+        # TODO: Define actual instrument classes to use for autopairing
+
+        QtWidgets.QMessageBox.information(self, "Autopair", "Starting autopair process...")
+        self.auto_pair(self.instrument_classes)
+        QtWidgets.QMessageBox.information(self, "Autopair", "Autopair process completed.")
+
+    def duplicate_selected(self):
+        """Duplicate the selected adapters."""
+        selected_rows = self.get_selected_rows()
+        if not selected_rows:
+            QtWidgets.QMessageBox.warning(self, "Selection Error",
+                                          "Please select at least one adapter to duplicate.")
+            return
+
+        for row in reversed(selected_rows):  # Reverse to maintain row indices
+            self.duplicate_row(row)
+
+    def duplicate_row(self, row):
+        """Duplicate a specific row - preserves the original adapter string."""
+        adapter = self.table.item(row, 0).text()
+        instrument_type = self.table.cellWidget(row, 1).currentText()
+        
+        # Keep the same adapter string - do not modify it for VISA compatibility
+        # Add the duplicated row with the same adapter string
+        self.add_row(adapter, instrument_type)
+
+    def open_front_panel_for_row(self, row):
+        """Open front panel for a specific row."""
+        adapter = self.table.item(row, 0).text()
+        instrument_type = self.table.cellWidget(row, 1).currentText()
+        
+        # TODO: Implement front panel UI opening based on instrument type
+        QtWidgets.QMessageBox.information(self, "Front Panel",
+                                          f"Opening front panel for {instrument_type} on {adapter}\n"
+                                          "(Front panel UI not yet implemented)")
+
+    def open_settings_for_row(self, row):
+        """Open settings for a specific row."""
+        adapter = self.table.item(row, 0).text()
+        instrument_type = self.table.cellWidget(row, 1).currentText()
+        
+        # TODO: Implement settings UI opening based on instrument type
+        QtWidgets.QMessageBox.information(self, "Settings",
+                                          f"Opening settings for {instrument_type} on {adapter}\n"
+                                          "(Settings UI not yet implemented)")
+
+    def check_connection_for_row(self, row):
+        """Check connection for a specific row."""
+        adapter = self.table.item(row, 0).text()
+        status_item = self.table.item(row, 2)
+        instrument = BaseInstrument(adapter)
+        connected = instrument.check_connection()
+
+        icon = QtGui.QPixmap(16, 16)
+        icon.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(icon)
+        painter.setBrush(QtGui.QBrush(QtCore.Qt.green if connected else QtCore.Qt.red))
+        painter.setPen(QtCore.Qt.black)
+        painter.drawEllipse(0, 0, 15, 15)
+        painter.end()
+
+        status_item.setIcon(QtGui.QIcon(icon))
+        status_item.setText("Connected" if connected else "Failed")
+
+    def remove_row(self, row):
+        """Remove a specific row."""
+        adapter = self.table.item(row, 0).text()
+        reply = QtWidgets.QMessageBox.question(self, "Confirm Remove",
+                                               f"Are you sure you want to remove adapter '{adapter}'?",
+                                               QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if reply == QtWidgets.QMessageBox.Yes:
+            self.table.removeRow(row)
+
+    def delete_selected(self):
+        """Delete all selected rows."""
+        selected_rows = self.get_selected_rows()
+        if not selected_rows:
+            QtWidgets.QMessageBox.warning(self, "Selection Error",
+                                          "Please select at least one adapter to delete.")
+            return
+
+        # Confirm deletion
+        reply = QtWidgets.QMessageBox.question(self, "Confirm Delete",
+                                               f"Are you sure you want to delete {len(selected_rows)} selected adapter(s)?",
+                                               QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if reply == QtWidgets.QMessageBox.Yes:
+            # Remove rows in reverse order to maintain indices
+            for row in reversed(sorted(selected_rows)):
+                self.table.removeRow(row)
         
 
 

@@ -8,7 +8,7 @@ import json
 
 from typing import Optional
 
-from PySide6.QtCore import QModelIndex, Qt, Slot
+from PySide6.QtCore import QModelIndex, Qt, Slot, QPersistentModelIndex
 from PySide6.QtWidgets import (QAbstractItemView, QMainWindow, QTreeView,
                                QWidget, QInputDialog, QMessageBox, QDialog,
                                QFileDialog)
@@ -58,6 +58,20 @@ class UserFieldMainWindow(QMainWindow):
         self.insert_child_action = edit_menu.addAction("Insert Child")
         self.insert_child_action.setShortcut("Ctrl+N")
         self.insert_child_action.triggered.connect(self.insert_child)
+        
+        edit_menu.addSeparator()
+        
+        self.copy_row_action = edit_menu.addAction("Copy Row")
+        self.copy_row_action.setShortcut("Ctrl+C")
+        self.copy_row_action.triggered.connect(self.copy_row)
+        
+        self.cut_row_action = edit_menu.addAction("Cut Row")
+        self.cut_row_action.setShortcut("Ctrl+X")
+        self.cut_row_action.triggered.connect(self.cut_row)
+        
+        self.paste_row_action = edit_menu.addAction("Paste Row")
+        self.paste_row_action.setShortcut("Ctrl+V")
+        self.paste_row_action.triggered.connect(self.paste_row)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -72,6 +86,14 @@ class UserFieldMainWindow(QMainWindow):
         self.view.addAction(self.insert_row_action)
         self.view.addAction(self.remove_row_action)
         self.view.addAction(self.insert_child_action)
+        # Add separator for copy/paste actions
+        from PySide6.QtGui import QAction
+        separator = QAction(self)
+        separator.setSeparator(True)
+        self.view.addAction(separator)
+        self.view.addAction(self.copy_row_action)
+        self.view.addAction(self.cut_row_action)
+        self.view.addAction(self.paste_row_action)
         
         self.statusBar().showMessage("Ready")
 
@@ -101,6 +123,10 @@ class UserFieldMainWindow(QMainWindow):
         selection_model = self.view.selectionModel()
         if selection_model:
             selection_model.selectionChanged.connect(self.update_actions)
+
+        # Initialize copied item for copy/paste functionality
+        self.copied_item: Optional[dict] = None
+        self.cut_item_index: Optional[QPersistentModelIndex] = None  # Track cut item for deletion
 
         self.update_actions()
 
@@ -187,6 +213,97 @@ class UserFieldMainWindow(QMainWindow):
                 self.update_actions()
 
     @Slot()
+    def copy_row(self) -> None:
+        """Copy the current row for pasting"""
+        selection_model = self.view.selectionModel()
+        if not selection_model:
+            return
+            
+        current_index = selection_model.currentIndex()
+        if not current_index.isValid():
+            return
+
+        # Get the item and convert to dictionary for copying
+        item = self.model.get_item(current_index)
+        if item:
+            self.copied_item = item.to_dict()
+            self.cut_item_index = None  # Clear any cut operation
+
+    @Slot()
+    def cut_row(self) -> None:
+        """Cut the current row for moving via paste"""
+        selection_model = self.view.selectionModel()
+        if not selection_model:
+            return
+            
+        current_index = selection_model.currentIndex()
+        if not current_index.isValid():
+            return
+
+        # Get the item and convert to dictionary for cutting
+        item = self.model.get_item(current_index)
+        if item:
+            self.copied_item = item.to_dict()
+            # Store the index for deletion after paste
+            self.cut_item_index = QPersistentModelIndex(current_index)
+
+    @Slot()
+    def paste_row(self) -> None:
+        """Paste the copied row"""
+        if not self.copied_item:
+            return
+
+        selection_model = self.view.selectionModel()
+        if not selection_model:
+            return
+            
+        current_index = selection_model.currentIndex()
+        parent = current_index.parent() if current_index.isValid() else QModelIndex()
+
+        # Determine where to insert
+        row = current_index.row() + 1 if current_index.isValid() else 0
+        
+        # Insert the copied item
+        success = self.model.insertUserFields(
+            row, 
+            [self.copied_item['title']], 
+            [self.copied_item['value']], 
+            parent
+        )
+        
+        if success:
+            # If the copied item has children, add them recursively
+            if self.copied_item.get('children'):
+                new_item_index = self.model.index(row, 0, parent)
+                self._insert_children_from_dict(self.copied_item['children'], new_item_index)
+            
+            # If this was a cut operation, delete the original item
+            if self.cut_item_index and self.cut_item_index.isValid():
+                # QPersistentModelIndex can be used directly with removeRow
+                self.model.removeRow(self.cut_item_index.row(), self.cut_item_index.parent())
+                # Clear the cut operation
+                self.cut_item_index = None
+            
+            # Select the newly pasted item
+            new_index = self.model.index(row, 0, parent)
+            if selection_model and new_index.isValid():
+                self.view.setCurrentIndex(new_index)
+
+    def _insert_children_from_dict(self, children_data: list, parent_index: QModelIndex):
+        """Helper method to recursively insert children from dictionary data"""
+        for i, child_data in enumerate(children_data):
+            success = self.model.insertUserFields(
+                i, 
+                [child_data['title']], 
+                [child_data['value']], 
+                parent_index
+            )
+            
+            if success and child_data.get('children'):
+                child_index = self.model.index(i, 0, parent_index)
+                self._insert_children_from_dict(child_data['children'], child_index)
+
+    @Slot()
     def update_actions(self) -> None:
         selection_model = self.view.selectionModel()
         if not selection_model:
@@ -194,11 +311,14 @@ class UserFieldMainWindow(QMainWindow):
             
         has_selection: bool = not selection_model.selection().isEmpty()
         self.remove_row_action.setEnabled(has_selection)
+        self.copy_row_action.setEnabled(has_selection)
+        self.cut_row_action.setEnabled(has_selection)
 
         current_index = selection_model.currentIndex()
         has_current: bool = current_index.isValid()
         self.insert_row_action.setEnabled(True)  # Always allow inserting rows
         self.insert_child_action.setEnabled(True)  # Always allow inserting children
+        self.paste_row_action.setEnabled(self.copied_item is not None)  # Enable if something is copied
 
         if has_current:
             self.view.closePersistentEditor(current_index)

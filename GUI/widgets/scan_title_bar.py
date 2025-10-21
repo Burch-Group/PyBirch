@@ -15,15 +15,15 @@ class ScanTitleBar(QtWidgets.QWidget):
     - Save/Load
     """
     
-    def __init__(self, scan: Scan):
+    def __init__(self, scan: Scan, title: str = "Scan"):
         super().__init__()
         self.scan = scan
-        self.init_ui()
+        self.init_ui(title)
         self.connect_signals()
         self.default_savepath = ""
         self.default_loadpath = ""
 
-    def init_ui(self):
+    def init_ui(self, title: str):
         """Initialize the user interface components."""
         # Create the main horizontal layout
         layout = QtWidgets.QHBoxLayout(self)
@@ -31,7 +31,7 @@ class ScanTitleBar(QtWidgets.QWidget):
         layout.setSpacing(8)
         
         # Add "Scan" label on the left
-        self.scan_label = QtWidgets.QLabel("Scan")
+        self.scan_label = QtWidgets.QLabel(title)
         self.scan_label.setStyleSheet("""
             QLabel {
                 font-size: 16px;

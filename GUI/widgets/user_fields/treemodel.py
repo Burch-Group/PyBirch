@@ -2,7 +2,8 @@
 # User Fields Tree Model for PyBirch
 from __future__ import annotations
 from typing import Optional
-from PySide6.QtCore import QModelIndex, Qt, QAbstractItemModel, QPersistentModelIndex
+from PySide6.QtCore import QModelIndex, Qt, QAbstractItemModel, QPersistentModelIndex, QMimeData
+from typing import Sequence
 from treeitem import UserFieldTreeItem
 
 
@@ -18,7 +19,7 @@ class UserFieldTreeModel(QAbstractItemModel):
 
     def flags(self, index: QModelIndex | QPersistentModelIndex) -> Qt.ItemFlag:
         if not index.isValid():
-            return Qt.ItemFlag.NoItemFlags
+            return Qt.ItemFlag.ItemIsDropEnabled  # Allow drops on invalid index (root)
 
         flags = super().flags(index)
         
@@ -28,6 +29,10 @@ class UserFieldTreeModel(QAbstractItemModel):
         else:
             # Title column (column 0) is not editable
             flags &= ~Qt.ItemFlag.ItemIsEditable
+
+        # Enable drag and drop for all valid items
+        flags |= Qt.ItemFlag.ItemIsDragEnabled
+        flags |= Qt.ItemFlag.ItemIsDropEnabled
 
         return flags
 
@@ -235,3 +240,130 @@ class UserFieldTreeModel(QAbstractItemModel):
 
     def __repr__(self) -> str:
         return self._repr_recursion(self.root_item)
+
+    # Drag and Drop Support Methods
+    def supportedDropActions(self) -> Qt.DropAction:
+        return Qt.DropAction.MoveAction
+
+    def mimeTypes(self) -> list[str]:
+        return ['application/x-userfield-item']
+
+    def mimeData(self, indexes: Sequence[QModelIndex]) -> QMimeData:
+        import json
+        
+        if not indexes:
+            return QMimeData()
+            
+        # Get unique rows (in case multiple columns are selected)
+        rows = list(set(index.row() for index in indexes))
+        parent = indexes[0].parent()
+        
+        # Collect data for dragged items
+        drag_data = []
+        for row in rows:
+            item_index = self.index(row, 0, parent)
+            item = self.get_item(item_index)
+            if item:
+                drag_data.append({
+                    'title': item.title,
+                    'value': item.value,
+                    'children': [child.to_dict() for child in item.child_items],
+                    'source_row': row,
+                    'source_parent': self._encode_model_index(parent)
+                })
+        
+        mimeData = QMimeData()
+        mimeData.setData('application/x-userfield-item', json.dumps(drag_data).encode())
+        return mimeData
+
+    def dropMimeData(self, data: QMimeData, action: Qt.DropAction, row: int, column: int, parent: QModelIndex | QPersistentModelIndex) -> bool:
+        import json
+        
+        if action == Qt.DropAction.IgnoreAction:
+            return True
+            
+        if not data.hasFormat('application/x-userfield-item'):
+            return False
+            
+        try:
+            byte_data = data.data('application/x-userfield-item')
+            drag_data = json.loads(byte_data.toStdString())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
+            
+        # Determine drop position
+        if row == -1:
+            parent_item = self.get_item(parent)
+            row = parent_item.child_count()
+        
+        # First, remove the original items (in reverse order to maintain indexes)
+        items_to_remove = []
+        for item_data in drag_data:
+            source_parent = self._decode_model_index(item_data.get('source_parent', {}))
+            source_row = item_data['source_row']
+            items_to_remove.append((source_parent, source_row))
+        
+        # Sort by row in descending order to remove from bottom up
+        items_to_remove.sort(key=lambda x: x[1], reverse=True)
+        
+        # Insert dragged items at new position first
+        for i, item_data in enumerate(drag_data):
+            # Skip if dropping on itself
+            source_parent = self._decode_model_index(item_data.get('source_parent', {}))
+            if (source_parent == parent and 
+                item_data['source_row'] == row + i):
+                continue
+                
+            # Insert the item
+            success = self.insertUserFields(
+                row + i, 
+                [item_data['title']], 
+                [item_data['value']], 
+                parent
+            )
+            
+            if success and item_data.get('children'):
+                # Recursively add children
+                new_item_index = self.index(row + i, 0, parent)
+                self._insert_children_from_dict(item_data['children'], new_item_index)
+        
+        # Now remove the original items
+        for source_parent, source_row in items_to_remove:
+            # Adjust source row if items were inserted before it in the same parent
+            if source_parent == parent and source_row >= row:
+                source_row += len(drag_data)
+            self.removeRows(source_row, 1, source_parent)
+        
+        return True
+
+    def _encode_model_index(self, index: QModelIndex) -> dict:
+        """Helper to encode a QModelIndex for serialization"""
+        if not index.isValid():
+            return {}
+        return {
+            'row': index.row(),
+            'column': index.column(),
+            'parent': self._encode_model_index(index.parent())
+        }
+
+    def _decode_model_index(self, data: dict) -> QModelIndex:
+        """Helper to decode a QModelIndex from serialized data"""
+        if not data:
+            return QModelIndex()
+        
+        parent = self._decode_model_index(data.get('parent', {}))
+        return self.index(data.get('row', 0), data.get('column', 0), parent)
+
+    def _insert_children_from_dict(self, children_data: list, parent_index: QModelIndex):
+        """Helper to recursively insert children from dictionary data"""
+        for i, child_data in enumerate(children_data):
+            success = self.insertUserFields(
+                i, 
+                [child_data['title']], 
+                [child_data['value']], 
+                parent_index
+            )
+            
+            if success and child_data.get('children'):
+                child_index = self.index(i, 0, parent_index)
+                self._insert_children_from_dict(child_data['children'], child_index)
