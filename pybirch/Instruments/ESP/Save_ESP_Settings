@@ -1,0 +1,115 @@
+import json
+from PyQt5.QtWidgets import QFileDialog, QMessageBox
+
+# 1. Gather settings from a list of widgets
+def gather_settings(widgets):
+    """
+    widgets: iterable of QWidgets
+    Returns a dict mapping widget.objectName -> widget value
+    """
+    settings = {}
+    for w in widgets:
+        name = w.objectName()
+        if not name:
+            continue
+
+        # QLineEdit
+        if hasattr(w, 'text') and callable(w.text):
+            settings[name] = w.text()
+
+        # QComboBox
+        elif hasattr(w, 'currentText') and callable(w.currentText):
+            settings[name] = w.currentText()
+
+        # QSpinBox / QDoubleSpinBox
+        elif hasattr(w, 'value') and callable(w.value):
+            settings[name] = w.value()
+
+        # QTextEdit
+        elif hasattr(w, 'toPlainText') and callable(w.toPlainText):
+            settings[name] = w.toPlainText()
+
+        # QCheckBox
+        elif hasattr(w, 'isChecked') and callable(w.isChecked):
+            settings[name] = w.isChecked()
+
+    return settings
+
+# 2. Write settings dict to a JSON file
+def write_settings_file(parent, default_name, settings):
+    """
+    parent: QWidget for dialog parent
+    default_name: suggested filename, e.g. "esp_settings.json"
+    settings: dict to serialize
+    Returns the path written or None if canceled/error.
+    """
+    path, _ = QFileDialog.getSaveFileName(
+        parent,
+        "Save Settings As...",
+        default_name,
+        "JSON Files (*.json)"
+    )
+    if not path:
+        return None
+
+    try:
+        with open(path, 'w') as f:
+            json.dump(settings, f, indent=4)
+        return path
+    except Exception as e:
+        QMessageBox.critical(parent, "Save Error", f"Could not write file:\n{e}")
+        return None
+
+# 3. Read settings dict from a JSON file
+def read_settings_file(parent):
+    """
+    parent: QWidget for dialog parent
+    Returns the settings dict or None on cancel/error.
+    """
+    path, _ = QFileDialog.getOpenFileName(
+        parent,
+        "Open Settings File",
+        "",
+        "JSON Files (*.json)"
+    )
+    if not path:
+        return None
+
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception as e:
+        QMessageBox.critical(parent, "Load Error", f"Could not read file:\n{e}")
+        return None
+
+# 4. Apply a settings dict back to widgets
+def apply_settings_to_widgets(widgets, settings):
+    """
+    widgets: iterable of QWidgets
+    settings: dict mapping objectName -> value
+    """
+    for w in widgets:
+        name = w.objectName()
+        if name not in settings:
+            continue
+        val = settings[name]
+
+        # QLineEdit
+        if hasattr(w, 'setText'):
+            w.setText(str(val))
+
+        # QComboBox
+        elif hasattr(w, 'setCurrentText'):
+            w.setCurrentText(str(val))
+
+        # QSpinBox / QDoubleSpinBox
+        elif hasattr(w, 'setValue') and isinstance(val, (int, float)):
+            w.setValue(val)
+
+        # QTextEdit
+        elif hasattr(w, 'setPlainText'):
+            w.setPlainText(str(val))
+
+        # QCheckBox
+        elif hasattr(w, 'setChecked') and isinstance(val, bool):
+            w.setChecked(val)
