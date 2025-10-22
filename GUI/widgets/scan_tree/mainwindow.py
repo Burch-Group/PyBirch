@@ -9,9 +9,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
 from PySide6.QtCore import (QAbstractItemModel, QItemSelectionModel,
-                            QModelIndex, Qt, Slot)
+                            QModelIndex, Qt, Slot, QTimer)
 from PySide6.QtWidgets import (QAbstractItemView, QMainWindow, QTreeWidget, QTreeWidgetItem,
-                               QWidget)
+                               QWidget, QHeaderView)
 from PySide6.QtTest import QAbstractItemModelTester
 
 from PySide6.QtWidgets import QDialog
@@ -122,11 +122,21 @@ class MainWindow(QMainWindow):
         headers = ["Instrument Name", "Type", "Adapter", "Semaphores"]
         self.view.setHeaderLabels(headers)
 
+        # Apply column sizing approach from adapter_autoload
+        # Use ResizeToContents mode for most columns - auto-size to fit their content
+        self.view.header().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        
+        # Set the Semaphores column (column 3) to stretch to fill remaining space
+        self.view.header().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        
+        # Disable cascading section resizes - only the resized column changes size
+        self.view.header().setCascadingSectionResizes(False)
+        
+        # Set initial minimum column widths based on equal spacing
+        QTimer.singleShot(0, self.calculate_minimum_column_widths)
+
         # Initialize with empty tree
         self.view.clear()
-
-        for column in range(len(headers)):
-            self.view.resizeColumnToContents(column)
 
         selection_model = self.view.selectionModel()
         if selection_model:
@@ -450,6 +460,32 @@ class MainWindow(QMainWindow):
             message += f"• {item.nickname} ({item.__class__.__bases__[0].__name__}) - {item.adapter}\n"
         
         QMessageBox.information(self, "Selected Instruments", message)
+
+    def calculate_minimum_column_widths(self):
+        """Calculate minimum column widths based on equal spacing, with Semaphores column getting half space."""
+        if self.view.width() > 0:
+            # Calculate available width
+            tree_width = self.view.width()
+            available_width = tree_width - 50  # Reserve space for scrollbar/margins
+            
+            if available_width > 0:
+                # Calculate base unit
+                total_units = self.view.columnCount()
+                base_width = available_width / total_units
+                
+                # Set minimum widths
+                regular_min_width = int(base_width)
+                
+                # Apply individual minimum widths to columns 0-3
+                for col in range(4):
+                    self.view.header().setMinimumSectionSize(regular_min_width)
+                    self.view.setColumnWidth(col, regular_min_width)
+                
+    def resizeEvent(self, event):
+        """Handle widget resize events to recalculate minimum column sizes."""
+        super().resizeEvent(event)
+        # Recalculate minimum column widths when the widget is resized
+        QTimer.singleShot(0, self.calculate_minimum_column_widths)
 
     def get_available_instruments(self) -> Sequence[Movement | VisaMovement | Measurement | VisaMeasurement]:
         # Placeholder for actual instrument retrieval logic

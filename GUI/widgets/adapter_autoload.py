@@ -57,9 +57,17 @@ class InstrumentManager(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self)
 
         # Table setup
-        self.table = QtWidgets.QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Adapter", "Instrument", "Status", "Select"])
-        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        self.table = QtWidgets.QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Adapter", "Instrument", "Nickname", "Status", "Select"])
+        
+        # Use ResizeToContents mode for most columns - auto-size to fit their content
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        
+        # Set the Select column (column 4) to stretch to fill remaining space
+        self.table.horizontalHeader().setSectionResizeMode(4, QtWidgets.QHeaderView.Stretch)
+        
+        # Set initial minimum column widths based on equal spacing
+        QtCore.QTimer.singleShot(0, self.calculate_minimum_column_widths)
         layout.addWidget(self.table)
 
         # Buttons - Single row
@@ -92,6 +100,50 @@ class InstrumentManager(QtWidgets.QWidget):
         self.setup_shortcuts()
 
         self.load_adapters()
+
+    def set_equal_column_widths(self):
+        """Set all columns to equal width initially."""
+        if self.table.width() > 0:
+            # Calculate equal width for all columns
+            table_width = self.table.width()
+            # Account for potential scrollbar and margins
+            available_width = table_width - 50  # Reserve space for scrollbar/margins
+            num_columns = self.table.columnCount()
+            
+            if num_columns > 0:
+                # Set equal width for all columns
+                equal_width = available_width // num_columns
+                self.column_widths = [equal_width] * num_columns
+                for col in range(num_columns):
+                    self.table.setColumnWidth(col, equal_width)
+
+    def calculate_minimum_column_widths(self):
+        """Calculate minimum column widths based on equal spacing, with Select column getting half space."""
+        if self.table.width() > 0:
+            # Calculate available width
+            table_width = self.table.width()
+            available_width = table_width - 50  # Reserve space for scrollbar/margins
+            
+            if available_width > 0:
+                # Calculate base unit: Select gets 0.5 units, others get 1 unit each
+                # Total units = 4 columns * 1 unit + 1 select column * 0.5 units = 4.5 units
+                total_units = self.table.columnCount()
+                base_width = available_width / total_units
+                
+                # Set minimum widths: regular columns get full width, Select gets half
+                regular_min_width = int(base_width)
+                select_min_width = int(base_width * 0.5)
+                
+                # Apply individual minimum widths to columns 0-3 (regular columns)
+                for col in range(5):
+                    self.table.horizontalHeader().setMinimumSectionSize(regular_min_width)
+                    self.table.setColumnWidth(col, regular_min_width)
+
+    def resizeEvent(self, event):
+        """Handle widget resize events to recalculate minimum column sizes."""
+        super().resizeEvent(event)
+        # Recalculate minimum column widths when the widget is resized
+        QtCore.QTimer.singleShot(0, self.calculate_minimum_column_widths)
 
     def setup_context_menu(self):
         """Setup right-click context menu for the table."""
@@ -187,17 +239,33 @@ class InstrumentManager(QtWidgets.QWidget):
         menu.exec(self.table.mapToGlobal(position))
 
     def load_adapters(self):
-        """Load adapters from VISA resource manager."""
+        """Load adapters from VISA resource manager while preserving placeholder adapters."""
+        # Store existing placeholder adapters before clearing
+        existing_placeholders = []
+        for row in range(self.table.rowCount()):
+            adapter = self.table.item(row, 0).text()
+            if adapter.startswith("placeholder_"):
+                # Store placeholder data: adapter, instrument, nickname
+                instrument_name = self.table.cellWidget(row, 1).currentText()
+                nickname = self.table.item(row, 2).text()
+                existing_placeholders.append((adapter, instrument_name, nickname))
+        
+        # Clear table and reload VISA resources
         self.table.setRowCount(0)
         try:
             self.resources = list(self.rm.list_resources())
         except Exception:
             self.resources = []
 
+        # Add VISA resources
         for res in self.resources:
             self.add_row(res)
+        
+        # Re-add preserved placeholder adapters
+        for adapter, instrument_name, nickname in existing_placeholders:
+            self.add_row(adapter, instrument_name, nickname)
 
-    def add_row(self, adapter_name, instrument_name=None):
+    def add_row(self, adapter_name, instrument_name=None, nickname=""):
         """Add a new row for the given adapter."""
         row = self.table.rowCount()
         self.table.insertRow(row)
@@ -216,10 +284,15 @@ class InstrumentManager(QtWidgets.QWidget):
                 combo.setCurrentIndex(index)
         self.table.setCellWidget(row, 1, combo)
 
+        # Nickname (editable)
+        item_nickname = QtWidgets.QTableWidgetItem(nickname)
+        item_nickname.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsEditable)
+        self.table.setItem(row, 2, item_nickname)
+
         # Status icon (blank initially)
         item_status = QtWidgets.QTableWidgetItem()
         item_status.setTextAlignment(QtCore.Qt.AlignCenter)
-        self.table.setItem(row, 2, item_status)
+        self.table.setItem(row, 3, item_status)
 
         # Selection checkbox
         checkbox = QtWidgets.QCheckBox()
@@ -228,7 +301,7 @@ class InstrumentManager(QtWidgets.QWidget):
         layout.addWidget(checkbox)
         layout.setAlignment(QtCore.Qt.AlignCenter)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.table.setCellWidget(row, 3, checkbox_widget)
+        self.table.setCellWidget(row, 4, checkbox_widget)
 
     def add_placeholder(self):
         """Add a simulated placeholder adapter."""
@@ -240,7 +313,7 @@ class InstrumentManager(QtWidgets.QWidget):
         """Return list of row indices that are checked."""
         selected_rows = []
         for i in range(self.table.rowCount()):
-            widget = self.table.cellWidget(i, 3)
+            widget = self.table.cellWidget(i, 4)  # Updated to column 4 (Select)
             if widget and widget.findChild(QtWidgets.QCheckBox).isChecked():
                 selected_rows.append(i)
         return selected_rows
@@ -263,27 +336,29 @@ class InstrumentManager(QtWidgets.QWidget):
                                           "You must select one placeholder and one real adapter.")
             return
 
-        # Keep instrument name from placeholder
+        # Get data from placeholder to transfer to real adapter
         placeholder_row = selected_rows[adapters.index(placeholders[0])]
         real_row = selected_rows[adapters.index(real_adapters[0])]
 
-        instrument_name = self.table.cellWidget(placeholder_row, 1).currentText()
+        # Get placeholder data
+        placeholder_instrument = self.table.cellWidget(placeholder_row, 1).currentText()
+        placeholder_nickname = self.table.item(placeholder_row, 2).text()
 
-        # Replace placeholder adapter with real one
-        self.table.item(placeholder_row, 0).setText(real_adapters[0])
-        self.table.cellWidget(placeholder_row, 1).setCurrentText(instrument_name)
+        # Transfer placeholder data to real adapter row, keep real adapter string
+        self.table.cellWidget(real_row, 1).setCurrentText(placeholder_instrument)
+        self.table.item(real_row, 2).setText(placeholder_nickname)
 
-        # Remove the real adapter row
-        self.table.removeRow(real_row if real_row > placeholder_row else real_row)
+        # Remove the placeholder row
+        self.table.removeRow(placeholder_row)
 
         QtWidgets.QMessageBox.information(self, "Merge Complete",
-                                          f"Merged placeholder with adapter {real_adapters[0]}.")
+                                          f"Merged placeholder data to adapter {real_adapters[0]}.")
 
     def check_connections(self):
         """Check connection to each adapter and display green tick or red cross."""
         for row in range(self.table.rowCount()):
             adapter = self.table.item(row, 0).text()
-            status_item = self.table.item(row, 2)
+            status_item = self.table.item(row, 3)  # Updated to column 3 (Status)
             instrument = BaseInstrument(adapter)
             connected = instrument.check_connection()
 
@@ -403,7 +478,7 @@ class InstrumentManager(QtWidgets.QWidget):
     def check_connection_for_row(self, row):
         """Check connection for a specific row."""
         adapter = self.table.item(row, 0).text()
-        status_item = self.table.item(row, 2)
+        status_item = self.table.item(row, 3)  # Updated to column 3 (Status)
         instrument = BaseInstrument(adapter)
         connected = instrument.check_connection()
 

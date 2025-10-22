@@ -10,10 +10,6 @@ from typing import Optional
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-user_fields_path = os.path.join(os.path.dirname(__file__), '..', 'widgets', 'user_fields')
-if user_fields_path not in sys.path:
-    sys.path.insert(0, user_fields_path)
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QFrame)
 
