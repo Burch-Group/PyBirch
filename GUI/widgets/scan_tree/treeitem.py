@@ -11,7 +11,7 @@ import pandas as pd
 
 ## NEEDS TO BE TESTED ##
 class InstrumentTreeItem:
-    def __init__(self, parent: 'InstrumentTreeItem' = None, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement | None = None, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = ""):  #type: ignore
+    def __init__(self, parent: Optional[InstrumentTreeItem] = None, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement | None = None, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = ""):
         self.instrument_object = instrument_object
         self.item_indices = indices
         self.final_indices = final_indices
@@ -196,6 +196,42 @@ class InstrumentTreeItem:
         
         return False
 
+    def serialize(self) -> dict:
+        data = {
+            "name": self.name,
+            "type": self.type,
+            "adapter": self.adapter,
+            "semaphore": self.semaphore,
+            "item_indices": self.item_indices,
+            "final_indices": self.final_indices,
+            "movement_positions": self.movement_positions,
+            "movement_entries": self.movement_entries,
+            "checked": self.checked,
+            "child_items": [child.serialize() for child in self.child_items]
+        }
+        return data
+    
+    @staticmethod
+    def deserialize(data: dict, parent: Optional[InstrumentTreeItem] = None) -> InstrumentTreeItem:
+        instrument_object = None  # Placeholder, actual object reconstruction would depend on more context
+        item = InstrumentTreeItem(parent, instrument_object, data.get("item_indices", []), data.get("final_indices", []), data.get("semaphore", ""))
+        item.name = data.get("name", "")
+        item.type = data.get("type", "")
+        item.adapter = data.get("adapter", "")
+        item.movement_positions = data.get("movement_positions", [])
+        item.movement_entries = data.get("movement_entries", {})
+        item.checked = data.get("checked", False)
+        
+        for child_data in data.get("child_items", []):
+            child_item = InstrumentTreeItem.deserialize(child_data, item)
+            item.child_items.append(child_item)
+        
+        return item
+
+    def find_instrument_object(self) -> None:
+        # To be implemented based on application context
+        return
+
     class FastForward:
         def __init__(self, current_item: InstrumentTreeItem):
             self.current_item: InstrumentTreeItem = current_item
@@ -215,7 +251,7 @@ class InstrumentTreeItem:
                 return True
             if next.semaphore and self.semaphore and next.semaphore not in self.semaphore:
                 return True
-            if next == next.parent().last_child() and not next.child_items:
+            if next.parent() and next == next.parent().last_child() and not next.child_items: # type: ignore
                 return True
             return False
 
@@ -250,6 +286,7 @@ class InstrumentTreeItem:
             ff.done = True
             return ff
         
+    
 
 
 

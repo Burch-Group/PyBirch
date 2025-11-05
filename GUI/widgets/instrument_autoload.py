@@ -79,6 +79,15 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
         self.tree.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectItems)
         self.tree.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollMode.ScrollPerPixel)
+        
+        # Enable smooth animations and optimize performance
+        self.tree.setAnimated(True)  # Enable smooth expand/collapse animations
+        self.tree.setUniformRowHeights(True)  # Improves performance when all rows have same height
+        self.tree.setIndentation(20)  # Set consistent indentation
+        
+        # Track if we're in the middle of programmatic updates to avoid recursion
+        self._updating_items = False
+        
         layout.addWidget(self.tree)
 
         # Ensure all objects are collapsed initially
@@ -229,24 +238,56 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
         self.populate_tree()
     
     def handle_item_changed(self, item: QtWidgets.QTreeWidgetItem):
-        """Handle changes in item check states."""
-        if item.childCount() > 0:
-            # If the item is a folder, update all child items
-            state = item.checkState(0)
-            if state != QtCore.Qt.PartiallyChecked:
-                for i in range(item.childCount()):
-                    child = item.child(i)
-                    child.setCheckState(0, state)
-        if item.parent is not None:
-            # If the item is a class, update the parent folder's state
-            parent = item.parent()
-            if parent:
-                checked_count = sum(1 for i in range(parent.childCount()) if parent.child(i).checkState(0) == QtCore.Qt.Checked)
-                if checked_count == parent.childCount():
+        """Handle changes in item check states with performance optimization"""
+        # Skip processing if we're already updating items (prevents recursion/lag)
+        if self._updating_items:
+            return
+            
+        # Defer heavy operations to avoid blocking expand/collapse animations
+        QtCore.QTimer.singleShot(0, lambda: self._process_item_change(item))
+    
+    def _process_item_change(self, item: QtWidgets.QTreeWidgetItem):
+        """Process item changes with batch updates for better performance"""
+        if not item:
+            return
+            
+        self._updating_items = True
+        try:
+            # Batch update child/parent states
+            if item.childCount() > 0:
+                # If the item is a folder, update all child items
+                state = item.checkState(0)
+                if state != QtCore.Qt.PartiallyChecked:
+                    self._update_children_state(item, state)
+            
+            if item.parent is not None:
+                # If the item is a class, update the parent folder's state
+                self._update_parent_state(item)
+        finally:
+            self._updating_items = False
+    
+    def _update_children_state(self, parent_item: QtWidgets.QTreeWidgetItem, state: QtCore.Qt.CheckState):
+        """Efficiently update all children states"""
+        for i in range(parent_item.childCount()):
+            child = parent_item.child(i)
+            if child and child.checkState(0) != state:
+                child.setCheckState(0, state)
+    
+    def _update_parent_state(self, child_item: QtWidgets.QTreeWidgetItem):
+        """Efficiently update parent state based on children"""
+        parent = child_item.parent()
+        if parent:
+            checked_count = sum(1 for i in range(parent.childCount()) 
+                              if parent.child(i).checkState(0) == QtCore.Qt.Checked)
+            
+            if checked_count == parent.childCount():
+                if parent.checkState(0) != QtCore.Qt.Checked:
                     parent.setCheckState(0, QtCore.Qt.Checked)
-                elif checked_count == 0:
+            elif checked_count == 0:
+                if parent.checkState(0) != QtCore.Qt.Unchecked:
                     parent.setCheckState(0, QtCore.Qt.Unchecked)
-                else:
+            else:
+                if parent.checkState(0) != QtCore.Qt.PartiallyChecked:
                     parent.setCheckState(0, QtCore.Qt.PartiallyChecked)
 
 

@@ -58,7 +58,7 @@ class InstrumentManager(QtWidgets.QWidget):
 
         # Table setup
         self.table = QtWidgets.QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Adapter", "Instrument", "Nickname", "Status", "Select"])
+        self.table.setHorizontalHeaderLabels(["Adapter", "Instrument", "Nickname", "Status", ""])
         
         # Use ResizeToContents mode for most columns - auto-size to fit their content
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)

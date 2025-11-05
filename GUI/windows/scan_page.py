@@ -10,9 +10,24 @@ from typing import Optional, List
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from PySide6.QtCore import Qt, QModelIndex, Signal
+from PySide6.QtCore import Qt, QModelIndex, Signal, QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, 
                                QScrollArea, QFrame, QTreeWidgetItem)
+
+
+class ScanTreeFrame(QFrame):
+    """Custom frame that handles resize events for the embedded scan tree."""
+    
+    def __init__(self, scan_tree_main_window):
+        super().__init__()
+        self.scan_tree = scan_tree_main_window
+        
+    def resizeEvent(self, event):
+        """Handle resize events and trigger column resize for scan tree."""
+        super().resizeEvent(event)
+        # Trigger the scan tree's column width recalculation when the frame is resized
+        if hasattr(self.scan_tree, 'calculate_minimum_column_widths'):
+            QTimer.singleShot(0, self.scan_tree.calculate_minimum_column_widths)
 
 # Import the required widgets
 from widgets.scan_title_bar import ScanTitleBar
@@ -48,9 +63,9 @@ class ScanPage(QWidget):
         
     def init_ui(self):
         """Initialize the user interface"""
-        # Main vertical layout
+        # Main vertical layout with 20pt margins
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(20, 20, 20, 20)  # 20pt margins on all sides
         main_layout.setSpacing(0)
         
         # Create scan title bar
@@ -59,7 +74,13 @@ class ScanPage(QWidget):
         
         # Create horizontal splitter for scan tree and movement positions
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Set 20pt spacing between the two widgets in the splitter
+        self.splitter.setHandleWidth(20)  # Set the handle width to 20pt for spacing
+        
         main_layout.addWidget(self.splitter)
+
+        
         
         # Create scan tree widget (left side)
         self.scan_tree = ScanTreeMainWindow()
@@ -69,12 +90,15 @@ class ScanPage(QWidget):
         self.scan_tree.menuBar().hide()
         self.scan_tree.statusBar().hide()
         
-        # Create a frame to contain the scan tree
-        scan_tree_frame = QFrame()
+        # Create a custom frame to contain the scan tree that handles resize events
+        scan_tree_frame = ScanTreeFrame(self.scan_tree)
         scan_tree_frame.setFrameStyle(QFrame.Shape.StyledPanel)
         scan_tree_layout = QVBoxLayout(scan_tree_frame)
-        scan_tree_layout.setContentsMargins(5, 5, 5, 5)
+        scan_tree_layout.setContentsMargins(10, 10, 10, 10)  # 10pt margins
         scan_tree_layout.addWidget(self.scan_tree.view)  # Add just the tree view
+        
+        # Store reference to frame for resize handling
+        self.scan_tree_frame = scan_tree_frame
         
         self.splitter.addWidget(scan_tree_frame)
         
@@ -82,7 +106,7 @@ class ScanPage(QWidget):
         self.movement_container = QFrame()
         self.movement_container.setFrameStyle(QFrame.Shape.StyledPanel)
         self.movement_layout = QVBoxLayout(self.movement_container)
-        self.movement_layout.setContentsMargins(5, 5, 5, 5)
+        self.movement_layout.setContentsMargins(10, 10, 10, 10)  # 10pt margins
         self.movement_layout.setSpacing(5)
         
         # Create scroll area for movement positions
@@ -94,7 +118,7 @@ class ScanPage(QWidget):
         # Widget to contain all movement position widgets
         self.scroll_widget = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_widget)
-        self.scroll_layout.setContentsMargins(5, 5, 5, 5)
+        self.scroll_layout.setContentsMargins(10, 10, 10, 10)  # 10pt margins
         self.scroll_layout.setSpacing(5)
         self.scroll_layout.addStretch()  # Push widgets to top
         
@@ -103,9 +127,9 @@ class ScanPage(QWidget):
         
         self.splitter.addWidget(self.movement_container)
         
-        # Set initial splitter sizes (60% scan tree, 40% movement positions)
-        self.splitter.setStretchFactor(0, 60)
-        self.splitter.setStretchFactor(1, 40)
+        # Set initial splitter sizes to equal (50% scan tree, 50% movement positions)
+        self.splitter.setStretchFactor(0, 50)
+        self.splitter.setStretchFactor(1, 50)
         
         # Store movement position widgets
         self.movement_widgets: dict[str, MovementPositionsWidget] = {}
@@ -459,6 +483,14 @@ class ScanPage(QWidget):
             
         # Update movement positions after loading data
         self.update_movement_positions()
+
+    def resizeEvent(self, event):
+        """Handle resize events and trigger column resize for embedded scan tree."""
+        super().resizeEvent(event)
+        # Trigger the scan tree's column width recalculation when the page is resized
+        if hasattr(self, 'scan_tree') and hasattr(self.scan_tree, 'calculate_minimum_column_widths'):
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self.scan_tree.calculate_minimum_column_widths)
 
 
 def main():

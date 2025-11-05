@@ -35,14 +35,21 @@ class MainWindow(QMainWindow):
         self.view.setAlternatingRowColors(True)
         self.view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self.view.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.view.setAnimated(False)
+        self.view.setAnimated(True)  # Enable smooth animations for expand/collapse
         self.view.setAllColumnsShowFocus(True)
+        
+        # Optimize performance for large trees
+        self.view.setUniformRowHeights(True)  # Improves performance when all rows have same height
+        self.view.setIndentation(20)  # Set consistent indentation
         
         # Enable drag and drop for reordering items
         self.view.setDragEnabled(True)
         self.view.setAcceptDrops(True)
         self.view.setDropIndicatorShown(True)
         self.view.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        
+        # Track if we're in the middle of programmatic updates to avoid recursion
+        self._updating_items = False
         
         # Connect itemChanged signal for checkbox handling (like instrument_autoload)
         self.view.itemChanged.connect(self.handle_item_changed)
@@ -158,42 +165,69 @@ class MainWindow(QMainWindow):
             pass  # Silent fail
 
     def handle_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
-        """Handle changes in item check states (copied from instrument_autoload)"""
+        """Handle changes in item check states with performance optimization"""
         if column != 0:  # Only handle changes in the first column (checkbox column)
             return
         
-        # Sync the checkbox state to InstrumentTreeItem
-        self.sync_checkbox_to_tree_item(item)
-        
-        # Check if this is a user-initiated change on a parent item
-        is_parent_item = item.childCount() > 0
-        item_state = item.checkState(0)
+        # Skip processing if we're already updating items (prevents recursion/lag)
+        if self._updating_items:
+            return
             
-        if is_parent_item:
-            # If the item is a parent, update all child items (unless partially checked)
-            if item_state != Qt.CheckState.PartiallyChecked:
-                for i in range(item.childCount()):
-                    child = item.child(i)
-                    if child:
-                        child.setCheckState(0, item_state)
-                        self.sync_checkbox_to_tree_item(child)  # Sync child too
-        else:
-            # If the item is a child, update the parent folder's state
-            parent = item.parent()
-            if parent is not None:
-                checked_count = sum(1 for i in range(parent.childCount()) 
-                                  if parent.child(i) and parent.child(i).checkState(0) == Qt.CheckState.Checked)
-                if checked_count == parent.childCount():
+        # Defer heavy operations to avoid blocking expand/collapse animations
+        QTimer.singleShot(0, lambda: self._process_item_change(item))
+    
+    def _process_item_change(self, item: QTreeWidgetItem) -> None:
+        """Process item changes with batch updates for better performance"""
+        if not item:
+            return
+            
+        self._updating_items = True
+        try:
+            # Sync the checkbox state to InstrumentTreeItem
+            self.sync_checkbox_to_tree_item(item)
+            
+            # Batch update child/parent states
+            is_parent_item = item.childCount() > 0
+            item_state = item.checkState(0)
+                
+            if is_parent_item:
+                # If the item is a parent, update all child items (unless partially checked)
+                if item_state != Qt.CheckState.PartiallyChecked:
+                    self._update_children_state(item, item_state)
+            else:
+                # If the item is a child, update the parent folder's state
+                self._update_parent_state(item)
+                
+            # Update status bar after processing
+            self.update_actions()
+        finally:
+            self._updating_items = False
+    
+    def _update_children_state(self, parent_item: QTreeWidgetItem, state: Qt.CheckState) -> None:
+        """Efficiently update all children states"""
+        for i in range(parent_item.childCount()):
+            child = parent_item.child(i)
+            if child and child.checkState(0) != state:
+                child.setCheckState(0, state)
+                self.sync_checkbox_to_tree_item(child)
+    
+    def _update_parent_state(self, child_item: QTreeWidgetItem) -> None:
+        """Efficiently update parent state based on children"""
+        parent = child_item.parent()
+        if parent is not None:
+            checked_count = sum(1 for i in range(parent.childCount()) 
+                              if parent.child(i) and parent.child(i).checkState(0) == Qt.CheckState.Checked)
+            
+            if checked_count == parent.childCount():
+                if parent.checkState(0) != Qt.CheckState.Checked:
                     parent.setCheckState(0, Qt.CheckState.Checked)
-                elif checked_count == 0:
-                    # Don't automatically uncheck parent when all children are deselected
-                    # Keep the parent's current state unchanged
-                    pass  # No automatic state change when all children are deselected
-                else:
+            elif checked_count == 0:
+                # Don't automatically uncheck parent when all children are deselected
+                # Keep the parent's current state unchanged
+                pass  # No automatic state change when all children are deselected
+            else:
+                if parent.checkState(0) != Qt.CheckState.PartiallyChecked:
                     parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
-
-        
-        self.update_actions()
 
     @Slot()
     def handle_item_clicked(self, index: QModelIndex) -> None:
@@ -462,7 +496,22 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Selected Instruments", message)
 
     def calculate_minimum_column_widths(self):
-        """Calculate minimum column widths based on equal spacing, with Semaphores column getting half space."""
+        """Calculate minimum column widths with performance optimization"""
+        # Skip calculation if the view is not visible or has zero width
+        if not self.view.isVisible() or self.view.width() <= 0:
+            return
+            
+        # Debounce rapid resize events
+        if hasattr(self, '_resize_timer'):
+            self._resize_timer.stop()
+             
+        self._resize_timer = QTimer()
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(self._do_column_calculation)
+        self._resize_timer.start(50)  # Delay to batch resize events
+        
+    def _do_column_calculation(self):
+        """Perform the actual column width calculation"""
         if self.view.width() > 0:
             # Calculate available width
             tree_width = self.view.width()

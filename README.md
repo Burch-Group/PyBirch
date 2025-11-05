@@ -26,7 +26,7 @@ Items:
 - [x] Main Scan Page
 - [x] User Fields Box
 - [ ] Instrument Page Serialization
-- [ ] Scan Serialization
+- [x] Scan Serialization
 - [ ] Queue Serialization
 - [x] Scan Info Page
 - [x] Queue Info Page
@@ -34,6 +34,7 @@ Items:
 - [ ] Queue Presets
 - [ ] Queue Logic
 - [ ] WanDB Basic VEGA Plots
+- [ ] Basic Live Plotting in PyBirch
 - [ ] Documentation
 - [ ] Settings Table Search Function
 - [ ] Conditional Object

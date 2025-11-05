@@ -73,8 +73,8 @@ class ScanTreeModel(QAbstractItemModel):
                     virtual_lab_group.append(worker)
                 
                 # Execute
-                for worker in virtual_lab_group:
-                    self.threadpool.start(worker)
+                for PhD in virtual_lab_group:
+                    self.threadpool.start(PhD)
                 
                 self.threadpool.waitForDone()  # Wait for all threads to complete
 
@@ -164,12 +164,12 @@ class ScanTreeModel(QAbstractItemModel):
             return QModelIndex()
 
         child_item: InstrumentTreeItem = self.get_item(index)
-        if child_item:
-            parent_item: InstrumentTreeItem = child_item.parent()
+        if child_item and child_item.parent():
+            parent_item: Optional[InstrumentTreeItem] = child_item.parent()
         else:
             parent_item = None
 
-        if parent_item == self.root_item or not parent_item:
+        if not parent_item or parent_item == self.root_item:
             return QModelIndex()
 
         return self.createIndex(parent_item.child_number(), 0, parent_item)
@@ -298,18 +298,27 @@ class ScanTreeModel(QAbstractItemModel):
     def columnCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
         # The number of columns is determined by the headers
         return len(self.root_item.headers)
+    
+    def serialize_model(self) -> dict:
+        return {
+            "root_data": self.root_data,
+            "root_item": self.root_item.serialize()
+        }
+
+    def deserialize_model(self, data: dict) -> None:
+        self.root_data = data.get("root_data", {})
+        self.root_item = InstrumentTreeItem.deserialize(data.get("root_item", {}))
+        self.layoutChanged.emit()
 
 ## NEEDS TO BE FINISHED ##
     def pickle_model(self, filename: str) -> None:
-        with open(filename, 'wb') as output:
-            pickle.dump(self, output, pickle.HIGHEST_PROTOCOL)
+        with open(filename, 'wb') as f:
+            pickle.dump(self.serialize_model(), f)
 
     def restore_model_from_pickle(self, filename: str):
         with open(filename, 'rb') as input:
-            model: ScanTreeModel = pickle.load(input)
-            self.root_data = model.root_data
-            self.root_item = model.root_item
-            self.layoutChanged.emit()
+            data = pickle.load(input)
+            self.deserialize_model(data)
 
     def _repr_recursion(self, item: InstrumentTreeItem, indent: int = 0) -> str:
         result = " " * indent + repr(item) + "\n"

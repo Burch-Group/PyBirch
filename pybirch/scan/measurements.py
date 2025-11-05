@@ -55,6 +55,32 @@ class Measurement:
         # Shutdown the measurement equipment
         pass
 
+    def serialize(self) -> dict:
+        return {
+            "name": self.name,
+            "nickname": self.nickname,
+            "type": self.__class__.__name__,
+            "adapter": getattr(self, 'adapter', ''),
+            "data_units": self.data_units,
+            "data_columns": self.data_columns,
+        }
+
+    def deserialize(self, data: dict, initialize: bool = False):
+        self.name = data.get("name", self.name)
+        self.nickname = data.get("nickname", self.nickname)
+        self.adapter = data.get("adapter", getattr(self, 'adapter', ''))
+        self.data_units = data.get("data_units", self.data_units)
+        self.data_columns = data.get("data_columns", self.data_columns)
+        if "settings" in data:
+            self.settings = data["settings"]
+
+        # check connection status and, if it fails, set adapter to a placeholder.
+        self.status = self.check_connection()
+        if not self.status:
+            self.adapter = 'placeholder'
+        if initialize and self.status:
+            self.initialize()
+
 class VisaMeasurement(Measurement):
     """Adds visa capabilities to the Measurement class."""
 

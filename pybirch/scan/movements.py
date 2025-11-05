@@ -60,15 +60,30 @@ class Movement:
     def dict_repr(self) -> dict:
         return {
             "name": self.name,
+            "nickname": self.nickname,
             "type": self.__class__.__name__,
             "adapter": getattr(self, 'adapter', ''),
+            "position_units": self.position_units,
+            "position_column": self.position_column,
             "settings": self.settings
         }
     
     def load_from_dict(self, data: dict, initialize: bool = False):
         self.name = data.get("name", self.name)
+        self.nickname = data.get("nickname", self.nickname)
+        self.adapter = data.get("adapter", getattr(self, 'adapter', ''))
+        self.position_units = data.get("position_units", self.position_units)
+        self.position_column = data.get("position_column", self.position_column)
         if "settings" in data:
             self.settings = data["settings"]
+        
+        # check connection status and, if it fails, set adapter to a placeholder.
+        self.status = self.check_connection()
+        if not self.status:
+            self.adapter = 'placeholder'
+        if initialize and self.status:
+            self.initialize()
+
 
 class VisaMovement(Movement):
     """Adds visa capabilities to the Movement class."""
@@ -87,7 +102,7 @@ class VisaMovement(Movement):
         except Exception as e:
             print(f"Failed to initialize instrument {self.name} with adapter {adapter}: {e}")
             self.status = False
-
+            self.adapter = 'placeholder'
 
 class MovementItem:
     """An object to hold movement settings and positions."""
