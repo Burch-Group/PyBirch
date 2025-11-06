@@ -76,6 +76,7 @@ class ScanPage(QWidget):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         
         # Set 20pt spacing between the two widgets in the splitter
+
         self.splitter.setHandleWidth(20)  # Set the handle width to 20pt for spacing
         
         main_layout.addWidget(self.splitter)

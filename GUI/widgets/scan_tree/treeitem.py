@@ -245,14 +245,18 @@ class InstrumentTreeItem:
         def check_if_last(self, next: InstrumentTreeItem) -> bool:
             if next.adapter in self.adapter.keys() and next.semaphore not in self.adapter[next.adapter]:
                 return True
+            
             if next.type not in self.type.keys() and all(
                 next.semaphore not in sems for sems in self.type.values()
             ):
                 return True
+            
             if next.semaphore and self.semaphore and next.semaphore not in self.semaphore:
                 return True
+            
             if next.parent() and next == next.parent().last_child() and not next.child_items: # type: ignore
                 return True
+            
             return False
 
         def new_item(self, item: InstrumentTreeItem):

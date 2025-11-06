@@ -102,7 +102,6 @@ class VisaMovement(Movement):
         except Exception as e:
             print(f"Failed to initialize instrument {self.name} with adapter {adapter}: {e}")
             self.status = False
-            self.adapter = 'placeholder'
 
 class MovementItem:
     """An object to hold movement settings and positions."""

@@ -1,6 +1,9 @@
 # type: ignore
 from PySide6 import QtCore, QtWidgets, QtGui
 
+#import measurement and movement classes for type hinting
+
+
 
 class AvailableInstrumentWidget(QtWidgets.QDialog):
     """
@@ -8,7 +11,7 @@ class AvailableInstrumentWidget(QtWidgets.QDialog):
     and lets the user select exactly one to continue.
     """
 
-    def __init__(self, instrument_data, parent=None):
+    def __init__(self, instrument_data: , parent=None):
         """
         instrument_data: list of Measurement or Movement objects from InstrumentManager
         Each object should have 'name', 'adapter', and 'status' attributes.
@@ -124,11 +127,7 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication([])
 
     # Example data from the InstrumentManager
-    sample_data = [
-        {"name": "Oscilloscope", "adapter": "GPIB0::5::INSTR", "status": True},
-        {"name": "Multimeter", "adapter": "COM3", "status": False},
-        {"name": "Signal Generator", "adapter": "USB0::0x1234::0x5678::INSTR", "status": True},
-    ]
+    
 
     selected = AvailableInstrumentWidget.select_instrument(sample_data)
     if selected:
