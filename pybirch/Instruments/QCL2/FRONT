@@ -566,7 +566,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_ui(self):
         # top controls (wavelength entry)
-        self.le_wavelength = QtWidgets.QLineEdit("4.80")
+        self.le_wavelength = QtWidgets.QLineEdit("10.60")
         self.le_wavelength.setFixedWidth(90)
         self.cb_units = QtWidgets.QComboBox()
         self.cb_units.addItems(["µm", "cm⁻¹"])
