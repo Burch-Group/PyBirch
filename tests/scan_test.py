@@ -1,13 +1,6 @@
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from pybirch.scan.scan import Scan, ScanSettings, MeasurementItem, MovementItem
-from pybirch.setups.fake_setup.multimeter.multimeter import FakeMultimeter, CurrentSourceMovement, VoltageMeterMeasurement
-from pybirch.setups.fake_setup.spectrometer.spectrometer import FakeSpectrometer, SpectrometerMeasurement
-from pybirch.setups.fake_setup.stage_controller.stage_controller import FakeLinearStageController, FakeXStage, FakeYStage, FakeZStage
-from pybirch.setups.fake_setup.lock_in_amplifier.lock_in_amplifier import FakeLockinAmplifier, LockInAmplifierMeasurement
-from GUI.widgets.scan_tree.treeitem import InstrumentTreeItem
-from GUI.widgets.scan_tree.treemodel import ScanTreeModel
 from GUI.widgets.scan_tree.example_scan_tree import create_example_scan
 from pybirch.queue.samples import Sample
 import pickle
