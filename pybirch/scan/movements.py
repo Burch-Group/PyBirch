@@ -17,6 +17,9 @@ class Movement:
         self.position_column: str = ''
         self.settings_UI: Callable[[], dict] = lambda: self.settings  # Placeholder for settings UI function
 
+    def __base_class__(self):
+        return Movement
+
     def check_connection(self) -> bool:
         raise NotImplementedError("Subclasses should implement this method.")
 
@@ -61,7 +64,8 @@ class Movement:
         return {
             "name": self.name,
             "nickname": self.nickname,
-            "type": self.__class__.__name__,
+            "type": self.__base_class__().__name__,
+            "pybirch_class": self.__class__.__name__,
             "adapter": getattr(self, 'adapter', ''),
             "position_units": self.position_units,
             "position_column": self.position_column,
@@ -105,12 +109,12 @@ class VisaMovement(Movement):
 
 class MovementItem:
     """An object to hold movement settings and positions."""
-    def __init__(self, movement: Movement | VisaMovement, settings: dict, positions: np.ndarray):
-        self.movement = movement
+    def __init__(self, movement: Movement | VisaMovement, positions: np.ndarray, settings: dict = {}):
+        self.instrument = movement
         self.settings = settings
         self.positions = positions
 
     def __repr__(self):
-        return f"MovementItem(movement={self.movement}, settings={self.settings}, positions={self.positions})"
+        return f"MovementItem(movement={self.instrument}, settings={self.settings}, positions={self.positions})"
     def __str__(self):
         return self.__repr__()

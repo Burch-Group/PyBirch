@@ -5,27 +5,27 @@ from typing import Callable, Optional
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from PySide6.QtCore import QModelIndex, Qt, QAbstractItemModel, QPersistentModelIndex, QThreadPool
-from treeitem import InstrumentTreeItem
-from pybirch.scan.movements import Movement, VisaMovement
-from pybirch.scan.measurements import Measurement, VisaMeasurement
+from .treeitem import InstrumentTreeItem
+from pybirch.scan.movements import Movement, VisaMovement, MovementItem
+from pybirch.scan.measurements import Measurement, VisaMeasurement, MeasurementItem
 import pickle
-
-from phd_student import PhDStudent
 
 
 
 class ScanTreeModel(QAbstractItemModel):
 
-    def __init__(self, headers: list, filename: Optional[str] = None, parent=None, update_interface: Optional[Callable] = None, next_item: Optional[InstrumentTreeItem] = None):
+    def __init__(self, filename: Optional[str] = None, root_item: Optional[InstrumentTreeItem] = None, parent=None, update_interface: Optional[Callable] = None, next_item: Optional[InstrumentTreeItem] = None):
         super().__init__(parent)
 
         if filename:
             self.restore_model_from_pickle(filename)
+        elif root_item:
+            self.root_item = root_item
         else:
             self.root_item = InstrumentTreeItem()
         
         # Set the headers on the root item
-        self.root_item.headers = headers
+        self.root_item.headers = ["Name", "Type", "Adapter", "Semaphores"]
         self.update_interface = update_interface
         self.threadpool = QThreadPool()
         self.threadpool.setMaxThreadCount(20)  # Limit to 20 threads for safety
@@ -34,57 +34,6 @@ class ScanTreeModel(QAbstractItemModel):
         self.stopped = False
         self.next_item = next_item
 
-
-    def start_scan(self) -> bool:
-        if self.root_item.child_count() == 0:
-            return False
-        
-        next_item = self.root_item.child_items[0] if self.next_item is None else self.next_item
-        
-        while next_item is not self.root_item:
-            if self.update_interface:
-                self.update_interface()
-            
-            if self.stopped or self.paused:
-                return False
-
-            fast_forward = InstrumentTreeItem.FastForward(next_item)
-            if not next_item.finished():
-                fast_forward = fast_forward.new_item(next_item)
-
-            while not fast_forward.done:
-                fast_forward = fast_forward.new_item(fast_forward.current_item)
-                if fast_forward.done:
-                    break
-            
-            # Execute the stack in parallel with QT multithreading by mapping the move_next function to each item in the stack, 
-            # and assigning this work to a virtual PhD student
-            if len(fast_forward.stack) == 0:
-                virtual_lab_group = []
-                for item in fast_forward.stack:
-                    worker = PhDStudent(
-                        item.move_next
-                    ) 
-
-                    # If necessary, connect signals here
-                    # worker.signals.result.connect()
-                    # worker.signals.finished.connect()
-                    # worker.signals.progress.connect()
-                    virtual_lab_group.append(worker)
-                
-                # Execute
-                for PhD in virtual_lab_group:
-                    self.threadpool.start(PhD)
-                
-                self.threadpool.waitForDone()  # Wait for all threads to complete
-
-            next_item = fast_forward.final_item
-            if next_item is None:
-                break
-
-        self.completed = True
-        return True
-        
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:  # type: ignore
         if not index.isValid():
             return Qt.ItemFlag.NoItemFlags
@@ -139,7 +88,7 @@ class ScanTreeModel(QAbstractItemModel):
             return False
 
         # Create default instruments for standard insertRows calls
-        default_instruments: list[Movement | VisaMovement | Measurement | VisaMeasurement] = [Measurement('Default Instrument') for _ in range(count)]
+        default_instruments = [MeasurementItem(Measurement('Default Instrument'), {}) for _ in range(count)]
         
         self.beginInsertRows(parent, position, position + count - 1)
         success: bool = parent_item.insert_children(position, default_instruments)
@@ -147,7 +96,7 @@ class ScanTreeModel(QAbstractItemModel):
 
         return success
 
-    def insertInstruments(self, position: int, instrument_objects: list[Movement | VisaMovement | Measurement | VisaMeasurement], parent: QModelIndex = QModelIndex()) -> bool:
+    def insertInstruments(self, position: int, instrument_objects: list[MeasurementItem | MovementItem], parent: QModelIndex = QModelIndex()) -> bool:
         """Custom method to insert specific instrument objects"""
         parent_item: InstrumentTreeItem = self.get_item(parent)
         if not parent_item:
@@ -229,7 +178,7 @@ class ScanTreeModel(QAbstractItemModel):
         # For other columns, we don't allow direct editing
         return False
 
-    def setInstrumentData(self, index: QModelIndex, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = "") -> bool:
+    def setInstrumentData(self, index: QModelIndex, instrument_object: MeasurementItem | MovementItem, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = "") -> bool:
         """Custom method to set instrument data for an item"""
         if not index.isValid():
             return False
@@ -366,3 +315,43 @@ class ScanTreeModel(QAbstractItemModel):
                         emit_for_item(child_item, child_index)
         
         emit_for_item(self.root_item, QModelIndex())
+
+    def get_instrument_count(self) -> int:
+        """Return the total number of instrument items in the tree."""
+        count = 0
+
+        def traverse(item: InstrumentTreeItem):
+            nonlocal count
+            if item.instrument_object and item != self.root_item:
+                count += 1
+            for child in item.child_items:
+                traverse(child)
+
+        traverse(self.root_item)
+        return count
+    
+    def get_movement_items(self) -> list[InstrumentTreeItem]:
+        """Return a list of all movement instrument items."""
+        movement_items = []
+
+        def traverse(item: InstrumentTreeItem):
+            if item.instrument_object and item.instrument_object.instrument.__base_class__() is Movement:
+                movement_items.append(item)
+            for child in item.child_items:
+                traverse(child)
+
+        traverse(self.root_item)
+        return movement_items
+    
+    def get_measurement_items(self) -> list[InstrumentTreeItem]:
+        """Return a list of all measurement instrument items."""
+        measurement_items = []
+
+        def traverse(item: InstrumentTreeItem):
+            if item.instrument_object and item.instrument_object.instrument.__base_class__() is Measurement:
+                measurement_items.append(item)
+            for child in item.child_items:
+                traverse(child)
+
+        traverse(self.root_item)
+        return measurement_items

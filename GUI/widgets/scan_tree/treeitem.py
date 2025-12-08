@@ -4,15 +4,16 @@ from __future__ import annotations
 from typing import Optional
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from pybirch.scan.movements import Movement, VisaMovement
-from pybirch.scan.measurements import Measurement, VisaMeasurement
+from pybirch.scan.movements import Movement, VisaMovement, MovementItem
+from pybirch.scan.measurements import Measurement, VisaMeasurement, MeasurementItem
 from typing import Callable
 import pandas as pd
 
 ## NEEDS TO BE TESTED ##
 class InstrumentTreeItem:
-    def __init__(self, parent: Optional[InstrumentTreeItem] = None, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement | None = None, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = ""):
+    def __init__(self, parent: Optional[InstrumentTreeItem] = None, instrument_object: MovementItem | MeasurementItem | None = None, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = "", _runtime_settings: dict | None = None):
         self.instrument_object = instrument_object
+        self._runtime_settings = _runtime_settings if _runtime_settings is not None else {}
         self.item_indices = indices
         self.final_indices = final_indices
         self.parent_item = parent
@@ -20,14 +21,15 @@ class InstrumentTreeItem:
         self.movement_positions: list = []
         self.movement_entries: dict = {}
         self.checked: bool = False  # Add checkbox state
+        self._runtime_initialized = False
         if self.instrument_object is None:
             self.name = ""
             self.type = ""
             self.adapter = ""
         else:
-            self.name = self.instrument_object.nickname
-            self.type = self.instrument_object.__class__.__bases__[0].__name__
-            self.adapter = self.instrument_object.adapter
+            self.name = self.instrument_object.instrument.nickname
+            self.type = self.instrument_object.instrument.__base_class__().__name__
+            self.adapter = self.instrument_object.instrument.adapter
 
         self.child_items: list[InstrumentTreeItem] = []
         self.instrument_object = instrument_object
@@ -39,7 +41,7 @@ class InstrumentTreeItem:
         if instrument_object is None:
             self.item_indices = []
             self.final_indices = []
-        elif issubclass(instrument_object.__class__, (Movement, VisaMovement)):
+        elif issubclass(instrument_object.instrument.__base_class__(), Movement):
             if not self.item_indices:
                 self.item_indices = [0]
             if not self.final_indices:
@@ -77,7 +79,7 @@ class InstrumentTreeItem:
             return self.parent_item.child_items.index(self)
         return 0
 
-    def insert_children(self, row: int, instruments: list[Movement | VisaMovement | Measurement | VisaMeasurement]) -> bool:
+    def insert_children(self, row: int, instruments: list[MovementItem | MeasurementItem]) -> bool:
         if row < 0 or row > len(self.child_items):
             return False
 
@@ -99,7 +101,7 @@ class InstrumentTreeItem:
 
         return True
 
-    def set_data(self, instrument_object: Movement | VisaMovement | Measurement | VisaMeasurement | None = None, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = "", checked: bool = False) -> bool:
+    def set_data(self, instrument_object: MovementItem | MeasurementItem | None = None, indices: list[int] = [], final_indices: list[int] = [], semaphore: str = "", checked: bool = False) -> bool:
         self.instrument_object = instrument_object
         self.item_indices = indices
         self.final_indices = final_indices
@@ -111,9 +113,9 @@ class InstrumentTreeItem:
             self.type = ""
             self.adapter = ""
         else:
-            self.name = self.instrument_object.nickname
-            self.type = self.instrument_object.__class__.__bases__[0].__name__
-            self.adapter = self.instrument_object.adapter
+            self.name = self.instrument_object.instrument.nickname
+            self.type = self.instrument_object.instrument.__base_class__().__name__
+            self.adapter = self.instrument_object.instrument.adapter
 
         self.columns = [self.name, self.type, self.adapter, self.semaphore]
         return True
@@ -171,28 +173,34 @@ class InstrumentTreeItem:
         return True
     
     def reset_indices(self):
-        if self.instrument_object in [Movement, VisaMovement]:
+        if self.instrument_object.instrument.__base_class__() is Movement:
             self.item_indices = [0]
         if self.child_items:
             for child in self.child_items:
                 child.reset_indices()
 
     def move_next(self) -> pd.DataFrame | bool:
-        if self.instrument_object in [Movement, VisaMovement]:
+        if not self._runtime_initialized:
+            self._runtime_initialized = True
+            self.instrument_object.instrument.initialize()
+            self.instrument_object.instrument.settings = self._runtime_settings
+
+        
+        if self.instrument_object.instrument.__base_class__() is Movement:
             if not self.item_indices or not self.final_indices:
                 return False
             for i in reversed(range(len(self.item_indices))):
                 if self.item_indices[i] < self.final_indices[i]:
                     self.item_indices[i] += 1
-                    self.instrument_object.position = self.instrument_object.positions[self.item_indices[i]]  #type: ignore
+                    self.instrument_object.instrument.position = self.instrument_object.instrument.positions[self.item_indices[i]]  #type: ignore
                     return True
                 else:
                     self.item_indices[i] = 0
             return False
         
-        elif self.instrument_object in [Measurement, VisaMeasurement]:
+        elif self.instrument_object.instrument.__base_class__() is Measurement:
             self.item_indices = [1]
-            return self.instrument_object.measurement_df() #type: ignore
+            return self.instrument_object.instrument.measurement_df() #type: ignore
         
         return False
 
@@ -245,7 +253,7 @@ class InstrumentTreeItem:
         def check_if_last(self, next: InstrumentTreeItem) -> bool:
             if next.adapter in self.adapter.keys() and next.semaphore not in self.adapter[next.adapter]:
                 return True
-            
+
             if next.type not in self.type.keys() and all(
                 next.semaphore not in sems for sems in self.type.values()
             ):

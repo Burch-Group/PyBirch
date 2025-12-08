@@ -16,6 +16,9 @@ class Measurement:
         self.data_columns: np.ndarray = np.array([])
         self.settings_UI: Callable[[], dict] = lambda: self.settings  # Placeholder for settings UI function
 
+    def __base_class__(self):
+        return Measurement
+
     def check_connection(self) -> bool:
         raise NotImplementedError("Subclasses should implement this method.")
 
@@ -59,7 +62,8 @@ class Measurement:
         return {
             "name": self.name,
             "nickname": self.nickname,
-            "type": self.__class__.__name__,
+            "type": self.__base_class__().__name__,
+            "pybirch_class": self.__class__.__name__,
             "adapter": getattr(self, 'adapter', ''),
             "data_units": self.data_units,
             "data_columns": self.data_columns,
@@ -102,11 +106,11 @@ class VisaMeasurement(Measurement):
 
 class MeasurementItem:
     """An object to hold measurement settings."""
-    def __init__(self, measurement: Measurement | VisaMeasurement, settings: dict):
-        self.measurement = measurement
+    def __init__(self, measurement: Measurement | VisaMeasurement, settings: dict = {}):
+        self.instrument = measurement
         self.settings = settings
 
     def __repr__(self):
-        return f"MeasurementItem(measurement={self.measurement}, settings={self.settings})"
+        return f"MeasurementItem(measurement={self.instrument}, settings={self.settings})"
     def __str__(self):
         return self.__repr__()

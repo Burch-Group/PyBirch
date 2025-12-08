@@ -2,19 +2,26 @@ import numpy as np
 import pandas as pd
 import sys
 import os
+import time
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from pybirch.scan.movements import Movement, MovementItem
 from pybirch.scan.measurements import Measurement, MeasurementItem
 from pybirch.extensions.scan_extensions import ScanExtension
+from GUI.widgets.scan_tree.treeitem import InstrumentTreeItem
+from GUI.widgets.scan_tree.treemodel import ScanTreeModel
 import wandb
 import os
 from pybirch.queue.samples import Sample
 import pickle
 from itertools import compress
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import deque
+from threading import Lock, Event
+from typing import List, Dict, Any, Optional, Tuple
 
 class ScanSettings:
     """A class to hold scan settings, including movement and measurement dictionaries."""
-    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, measurement_items: list[MeasurementItem], movement_items: list[MovementItem], extensions: list[ScanExtension] = [], additional_tags: list[str] = [], status: str = "Queued"):
+    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, ScanTree: ScanTreeModel, extensions: list[ScanExtension] = [], additional_tags: list[str] = [], status: str = "Queued"):
         
         # Name of the project, e.g. 'rare_earth_tritellurides', 'trilayer_twisted_graphene', etc.
         self.project_name = project_name
@@ -31,11 +38,12 @@ class ScanSettings:
         # List of additional tags for the scan
         self.additional_tags = additional_tags
 
-        # List of Measurement_Dict objects
-        self.measurement_items = measurement_items
+        # Contains all necessary info to run the scan
+        self.scan_tree = ScanTree
 
-        # List of Movement_Dict objects
-        self.movement_items = movement_items
+        self.start_date = ""
+
+        self.end_date = ""
 
         # List of ScanExtension objects
         self.extensions = extensions
@@ -43,6 +51,21 @@ class ScanSettings:
         self.status = status
 
         self.wandb_link: str = ""
+
+    def serialize(self) -> dict:
+        """Serialize the scan settings into a dictionary."""
+        data = {
+            "project_name": self.project_name,
+            "scan_name": self.scan_name,
+            "scan_type": self.scan_type,
+            "job_type": self.job_type,
+            "additional_tags": self.additional_tags,
+            "scan_tree": self.scan_tree.serialize(),
+            "status": self.status,
+            "wandb_link": self.wandb_link
+        }
+        return data
+
 
     def __repr__(self):
         return f"ScanSettings(project_name={self.project_name}, \nscan_name={self.scan_name}, \nscan_type={self.scan_type}, \njob_type={self.job_type}, \nmeasurement_items={self.measurement_items}, \nmovement_items={self.movement_items})"
@@ -53,7 +76,7 @@ class ScanSettings:
 class Scan():
     """Base class for scans in the PyBirch framework."""
     # sample directory is under pybirch/samples
-    def __init__(self, scan_settings: ScanSettings, owner: str, sample_ID: str, sample_directory: str = os.path.join(os.path.dirname(__file__), '..', "samples"), master_index: int = 0, indices: np.ndarray = np.array([])):
+    def __init__(self, scan_settings: ScanSettings, owner: str, sample_ID: str, sample_directory: str = os.path.join(os.path.dirname(__file__), '..', "samples"), master_index: int = 0, indices: np.ndarray = np.array([]), buffer_size: int = 1000, max_workers: int = 2):
 
         # scan settings
         self.scan_settings = scan_settings
@@ -65,18 +88,24 @@ class Scan():
         # e.g. 'piyush_sakrikar'
         self.owner = owner
 
-        self.master_index = master_index
-
-        # indices for each movement tool, initialized to 0
-        if indices.size == 0:
-            self.indices = np.zeros(len(scan_settings.movement_items), dtype=int)
-        else:
-            self.indices = indices
+        self.current_item = None
 
         # e.g. 'S001', 'S002', etc. format is, of yet, unknown
         self.sample_ID = sample_ID
         self.sample_directory = sample_directory
 
+        self._max_workers = 1000 # essentially, no default limit
+        self._buffer_size = buffer_size
+        self._data_buffer: Dict[str, List[Dict]] = {}
+        self._buffer_lock = Lock()
+        self._stop_event = Event()
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, 
+                                          thread_name_prefix='save_worker_')
+        self._pending_futures: deque = deque(maxlen=100)  # Keep last 100 futures for error checking
+        
+        # Initialize buffer for each measurement
+        for item in self.scan_settings.scan_tree.get_measurement_items():
+            self._data_buffer[item.instrument_object.instrument.name] = []
 
     def startup(self):
 
@@ -86,6 +115,8 @@ class Scan():
 
         print(f"Starting up scan: {self.scan_settings.scan_name} for sample {self.sample_ID} owned by {self.owner}")
         print(f"Sample directory: {self.sample_directory}")
+
+        self.scan_settings.start_date = time.strftime("%H:%M:%S", time.localtime())
 
         sample_file = os.path.join(self.sample_directory, self.sample_ID + ".pkl")
         with open(sample_file, 'rb') as file:
@@ -98,23 +129,11 @@ class Scan():
         print(f"Loaded sample: {self.sample}")
         print(f"Sample material: {self.sample.material}")
         print(f"Sample additional tags: {self.sample.additional_tags}")
-        
-        # Initialize all movement objects
-        for item in self.scan_settings.movement_items:
-            item.movement.connect()
-            item.movement.initialize()
-            item.movement.settings = item.settings
-
-        # Initialize all measurement objects
-        for item in self.scan_settings.measurement_items:
-            item.measurement.connect()
-            item.measurement.initialize()
-            item.measurement.settings = item.settings
 
         # Initialize wandb run, add tags and metadata (MOVE TO EXTENSIONS)
         wandb.login()
         tags = [self.scan_settings.scan_type, str(self.sample.material), *self.sample.additional_tags, *self.scan_settings.additional_tags]
-        tags = [tag for tag in tags if tag]  # Remove empty tags. Lovely unintelligible pythonic syntax is an added bonus
+        tags = [tag for tag in tags if tag]  # Remove empty tags. Lovely, unintelligible pythonic syntax is an added bonus
         self.run = wandb.init(project=self.project_name, 
                    group=self.sample.ID,
                    name=self.scan_settings.scan_name, 
@@ -128,39 +147,112 @@ class Scan():
                         "owner": self.owner,
                         "sample_material": self.sample.material,
                         "sample": self.sample,
-                        "measurement_tools": [m.measurement.name for m in self.scan_settings.measurement_items],
-                        "movement_tools": [m.movement.name for m in self.scan_settings.movement_items],
-                        "measurement_settings": {m.measurement.name: m.settings for m in self.scan_settings.measurement_items},
-                        "movement_settings": {m.movement.name: m.settings for m in self.scan_settings.movement_items},
-                        "implemented_measurement_settings": {m.measurement.name: m.settings for m in self.scan_settings.measurement_items},
-                        "implemented_movement_settings": {m.movement.name: m.settings for m in self.scan_settings.movement_items},
-                        "movement_positions": {m.movement.name: m.positions for m in self.scan_settings.movement_items}
+                        "scan_settings": self.scan_settings.serialize()
                 })
         
         # Create a wandb table for each measurement tool
         self.wandb_tables = {}
-        for item in self.scan_settings.measurement_items:
-            self.wandb_tables[item.measurement.name] = wandb.Table(columns=[*item.measurement.columns().tolist(), *[f"{m.movement.position_column} M({m.movement.position_units})" for m in self.scan_settings.movement_items]], log_mode="INCREMENTAL")
-    
-    def save_data(self, data: pd.DataFrame, measurement_name: str):
-        # self.emit(f'data_{self.sample_ID}_{measurement_name}',data)
-        # Save the data to a pandas DataFrame and log it to wandb
-        # log message
-        print(f"Saving data for {measurement_name} at indices {self.indices} with shape {data.shape}")
-        print(f"Real Positions: ({') ('.join([f'{m.movement.position_column}: {m.positions[self.indices[i]]}' for i, m in enumerate(self.scan_settings.movement_items)])})\n")
-        
-        for extension in self.extensions:
-            extension.save_data(data, measurement_name)
-        
-        for row in data.itertuples(index=False):
-            # convert to dict
-            row_data = list(row)
+        for item in self.scan_settings.scan_tree.get_measurement_items():
+            self.wandb_tables[item.instrument_object.instrument.name] = wandb.Table(columns=[*item.instrument_object.instrument.columns().tolist(), *[f"{m.movement.position_column} M({m.movement.position_units})" for m in self.scan_settings.scan_tree.get_movement_items()]], log_mode="INCREMENTAL")
 
-            row_dict = {col: val for col, val in zip(data.columns, row_data)}
-            # log data to wandb
-            self.run.log({measurement_name: row_dict})
+    def save_data(self, data: pd.DataFrame, measurement_name: str):
+        """Save data to the buffer for asynchronous processing.
+        
+        Args:
+            data: DataFrame containing the measurement data
+            measurement_name: Name of the measurement for which to save data
+        """
+        if measurement_name not in self._data_buffer:
+            self._data_buffer[measurement_name] = []
             
-            self.wandb_tables[measurement_name].add_data(*row_data)
+        # Convert DataFrame rows to dicts and add to buffer
+        rows = []
+        for row in data.itertuples(index=False):
+            row_dict = {col: val for col, val in zip(data.columns, row)}
+            rows.append(row_dict)
+            
+        with self._buffer_lock:
+            self._data_buffer[measurement_name].extend(rows)
+            
+            # Check if we've reached the buffer size and need to flush
+            if len(self._data_buffer[measurement_name]) >= self._buffer_size:
+                self._flush_buffer(measurement_name)
+                
+    def _flush_buffer(self, measurement_name: str):
+        """Flush the data buffer for a specific measurement."""
+        with self._buffer_lock:
+            if not self._data_buffer[measurement_name]:
+                return
+                
+            # Get the data and clear the buffer
+            data_to_save = self._data_buffer[measurement_name].copy()
+            self._data_buffer[measurement_name].clear()
+            
+        if not data_to_save:
+            return
+            
+        # Submit the save task to the thread pool
+        future = self._executor.submit(
+            self._save_data_async,
+            data_to_save,
+            measurement_name
+        )
+        self._pending_futures.append(future)
+        
+    def _save_data_async(self, data: List[Dict], measurement_name: str):
+        """Background task to save data to wandb and extensions."""
+        try:
+            # Log to wandb
+            for row in data:
+                self.run.log({measurement_name: row})
+                
+            # Add to wandb table
+            table = self.wandb_tables[measurement_name]
+            for row in data:
+                table.add_data(*[row.get(col, None) for col in table.columns])
+                
+            # Save to extensions
+            df = pd.DataFrame(data)
+            for extension in self.extensions:
+                extension.save_data(df, measurement_name)
+                
+        except Exception as e:
+            print(f"Error saving data for {measurement_name}: {str(e)}")
+            # Re-raise to be handled by the future
+            raise
+            
+    def flush(self):
+        """Flush all buffered data to disk and wait for completion."""
+        # Flush all measurement buffers
+        for measurement_name in list(self._data_buffer.keys()):
+            self._flush_buffer(measurement_name)
+            
+        # Wait for all pending saves to complete
+        for future in list(self._pending_futures):
+            try:
+                future.result(timeout=30)  # 30 second timeout per future
+            except Exception as e:
+                print(f"Error during save operation: {str(e)}")
+                
+    def __del__(self):
+        """Ensure all data is saved when the scan is destroyed."""
+        self.shutdown()
+        
+    def shutdown(self):
+        """Cleanup resources and ensure all data is saved."""
+        if hasattr(self, '_stop_event'):
+            self._stop_event.set()
+            
+        # Flush any remaining data
+        self.flush()
+        
+        # Shutdown the executor
+        if hasattr(self, '_executor'):
+            self._executor.shutdown(wait=True)
+            
+        # Clean up any remaining resources
+        if hasattr(self, 'run') and self.run is not None:
+            self.run.finish()
 
     def move_to_positions(self, items_to_move: list[tuple[MovementItem, float]]):
         for extension in self.extensions:
@@ -192,69 +284,156 @@ class Scan():
 
         
     def execute(self):
-        """Execute the scan procedure."""
-
+        """Execute the scan procedure using the FastForward traversal and move_next functionality."""
         print(f"Starting scan: {self.scan_settings.scan_name} for sample {self.sample_ID} owned by {self.owner}")
-
-        # Perform the scan by iterating over all movement positions and performing measurements
-        num_movement_tools = len(self.scan_settings.movement_items)
-
-        positions = [self.scan_settings.movement_items[i].positions for i in range(num_movement_tools)]
-        total_positions = np.prod([len(pos) for pos in positions])
-
-        # Initialize previous indices to NaN for each movement tool; all movement tools will be moved in the first iteration
-        previous_indices = np.array([np.nan for _ in range(num_movement_tools)])
-
+        root_item = self.scan_settings.scan_tree.root_item
+        # Initialize all extensions
         for extension in self.extensions:
             extension.execute()
 
+        current_item = self.current_item if self.current_item else root_item
+
+        # Connect to all instruments in the scan tree
+        print("Connecting to instruments...")
+        connected_instruments = set()
+        
+        def connect_instrument(item):
+            if hasattr(item, 'instrument_object') and item.instrument_object is not None:
+                # Get the actual instrument object
+                instr = item.instrument_object.instrument
+                    
+                # Only connect once per unique instrument
+                if instr not in connected_instruments:
+                    try:
+                        if hasattr(instr, 'connect') and callable(instr.connect):
+                            instr.connect()
+                            print(f"Connected to {instr.name}" if hasattr(instr, 'name') else f"Connected to {instr.__class__.__name__}")
+                            connected_instruments.add(instr)
+                    except Exception as e:
+                        print(f"Error connecting to instrument {instr}: {str(e)}")
+                        raise
+
+        def initialize_instrument_if_IMR_start(item):
+            if hasattr(item, 'instrument_object') and item.instrument_object is not None:
+                # Get the actual instrument object
+                instr = item.instrument_object
+                    
+                # Initialize
+                try:
+                    if instr._runtime_initialized and hasattr(instr, 'initialize') and callable(instr.initialize):
+                        instr.initialize()
+                        instr.settings = instr._runtime_settings
+                        print(f"Initialized {instr.name}" if hasattr(instr, 'name') else f"Initialized {instr.__class__.__name__}")
+                except Exception as e:
+                    print(f"Error initializing instrument {instr}: {str(e)}")
+                    raise
+
+        def save_settings(item):
+            if hasattr(item, 'instrument_object') and item.instrument_object is not None:
+                # Get the actual instrument object
+                instr = item.instrument_object
+
+                if instr._runtime_initialized and hasattr(instr, 'settings') and callable(instr.settings):
+                    instr._runtime_settings = instr.settings
+
+        # Traverse the tree and connect to all instruments, initializing instruments if starting in the middle of a scan
+        def traverse_and_connect(item):
+            connect_instrument(item)
+            initialize_instrument_if_IMR_start(item)
+            for child in getattr(item, 'child_items', []):
+                traverse_and_connect(child)
+
+        def traverse_and_save(item):
+            save_settings(item)
+            for child in getattr(item, 'child_items', []):
+                traverse_and_save(child)
+
+        
+        # Start traversal from root item
+        traverse_and_connect(root_item)
+        print(f"Successfully connected to {len(connected_instruments)} instruments")
+        print("All instruments connected. Starting scan...")
+
+        # Main scan loop
         while True:
+            if hasattr(self, '_stop_event') and self._stop_event.is_set():
+                print("Scan stopped by user")
 
-            # create np mask for changed indices
-            mask = self.indices != previous_indices
-            mask = mask.tolist()
-            previous_indices = self.indices.copy()
+                # save current position in scan, in case it is necessary to continue
+                self.current_item = current_item
 
-            # create array of (movement_dict, position) tuples for changed indices
-            items_to_move = [(self.scan_settings.movement_items[i], float(positions[i][self.indices[i]])) for i in range(num_movement_tools)]
-            items_to_move = list(compress(items_to_move, mask))
-            self.move_to_positions(items_to_move)
-
-            # Take measurements at the current position
-            self.take_measurements()
-
-            # Update index for next position
-            self.master_index += 1
-            if self.master_index >= total_positions:
+                # save current settings for instruments that have already been initialized
+                traverse_and_save(root_item)
                 break
 
-            # Update indices for each movement tool
-            for i in range(num_movement_tools):
-                self.indices[i] += 1
-                if self.indices[i] >= len(positions[i]):
-                    self.indices[i] = 0
-                else:
+            # Use FastForward to get the next item to process
+            ff = InstrumentTreeItem.FastForward(current_item)
+            if not current_item.finished():
+                ff = ff.new_item(current_item)
+
+            while not ff.done and ff.current_item is not None:
+                ff = ff.current_item.propagate(ff)
+                if ff.done:
                     break
-        
-        # Log the table to wandb
-        for measurement_name in self.wandb_tables:
-            self.run.log({measurement_name: self.wandb_tables[measurement_name]})
+
+            # Process the stack of items in parallel
+            if ff.stack:
+                with ThreadPoolExecutor(max_workers=min(len(ff.stack),self._max_workers)) as executor:
+                    # Submit all move_next tasks
+                    future_to_item = {
+                        executor.submit(item.move_next): item 
+                        for item in ff.stack
+                    }
+                    
+                    # Process results as they complete
+                    for future in as_completed(future_to_item):
+                        item = future_to_item[future]
+                        try:
+                            result = future.result()
+                            if isinstance(result, pd.DataFrame):
+                                # This was a measurement
+                                self.save_data(result, item.instrument_object.name)
+                            elif result is False:
+                                # Movement completed or failed
+                                print(f"Movement completed for {item.name}")
+                        except Exception as exc:
+                            print(f"{item.name} generated an exception: {exc}")
+                            # Optionally re-raise if you want the scan to stop on error
+                            # raise
+
+            # Check if we've completed all movements
+            if all(item.finished() for item in self.scan_settings.scan_tree.get_movement_items()):
+                print("All movements completed")
+                break
+
+            # Get the next item to process
+            if ff.final_item is None:
+                break
+            current_item = ff.final_item
+
+        # Final flush of any remaining data
+        self.flush()
+        print("Scan ended successfully")
 
     
     def shutdown(self):
         for extension in self.extensions:
             extension.shutdown()
 
-
         # Shutdown all movement and measurement tools
-        for item in self.scan_settings.movement_items:
-            item.movement.shutdown()
-
-        for item in self.scan_settings.measurement_items:
-            item.measurement.shutdown()
+        for item in self.scan_settings.scan_tree.get_all_instrument_items():
+            if item.instrument_object is not None:
+                try:
+                    if hasattr(item.instrument_object.instrument, 'shutdown') and callable(item.instrument_object.instrument.shutdown):
+                        item.instrument_object.instrument.shutdown()
+                        print(f"Shutdown {item.instrument_object.instrument.name}" if hasattr(item.instrument_object.instrument, 'name') else f"Shutdown {item.instrument_object.instrument.__class__.__name__}")
+                except Exception as e:
+                    print(f"Error shutting down instrument {item.instrument_object.instrument}: {str(e)}")
 
         # Finish the wandb run
         wandb.finish()
+
+        self.scan_settings.end_date = time.strftime("%H:%M:%S", time.localtime())
 
     def run_scan(self):
         self.startup()
@@ -294,9 +473,7 @@ def get_empty_scan() -> Scan:
         scan_name="default_scan",
         scan_type="",
         job_type="",
-        measurement_items=[],
-        movement_items=[],
-        extensions=[],
+        ScanTree=ScanTreeModel(),
         additional_tags=[],
         status="Queued"
     )
