@@ -19,7 +19,8 @@ sample.image = np.random.rand(10, 10)  # Simulated image data
 
 
 # Sample is saved to a file
-sample_directory = os.path.join(os.path.dirname(__file__), '..', "samples")
+sample_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', "samples"))
+print(f"Saving sample to directory: {sample_directory}")
 if not os.path.exists(sample_directory):
     os.makedirs(sample_directory)
 sample_file = os.path.join(sample_directory, sample.ID + ".pkl")

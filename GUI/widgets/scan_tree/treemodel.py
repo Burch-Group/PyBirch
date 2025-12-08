@@ -355,3 +355,39 @@ class ScanTreeModel(QAbstractItemModel):
 
         traverse(self.root_item)
         return measurement_items
+    
+    def get_all_instrument_items(self) -> list[InstrumentTreeItem]:
+        """Return a list of all instrument items."""
+        all_items = []
+
+        def traverse(item: InstrumentTreeItem):
+            if item.instrument_object:
+                all_items.append(item)
+            for child in item.child_items:
+                traverse(child)
+
+        traverse(self.root_item)
+        return all_items
+
+    def serialize(self) -> dict:
+        """Serialize the entire model to a dictionary."""
+        return {
+            "root_item": self.root_item.serialize(),
+            "completed": self.completed,
+            "paused": self.paused,
+            "stopped": self.stopped,
+            "next_item": self.next_item.serialize() if self.next_item else None
+        }
+
+    def deserialize(self, data: dict) -> None:
+        """Deserialize the model from a dictionary."""
+        self.root_item = InstrumentTreeItem.deserialize(data.get("root_item", {}))
+        self.completed = data.get("completed", False)
+        self.paused = data.get("paused", False)
+        self.stopped = data.get("stopped", False)
+        next_item_data = data.get("next_item", None)
+        if next_item_data:
+            self.next_item = InstrumentTreeItem.deserialize(next_item_data)
+        else:
+            self.next_item = None
+        self.layoutChanged.emit()

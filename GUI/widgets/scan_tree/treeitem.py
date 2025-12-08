@@ -38,22 +38,27 @@ class InstrumentTreeItem:
         self.columns = [self.name, self.type, self.adapter, self.semaphore]
 
         # Initialize indices for Movement objects if not provided
+        print(f"Initializing InstrumentTreeItem for instrument: {self.name if self.name else 'None'}")
         if instrument_object is None:
+            print("No instrument object provided.")
             self.item_indices = []
             self.final_indices = []
-        elif issubclass(instrument_object.instrument.__base_class__(), Movement):
+        elif instrument_object.instrument.__base_class__() is Movement:
+            print(f"Instrument is a Movement: {self.name}")
             if not self.item_indices:
                 self.item_indices = [0]
             if not self.final_indices:
                 # Check if the movement object has positions attribute, otherwise default to 1
                 try:
                     positions = getattr(instrument_object, 'positions', None)
+                    print(f"Positions attribute found: {positions}")
                     if positions and len(positions) > 0:
                         self.final_indices = [len(positions) - 1]
                     else:
                         # Default if no positions attribute or empty positions
                         self.final_indices = [1]
                 except Exception:
+                    print("Error accessing positions attribute.")
                     # Default if any error accessing positions
                     self.final_indices = [1]
         else:
@@ -172,34 +177,40 @@ class InstrumentTreeItem:
         # All other items are finished when they have been performed once
         return True
     
-    def reset_indices(self):
-        if self.instrument_object.instrument.__base_class__() is Movement:
-            self.item_indices = [0]
+    def reset_children_indices(self):
         if self.child_items:
             for child in self.child_items:
                 child.reset_indices()
+    
+    def reset_indices(self):
+        self.item_indices = [0]
+        self.reset_children_indices()
 
     def move_next(self) -> pd.DataFrame | bool:
         if not self._runtime_initialized:
             self._runtime_initialized = True
             self.instrument_object.instrument.initialize()
-            self.instrument_object.instrument.settings = self._runtime_settings
+            self.instrument_object.instrument.settings = self.instrument_object.settings
 
         
         if self.instrument_object.instrument.__base_class__() is Movement:
+            print(f"Moving instrument {self.instrument_object.instrument.name} to next position...")
             if not self.item_indices or not self.final_indices:
                 return False
             for i in reversed(range(len(self.item_indices))):
                 if self.item_indices[i] < self.final_indices[i]:
                     self.item_indices[i] += 1
-                    self.instrument_object.instrument.position = self.instrument_object.instrument.positions[self.item_indices[i]]  #type: ignore
-                    return True
                 else:
-                    self.item_indices[i] = 0
+                    print(f"Resetting indices")
+                    self.reset_indices()
+                self.instrument_object.instrument.position = self.instrument_object.positions[self.item_indices[i]]  #type: ignore
+                print(f"Moved to position {self.instrument_object.instrument.position}, with index {self.item_indices[i]} out of {self.final_indices[i]}")
+                return True
             return False
         
         elif self.instrument_object.instrument.__base_class__() is Measurement:
             self.item_indices = [1]
+            print(f"Performing measurement with instrument {self.instrument_object.instrument.name}")
             return self.instrument_object.instrument.measurement_df() #type: ignore
         
         return False
@@ -269,9 +280,13 @@ class InstrumentTreeItem:
 
         def new_item(self, item: InstrumentTreeItem):
             self.current_item = item
+            self.current_item.reset_children_indices()
+            print(f"FastForward examining item: {item.instrument_object.instrument.name if item.instrument_object else 'None'}")
             if self.check_if_last(item):
                 self.final_item = item
                 self.done = True
+                self.stack.append(item)
+                print(f"FastForward reached final item: {item.instrument_object.instrument.name if item.instrument_object else 'None'}")
                 return self
             
             if item.semaphore and item.semaphore not in self.semaphore:
@@ -281,19 +296,26 @@ class InstrumentTreeItem:
                 value = getattr(item, characteristic)
                 if value:
                     getattr(self, characteristic)[value] = getattr(self, characteristic).get(value, []) + [item]
-
+            print(f"FastForward adding item: {item.instrument_object.instrument.name if item.instrument_object else 'None'}")
             self.stack.append(item)
 
             return self
 
     def propagate(self, ff: FastForward) -> FastForward:
-        if self.child_items:
+        if self.child_items and not self.finished():
             return ff.new_item(self.child_items[0])
         elif self.parent_item and self != self.parent_item.last_child():
             next_sibling = self.parent_item.child(self.child_number() + 1)
             return ff.new_item(next_sibling)
         elif self.parent_item:
-            return ff.new_item(self.parent_item)
+            next_item = self.parent_item
+            while next_item.finished():
+                if next_item.parent():
+                    next_item = next_item.parent()
+                else:
+                    ff.done = True
+                    return ff
+            return ff.new_item(next_item)
         else:
             ff.done = True
             return ff

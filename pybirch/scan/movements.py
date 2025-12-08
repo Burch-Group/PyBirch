@@ -112,6 +112,7 @@ class MovementItem:
     def __init__(self, movement: Movement | VisaMovement, positions: np.ndarray, settings: dict = {}):
         self.instrument = movement
         self.settings = settings
+        self._runtime_settings = settings
         self.positions = positions
 
     def __repr__(self):

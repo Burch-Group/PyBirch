@@ -76,7 +76,7 @@ class ScanSettings:
 class Scan():
     """Base class for scans in the PyBirch framework."""
     # sample directory is under pybirch/samples
-    def __init__(self, scan_settings: ScanSettings, owner: str, sample_ID: str, sample_directory: str = os.path.join(os.path.dirname(__file__), '..', "samples"), master_index: int = 0, indices: np.ndarray = np.array([]), buffer_size: int = 1000, max_workers: int = 2):
+    def __init__(self, scan_settings: ScanSettings, owner: str, sample_ID: str, sample_directory: str = os.path.join(os.path.dirname(__file__), '..', '..', "samples"), master_index: int = 0, indices: np.ndarray = np.array([]), buffer_size: int = 1000, max_workers: int = 2):
 
         # scan settings
         self.scan_settings = scan_settings
@@ -94,8 +94,9 @@ class Scan():
         self.sample_ID = sample_ID
         self.sample_directory = sample_directory
 
-        self._max_workers = 1000 # essentially, no default limit
+        self._max_workers = 1000 # essentially no default limit
         self._buffer_size = buffer_size
+        print("Buffer size set to:", self._buffer_size)
         self._data_buffer: Dict[str, List[Dict]] = {}
         self._buffer_lock = Lock()
         self._stop_event = Event()
@@ -119,6 +120,12 @@ class Scan():
         self.scan_settings.start_date = time.strftime("%H:%M:%S", time.localtime())
 
         sample_file = os.path.join(self.sample_directory, self.sample_ID + ".pkl")
+        if not os.path.exists(sample_file):
+            print(f"Sample file {sample_file} does not exist. Creating a new sample.")
+            self.sample = Sample(ID=self.sample_ID, material='', additional_tags=[], image=np.array([]))
+            with open(sample_file, 'wb') as file:
+                pickle.dump(self.sample, file)
+                print(f"Created new sample file: {sample_file}")
         with open(sample_file, 'rb') as file:
             try:
                 self.sample = pickle.load(file)
@@ -153,7 +160,7 @@ class Scan():
         # Create a wandb table for each measurement tool
         self.wandb_tables = {}
         for item in self.scan_settings.scan_tree.get_measurement_items():
-            self.wandb_tables[item.instrument_object.instrument.name] = wandb.Table(columns=[*item.instrument_object.instrument.columns().tolist(), *[f"{m.movement.position_column} M({m.movement.position_units})" for m in self.scan_settings.scan_tree.get_movement_items()]], log_mode="INCREMENTAL")
+            self.wandb_tables[item.instrument_object.instrument.name] = wandb.Table(columns=[*item.instrument_object.instrument.columns().tolist(), *[f"{m.instrument_object.instrument.position_column} M({m.instrument_object.instrument.position_units})" for m in self.scan_settings.scan_tree.get_movement_items()]], log_mode="INCREMENTAL")
 
     def save_data(self, data: pd.DataFrame, measurement_name: str):
         """Save data to the buffer for asynchronous processing.
@@ -170,28 +177,33 @@ class Scan():
         for row in data.itertuples(index=False):
             row_dict = {col: val for col, val in zip(data.columns, row)}
             rows.append(row_dict)
-            
+
         with self._buffer_lock:
             self._data_buffer[measurement_name].extend(rows)
-            
+            print(f"Buffer size for {measurement_name}: {len(self._data_buffer.get(measurement_name, []))}")
             # Check if we've reached the buffer size and need to flush
             if len(self._data_buffer[measurement_name]) >= self._buffer_size:
+                print(f"Buffer size reached for {measurement_name}, flushing buffer.")
                 self._flush_buffer(measurement_name)
                 
     def _flush_buffer(self, measurement_name: str):
         """Flush the data buffer for a specific measurement."""
-        with self._buffer_lock:
-            if not self._data_buffer[measurement_name]:
-                return
-                
-            # Get the data and clear the buffer
-            data_to_save = self._data_buffer[measurement_name].copy()
-            self._data_buffer[measurement_name].clear()
+        print("Starting buffer flush...")
+        if not self._data_buffer[measurement_name]:
+            print(f"No data to flush for {measurement_name}.")
+            return
+            
+        # Get the data and clear the buffer
+        print("Getting data to save for", measurement_name)
+        data_to_save = self._data_buffer[measurement_name].copy()
+        self._data_buffer[measurement_name].clear()
             
         if not data_to_save:
+            print(f"No data to save for {measurement_name}. Buffer was empty.")
             return
             
         # Submit the save task to the thread pool
+        print(f"Flushing buffer for {measurement_name} with {len(data_to_save)} rows.")
         future = self._executor.submit(
             self._save_data_async,
             data_to_save,
@@ -225,7 +237,8 @@ class Scan():
         """Flush all buffered data to disk and wait for completion."""
         # Flush all measurement buffers
         for measurement_name in list(self._data_buffer.keys()):
-            self._flush_buffer(measurement_name)
+            with self._buffer_lock:
+                self._flush_buffer(measurement_name)
             
         # Wait for all pending saves to complete
         for future in list(self._pending_futures):
@@ -316,13 +329,13 @@ class Scan():
         def initialize_instrument_if_IMR_start(item):
             if hasattr(item, 'instrument_object') and item.instrument_object is not None:
                 # Get the actual instrument object
-                instr = item.instrument_object
+                instr = item.instrument_object.instrument
                     
                 # Initialize
                 try:
-                    if instr._runtime_initialized and hasattr(instr, 'initialize') and callable(instr.initialize):
+                    if item._runtime_initialized and hasattr(instr, 'initialize') and callable(instr.initialize):
                         instr.initialize()
-                        instr.settings = instr._runtime_settings
+                        instr.settings = item._runtime_settings
                         print(f"Initialized {instr.name}" if hasattr(instr, 'name') else f"Initialized {instr.__class__.__name__}")
                 except Exception as e:
                     print(f"Error initializing instrument {instr}: {str(e)}")
@@ -331,10 +344,9 @@ class Scan():
         def save_settings(item):
             if hasattr(item, 'instrument_object') and item.instrument_object is not None:
                 # Get the actual instrument object
-                instr = item.instrument_object
-
-                if instr._runtime_initialized and hasattr(instr, 'settings') and callable(instr.settings):
-                    instr._runtime_settings = instr.settings
+                instr = item.instrument_object.instrument
+                if item._runtime_initialized and hasattr(instr, 'settings') and callable(instr.settings):
+                    item._runtime_settings = instr.settings
 
         # Traverse the tree and connect to all instruments, initializing instruments if starting in the middle of a scan
         def traverse_and_connect(item):
@@ -354,6 +366,8 @@ class Scan():
         print(f"Successfully connected to {len(connected_instruments)} instruments")
         print("All instruments connected. Starting scan...")
 
+        first_iteration = True
+
         # Main scan loop
         while True:
             if hasattr(self, '_stop_event') and self._stop_event.is_set():
@@ -368,16 +382,22 @@ class Scan():
 
             # Use FastForward to get the next item to process
             ff = InstrumentTreeItem.FastForward(current_item)
-            if not current_item.finished():
+            print(f"Current item: {current_item.instrument_object.instrument.name if current_item.instrument_object else 'None'}")
+            if first_iteration or (not current_item.finished() and all(child.finished() for child in current_item.child_items)):
                 ff = ff.new_item(current_item)
+                first_iteration = False
 
             while not ff.done and ff.current_item is not None:
                 ff = ff.current_item.propagate(ff)
                 if ff.done:
                     break
-
+            # pause for user to see print statements
+            # input("Press Enter to continue...")
             # Process the stack of items in parallel
             if ff.stack:
+                print(f"Processing {len(ff.stack)} items in parallel...")
+                print("Items to process:", [item.instrument_object.instrument.name if item.instrument_object else 'None' for item in ff.stack])
+                
                 with ThreadPoolExecutor(max_workers=min(len(ff.stack),self._max_workers)) as executor:
                     # Submit all move_next tasks
                     future_to_item = {
@@ -392,7 +412,8 @@ class Scan():
                             result = future.result()
                             if isinstance(result, pd.DataFrame):
                                 # This was a measurement
-                                self.save_data(result, item.instrument_object.name)
+                                print(f"Measurement completed for {item.name}")
+                                self.save_data(result, item.instrument_object.instrument.name)
                             elif result is False:
                                 # Movement completed or failed
                                 print(f"Movement completed for {item.name}")
@@ -402,7 +423,7 @@ class Scan():
                             # raise
 
             # Check if we've completed all movements
-            if all(item.finished() for item in self.scan_settings.scan_tree.get_movement_items()):
+            if all(item.finished() for item in self.scan_settings.scan_tree.get_all_instrument_items()):
                 print("All movements completed")
                 break
 
