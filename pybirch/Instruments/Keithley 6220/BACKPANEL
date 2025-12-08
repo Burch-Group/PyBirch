@@ -1,0 +1,1021 @@
+import sys, os, time, threading, queue, math
+from typing import List, Callable, Optional
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QComboBox, QLineEdit, QGroupBox, QFormLayout, QDoubleSpinBox, QSpinBox,
+    QTextEdit, QFileDialog, QMessageBox, QCheckBox, QTabWidget, QProgressBar, QPlainTextEdit
+)
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread
+
+try:
+    import pyvisa
+    from pyvisa.resources import MessageBasedResource
+except Exception as e:
+    raise ImportError("pyvisa required: pip install pyvisa\n" + str(e))
+
+# ----- Device nominal limits for the 6220 -----
+MAX_CURRENT_A = 0.105   # Use 0.105 A if your revision says 105 mA; common safe value 0.100-0.105 A
+MIN_CURRENT_A = 1e-13   # ~100 fA practical lower limit for UI validation
+MAX_COMPLIANCE_V = 105.0
+MIN_COMPLIANCE_V = 0.0
+
+def _fmt(v: float) -> str:
+    return f"{v:.12g}"
+
+# Basic SCPI commands relevant to 6220 (kept minimal and editable)
+SCPI = {
+    "IDN": "*IDN?",
+    "RST": "*RST",
+    "CLS": "*CLS",
+    "SYST_ERR": "SYST:ERR?",
+    "OUT_ON": "OUTP ON",
+    "OUT_OFF": "OUTP OFF",
+    "OUT_Q": "OUTP?",
+    "SOUR_CURR_FUNC": "SOUR:FUNC CURR",
+    "SOUR_CURR_LEV": "SOUR:CURR:LEV {val}",
+    "SOUR_CURR_RANGE": "SOUR:CURR:RANG {val}",
+    "SOUR_CURR_RANG_AUTO": "SOUR:CURR:RANG:AUTO {onoff}",
+    "SOUR_CURR_POL": "SOUR:CURR:POL {pol}",
+    "SOUR_VOLT_PROT": "SOUR:VOLT:PROT {val}",
+    "TRIG_SRC": "TRIG:SOUR {src}",
+    "TRIG_DEL": "TRIG:DEL {val}",
+    "TRIG_COUNT": "TRIG:COUN {val}",
+    "TRIG_OUT_PULS_WID": "TRIG:OUT:PULS:WID {val}",
+    "SENS_AVER_STAT": "SENS:AVER:STAT {onoff}",
+    "SENS_AVER_COUNT": "SENS:AVER:COUNT {val}",
+    "TRAC_CFG_FEED": "TRAC:FEED {feed}",
+    "TRAC_CFG_PTS": "TRAC:POIN {n}",
+    "TRAC_DATA_Q": "TRAC:DATA? {start},{stop},\"{buffer}\"",
+    "LIST_LEV": "SOUR:LIST:LEV {csv}",
+    "LIST_MODE": "SOUR:CURR:MODE LIST",
+    "MEAS_VOLT": "MEAS:VOLT?",
+    "SYST_OPT": "SYST:OPT?",
+    "SYST_VERS": "SYST:VERS?",
+    "SYST_ESE_Q": "SYST:ESE?",
+    "SYST_SRE_Q": "SYST:SRE?",
+    "SYST_ESE": "SYST:ESE {val}",
+    "SYST_SRE": "SYST:SRE {val}",
+    "STAT_QUE": "STAT:QUES?",
+    "STAT_OPER": "STAT:OPER?",
+    "STB_Q": "*STB?",
+    "SYST_DISP": "SYST:DISP:TEXT {line},\"{txt}\"",
+    "SYST_INT": "SYST:INT?",
+    "SELF_TEST": "*TST?",
+}
+
+# ----- Driver implementation (threaded queue, safe query/send) -----
+class DriverSignals(QObject):
+    result = pyqtSignal(str, object)
+    error = pyqtSignal(str, str)
+    log = pyqtSignal(str)
+
+class Keithley6220Driver(QObject):
+    def __init__(self, backend: Optional[str] = None, timeout_ms: int = 5000):
+        super().__init__()
+        self.signals = DriverSignals()
+        try:
+            self.rm = pyvisa.ResourceManager(backend) if backend else pyvisa.ResourceManager()
+        except Exception as e:
+            self.rm = None
+            self.signals.log.emit(f"VISA init error: {e}")
+        self.inst: Optional[MessageBasedResource] = None
+        self._q = queue.Queue()
+        self._stop_event = threading.Event()
+        self._worker = None
+        self.timeout_ms = int(timeout_ms)
+        self.read_term = "\n"
+        self.write_term = "\n"
+
+    def list_resources(self) -> List[str]:
+        if not self.rm:
+            return []
+        try:
+            return list(self.rm.list_resources())
+        except Exception as e:
+            self.signals.log.emit(f"list_resources failed: {e}")
+            return []
+
+    def connect(self, resource: str):
+        if not self.rm:
+            raise RuntimeError("VISA not available")
+        if self.inst:
+            self.signals.log.emit("Already connected")
+            return
+        self.inst = self.rm.open_resource(resource, timeout=self.timeout_ms)
+        try:
+            self.inst.write_termination = self.write_term
+            self.inst.read_termination = self.read_term
+        except Exception:
+            pass
+        # start worker thread
+        self._stop_event.clear()
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker.start()
+        # clear status
+        try:
+            self.inst.write("*CLS")
+        except Exception:
+            pass
+        self.signals.log.emit(f"Connected to {resource}")
+
+    def close(self):
+        if self.inst:
+            try:
+                self.inst.close()
+            except Exception:
+                pass
+        self._stop_event.set()
+        if self._worker:
+            self._worker.join(timeout=1.0)
+        self.inst = None
+        self.signals.log.emit("Disconnected")
+
+    def is_connected(self) -> bool:
+        return self.inst is not None
+
+    def _worker_loop(self):
+        while not self._stop_event.is_set():
+            try:
+                cmd, expect_resp = self._q.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if cmd == "__QUIT__":
+                break
+            try:
+                if expect_resp:
+                    resp = self.query_now(cmd)
+                    self.signals.result.emit(cmd, resp)
+                else:
+                    self.send_now(cmd)
+                    self.signals.result.emit(cmd, None)
+            except Exception as e:
+                self.signals.error.emit(cmd, str(e))
+            finally:
+                try:
+                    self._q.task_done()
+                except Exception:
+                    pass
+
+    def send_now(self, cmd: str):
+        if not self.inst:
+            raise ConnectionError("Not connected")
+        self.inst.write(cmd)
+
+    def query_now(self, cmd: str) -> str:
+        if not self.inst:
+            raise ConnectionError("Not connected")
+        return str(self.inst.query(cmd)).strip()
+
+    def enqueue(self, cmd: str, expect_resp: bool = False):
+        self._q.put((cmd, expect_resp))
+
+    # convenience wrappers
+    def idn(self):
+        return self.query_now(SCPI["IDN"])
+
+    def set_current(self, amps: float):
+        if amps > MAX_CURRENT_A or amps < -MAX_CURRENT_A:
+            self.signals.log.emit(f"Set request {amps} A exceeds limits, clamping to ±{MAX_CURRENT_A}")
+            amps = max(min(amps, MAX_CURRENT_A), -MAX_CURRENT_A)
+        self.enqueue(SCPI["SOUR_CURR_FUNC"], expect_resp=False)
+        self.enqueue(SCPI["SOUR_CURR_LEV"].format(val=_fmt(amps)), expect_resp=False)
+
+    def set_compliance(self, volts: float):
+        v = max(min(volts, MAX_COMPLIANCE_V), MIN_COMPLIANCE_V)
+        self.enqueue(SCPI["SOUR_VOLT_PROT"].format(val=_fmt(v)), expect_resp=False)
+
+    def set_range_auto(self, on: bool):
+        self.enqueue(SCPI["SOUR_CURR_RANG_AUTO"].format(onoff="ON" if on else "OFF"), expect_resp=False)
+
+    def set_range(self, rng: float):
+        self.enqueue(SCPI["SOUR_CURR_RANGE"].format(val=_fmt(rng)), expect_resp=False)
+
+    def set_polarity(self, pol: str):
+        self.enqueue(SCPI["SOUR_CURR_POL"].format(pol=pol), expect_resp=False)
+
+    def set_output(self, enable: bool):
+        self.enqueue(SCPI["OUT_ON"] if enable else SCPI["OUT_OFF"], expect_resp=False)
+
+    def meas_voltage(self) -> str:
+        return self.query_now(SCPI["MEAS_VOLT"])
+
+    def upload_list(self, values: List[float], progress_cb: Optional[Callable[[int,int],None]] = None):
+        # upload as one csv chunk; 6220 supports LIST memory
+        if not values:
+            return
+        csv = ",".join(_fmt(v) for v in values)
+        # set mode
+        self.enqueue(SCPI["SOUR_CURR_FUNC"], expect_resp=False)
+        self.enqueue(SCPI["LIST_LEV"].format(csv=csv), expect_resp=False)
+        self.enqueue(SCPI["LIST_MODE"], expect_resp=False)
+        if progress_cb:
+            progress_cb(len(values), len(values))
+        self.signals.log.emit("List uploaded")
+
+    def trigger_config(self, source: str, delay_s: float, count: int):
+        self.enqueue(SCPI["TRIG_SRC"].format(src=source), expect_resp=False)
+        self.enqueue(SCPI["TRIG_DEL"].format(val=_fmt(delay_s)), expect_resp=False)
+        self.enqueue(SCPI["TRIG_COUNT"].format(val=int(count)), expect_resp=False)
+
+    def trace_config(self, feed: str, points: int, buffer_name: str = "defbuffer1"):
+        self.enqueue(SCPI["TRAC_CFG_FEED"].format(feed=feed), expect_resp=False)
+        self.enqueue(SCPI["TRAC_CFG_PTS"].format(n=int(points)), expect_resp=False)
+        # feed source selection may be needed:
+        self.signals.log.emit(f"Trace configured: feed={feed} points={points} buffer={buffer_name}")
+
+    def trace_read_ascii(self, start: int, stop:int, buffer_name:str = "defbuffer1") -> str:
+        return self.query_now(SCPI["TRAC_DATA_Q"].format(start=start, stop=stop, buffer=buffer_name))
+
+    def syst_err(self) -> str:
+        return self.query_now(SCPI["SYST_ERR"])
+
+    def syst_opts(self) -> str:
+        return self.query_now(SCPI["SYST_OPT"])
+
+    def syst_vers(self) -> str:
+        return self.query_now(SCPI["SYST_VERS"])
+
+    def set_eese(self, ese_mask:int):
+        self.enqueue(SCPI["SYST_ESE"].format(val=int(ese_mask)), expect_resp=False)
+
+    def set_sre(self, sre_mask:int):
+        self.enqueue(SCPI["SYST_SRE"].format(val=int(sre_mask)), expect_resp=False)
+
+    def query_syst_ese(self) -> str:
+        return self.query_now(SCPI["SYST_ESE_Q"])
+
+    def query_syst_sre(self) -> str:
+        return self.query_now(SCPI["SYST_SRE_Q"])
+
+    def read_status_registers(self):
+        q = self.query_now(SCPI["STAT_QUE"])
+        o = self.query_now(SCPI["STAT_OPER"])
+        s = self.query_now(SCPI["STB_Q"])
+        return {"ques": q, "oper": o, "stb": s}
+
+    def read_interlock(self) -> str:
+        return self.query_now(SCPI["SYST_INT"])
+
+# ----- Sweep thread (for LIST or manual stepping) -----
+class SweepThread(QThread):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(list)
+    log = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, driver: Keithley6220Driver, sequence: List[float], dwell: float = 0.1, measure: bool = True):
+        super().__init__()
+        self.driver = driver
+        self.seq = sequence
+        self.dwell = dwell
+        self._abort = False
+        self.measure = measure
+
+    def run(self):
+        results = []
+        total = max(1, len(self.seq))
+        for i, val in enumerate(self.seq):
+            if self._abort:
+                break
+            try:
+                self.driver.set_current(val)
+            except Exception as e:
+                self.error.emit(f"Set failed: {e}")
+                break
+            # dwell
+            t0 = time.time()
+            while time.time() - t0 < self.dwell:
+                if self._abort:
+                    break
+                time.sleep(0.02)
+            meas = None
+            if self.measure and self.driver.is_connected():
+                try:
+                    meas = self.driver.meas_voltage()
+                except Exception as e:
+                    self.log.emit(f"Measurement failed: {e}")
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            results.append({"set": val, "meas": meas, "time": ts})
+            self.progress.emit(int((i+1)/total*100))
+        self.finished.emit(results)
+
+    def abort(self):
+        self._abort = True
+
+# ----- GUI Application (full tabs) -----
+class Backpanel6220(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Keithley 6220 — Backpanel (Full)")
+        self.resize(1400, 920)
+        self.driver = Keithley6220Driver()
+        self.driver.signals.result.connect(self._on_driver_result)
+        self.driver.signals.error.connect(self._on_driver_error)
+        self.driver.signals.log.connect(self._on_driver_log)
+
+        # central widget
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_layout = QVBoxLayout(central)
+
+        # Top controls: resource, connect, idn, emergency
+        top_h = QHBoxLayout()
+        top_h.addWidget(QLabel("VISA Resource:"))
+        self.res_combo = QComboBox()
+        self.refresh_btn = QPushButton("Refresh")
+        self.manual_res = QLineEdit()
+        self.connect_btn = QPushButton("Connect")
+        self.disconnect_btn = QPushButton("Disconnect")
+        self.idn_label = QLabel("IDN: (n/c)")
+        self.emerg_btn = QPushButton("EMERGENCY OFF")
+        self.emerg_btn.setStyleSheet("background-color:#ff5555;font-weight:bold;")
+        top_h.addWidget(self.res_combo,2)
+        top_h.addWidget(self.refresh_btn)
+        top_h.addWidget(QLabel("Manual:"))
+        top_h.addWidget(self.manual_res)
+        top_h.addWidget(self.connect_btn)
+        top_h.addWidget(self.disconnect_btn)
+        top_h.addWidget(self.idn_label,3)
+        top_h.addWidget(self.emerg_btn)
+        main_layout.addLayout(top_h)
+
+        # Tabs
+        self.tabs = QTabWidget()
+        main_layout.addWidget(self.tabs, 1)
+
+        # Build tabs
+        self.tabs.addTab(self._tab_main_source(), "Main Source")
+        self.tabs.addTab(self._tab_triggers(), "Trigger & Measure")
+        self.tabs.addTab(self._tab_list_sweep(), "List & Sweep")
+        self.tabs.addTab(self._tab_trace(), "Trace & Buffer")
+        self.tabs.addTab(self._tab_srq_events(), "SRQ & Events")
+        self.tabs.addTab(self._tab_guard_protection(), "Guard & Protection")
+        self.tabs.addTab(self._tab_options_advanced(), "Options & Advanced")
+
+        # Console
+        self.console = QPlainTextEdit()
+        self.console.setReadOnly(True)
+        main_layout.addWidget(QLabel("Console Log"))
+        main_layout.addWidget(self.console, 2)
+
+        # Hookups
+        self.refresh_btn.clicked.connect(self._refresh_resources)
+        self.connect_btn.clicked.connect(self._connect)
+        self.disconnect_btn.clicked.connect(self._disconnect)
+        self.emerg_btn.clicked.connect(self._emergency_off)
+
+        # timers
+        self.err_timer = QTimer(self)
+        self.err_timer.timeout.connect(self._poll_errors)
+        self.err_timer.start(3500)
+
+        self.sweep_thread = None
+        # initial refresh
+        self._append_log("GUI started")
+        self._refresh_resources()
+
+    # ----- Tab: Main Source -----
+    def _tab_main_source(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
+
+        grp = QGroupBox("Source Control")
+        g_layout = QFormLayout()
+        grp.setLayout(g_layout)
+
+        # current spinbox
+        self.spin_current = QDoubleSpinBox()
+        self.spin_current.setDecimals(12)
+        self.spin_current.setRange(-MAX_CURRENT_A, MAX_CURRENT_A)
+        self.spin_current.setSingleStep(1e-6)
+        self.spin_current.setValue(0.0)
+        g_layout.addRow(QLabel("Set Current (A):"), self.spin_current)
+
+        # compliance
+        self.spin_compliance = QDoubleSpinBox()
+        self.spin_compliance.setDecimals(6)
+        self.spin_compliance.setRange(MIN_COMPLIANCE_V, MAX_COMPLIANCE_V)
+        self.spin_compliance.setSingleStep(0.1)
+        self.spin_compliance.setValue(1.0)
+        g_layout.addRow(QLabel("Compliance (V):"), self.spin_compliance)
+
+        # range auto checkbox and manual range field
+        self.chk_range_auto = QCheckBox("Auto Range")
+        self.chk_range_auto.setChecked(True)
+        self.spin_range_manual = QDoubleSpinBox()
+        self.spin_range_manual.setDecimals(9)
+        self.spin_range_manual.setRange(1e-12, MAX_CURRENT_A)
+        self.spin_range_manual.setSingleStep(1e-6)
+        self.spin_range_manual.setEnabled(False)
+        range_h = QHBoxLayout()
+        range_h.addWidget(self.chk_range_auto)
+        range_h.addWidget(QLabel("Manual range A:"))
+        range_h.addWidget(self.spin_range_manual)
+        g_layout.addRow(range_h)
+
+        # polarity
+        self.combo_polarity = QComboBox()
+        self.combo_polarity.addItems(["POS", "NEG"])
+        g_layout.addRow(QLabel("Polarity:"), self.combo_polarity)
+
+        # output buttons
+        out_h = QHBoxLayout()
+        self.btn_out_on = QPushButton("Output ON")
+        self.btn_out_off = QPushButton("Output OFF")
+        out_h.addWidget(self.btn_out_on)
+        out_h.addWidget(self.btn_out_off)
+        g_layout.addRow(out_h)
+
+        # apply buttons
+        apply_h = QHBoxLayout()
+        self.btn_apply_source = QPushButton("Apply Source Settings")
+        self.btn_query_output = QPushButton("Query Output State")
+        apply_h.addWidget(self.btn_apply_source)
+        apply_h.addWidget(self.btn_query_output)
+        g_layout.addRow(apply_h)
+
+        layout.addWidget(grp)
+
+        # Actions hookup
+        self.chk_range_auto.stateChanged.connect(lambda s: self.spin_range_manual.setEnabled(not bool(s)))
+        self.btn_apply_source.clicked.connect(self._apply_source_settings)
+        self.btn_out_on.clicked.connect(lambda: self._set_output(True))
+        self.btn_out_off.clicked.connect(lambda: self._set_output(False))
+        self.btn_query_output.clicked.connect(self._query_output_state)
+
+        return w
+
+    def _apply_source_settings(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect to instrument first.")
+            return
+        curr = float(self.spin_current.value())
+        compl = float(self.spin_compliance.value())
+        self._append_log(f"Applying source current {curr} A, compliance {compl} V")
+        try:
+            self.driver.set_current(curr)
+            self.driver.set_compliance(compl)
+            if self.chk_range_auto.isChecked():
+                self.driver.set_range_auto(True)
+            else:
+                rng = float(self.spin_range_manual.value())
+                self.driver.set_range_auto(False)
+                self.driver.set_range(rng)
+            pol = self.combo_polarity.currentText()
+            self.driver.set_polarity(pol)
+        except Exception as e:
+            QMessageBox.critical(self, "Apply failed", str(e))
+
+    def _set_output(self, on: bool):
+        try:
+            self.driver.set_output(on)
+            self._append_log(f"Output {'ON' if on else 'OFF'} requested")
+        except Exception as e:
+            QMessageBox.critical(self, "Output failed", str(e))
+
+    def _query_output_state(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect first")
+            return
+        try:
+            resp = self.driver.query_now(SCPI["OUT_Q"])
+            self._append_log(f"Output state: {resp}")
+            QMessageBox.information(self, "Output State", f"{resp}")
+        except Exception as e:
+            QMessageBox.critical(self, "Query failed", str(e))
+
+    # ----- Tab: Trigger & Measure -----
+    def _tab_triggers(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        grp = QGroupBox("Trigger & Measurement")
+        f = QFormLayout()
+        grp.setLayout(f)
+
+        self.combo_trig_src = QComboBox()
+        self.combo_trig_src.addItems(["IMM", "EXT", "BUS", "TIM"])
+        self.spin_trig_delay = QDoubleSpinBox()
+        self.spin_trig_delay.setDecimals(6)
+        self.spin_trig_delay.setRange(0.0, 1000.0)
+        self.spin_trig_delay.setValue(0.0)
+        self.spin_trig_count = QSpinBox()
+        self.spin_trig_count.setRange(1, 1000000)
+        self.spin_trig_count.setValue(1)
+
+        f.addRow(QLabel("Trigger Source:"), self.combo_trig_src)
+        f.addRow(QLabel("Trigger Delay (s):"), self.spin_trig_delay)
+        f.addRow(QLabel("Trigger Count:"), self.spin_trig_count)
+
+        measure_h = QHBoxLayout()
+        self.btn_trigger_config = QPushButton("Apply Trigger Config")
+        self.btn_single_meas = QPushButton("Single Voltage Measure")
+        measure_h.addWidget(self.btn_trigger_config)
+        measure_h.addWidget(self.btn_single_meas)
+        f.addRow(measure_h)
+
+        v.addWidget(grp)
+
+        # Handlers
+        self.btn_trigger_config.clicked.connect(self._apply_trigger_config)
+        self.btn_single_meas.clicked.connect(self._single_measure)
+
+        return w
+
+    def _apply_trigger_config(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect first")
+            return
+        src = self.combo_trig_src.currentText()
+        delay = float(self.spin_trig_delay.value())
+        count = int(self.spin_trig_count.value())
+        self._append_log(f"Applying trigger: src={src} delay={delay} count={count}")
+        try:
+            self.driver.trigger_config(src, delay, count)
+        except Exception as e:
+            QMessageBox.critical(self, "Trigger config failed", str(e))
+
+    def _single_measure(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect.")
+            return
+        try:
+            val = self.driver.meas_voltage()
+            QMessageBox.information(self, "Voltage Measure", f"{val}")
+            self._append_log(f"Voltage measured: {val}")
+        except Exception as e:
+            QMessageBox.critical(self, "Measure failed", str(e))
+
+    # ----- Tab: List & Sweep -----
+    def _tab_list_sweep(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        grp_upload = QGroupBox("List Upload")
+        fup = QFormLayout()
+        grp_upload.setLayout(fup)
+        self.le_list_file = QLineEdit()
+        btn_browse = QPushButton("Browse CSV")
+        btn_load = QPushButton("Load & Upload")
+        self.progress_list = QProgressBar()
+        self.progress_list.setValue(0)
+        fup.addRow(QLabel("CSV file (one value or comma list):"), self.le_list_file)
+        fup.addRow(btn_browse, btn_load)
+        fup.addRow(QLabel("Upload progress:"), self.progress_list)
+        v.addWidget(grp_upload)
+
+        grp_sweep = QGroupBox("Sweep (Manual sequence)")
+        fs = QFormLayout()
+        grp_sweep.setLayout(fs)
+        self.le_seq = QLineEdit()
+        self.spin_dwell = QDoubleSpinBox()
+        self.spin_dwell.setDecimals(4)
+        self.spin_dwell.setRange(0.0, 100.0)
+        self.spin_dwell.setValue(0.1)
+        self.chk_measure_during = QCheckBox("Measure during sweep")
+        self.btn_start_sweep = QPushButton("Start Sweep")
+        self.btn_abort_sweep = QPushButton("Abort Sweep")
+        fs.addRow(QLabel("Sequence (comma-separated A):"), self.le_seq)
+        fs.addRow(QLabel("Dwell per step (s):"), self.spin_dwell)
+        fs.addRow(self.chk_measure_during)
+        fs.addRow(self.btn_start_sweep, self.btn_abort_sweep)
+        v.addWidget(grp_sweep)
+
+        # handlers
+        btn_browse.clicked.connect(self._browse_list_file)
+        btn_load.clicked.connect(self._load_and_upload_list)
+        self.btn_start_sweep.clicked.connect(self._start_sweep)
+        self.btn_abort_sweep.clicked.connect(self._abort_sweep)
+
+        return w
+
+    def _browse_list_file(self):
+        fn, _ = QFileDialog.getOpenFileName(self, "Open CSV", "", "CSV Files (*.csv);;Text Files (*.txt);;All Files (*)")
+        if fn:
+            self.le_list_file.setText(fn)
+
+    def _load_and_upload_list(self):
+        fn = self.le_list_file.text().strip()
+        if not fn or not os.path.exists(fn):
+            QMessageBox.warning(self, "No file", "Choose a valid file")
+            return
+        # parse file - accept comma-separated numbers or one per line
+        try:
+            with open(fn, "r") as fh:
+                txt = fh.read().strip()
+            txt = txt.replace("\n", ",")
+            parts = [p.strip() for p in txt.split(",") if p.strip()]
+            vals = [float(p) for p in parts]
+        except Exception as e:
+            QMessageBox.critical(self, "Parse failed", str(e))
+            return
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect first")
+            return
+        self.progress_list.setMaximum(len(vals))
+        self.progress_list.setValue(0)
+        def prog(done, total):
+            self.progress_list.setValue(done)
+        try:
+            self.driver.upload_list(vals, progress_cb=prog)
+            QMessageBox.information(self, "Upload", f"Uploaded {len(vals)} values to LIST memory")
+            self._append_log(f"Uploaded list of {len(vals)}")
+            self.progress_list.setValue(len(vals))
+        except Exception as e:
+            QMessageBox.critical(self, "Upload failed", str(e))
+
+    def _start_sweep(self):
+        if self.sweep_thread and self.sweep_thread.isRunning():
+            QMessageBox.information(self, "Sweep running", "A sweep is already running")
+            return
+        seq_txt = self.le_seq.text().strip()
+        if not seq_txt:
+            QMessageBox.warning(self, "No sequence", "Enter comma-separated currents (A)")
+            return
+        try:
+            seq = [float(s.strip()) for s in seq_txt.split(",") if s.strip()]
+        except Exception as e:
+            QMessageBox.critical(self, "Parse failed", str(e))
+            return
+        dwell = float(self.spin_dwell.value())
+        measure = self.chk_measure_during.isChecked()
+        self.sweep_thread = SweepThread(self.driver, seq, dwell=dwell, measure=measure)
+        self.sweep_thread.progress.connect(lambda p: self._append_log(f"Sweep progress {p}%"))
+        self.sweep_thread.log.connect(lambda m: self._append_log(m))
+        self.sweep_thread.error.connect(lambda e: self._append_log(f"Sweep error: {e}"))
+        self.sweep_thread.finished.connect(lambda res: self._append_log(f"Sweep finished, {len(res)} points"))
+        self.sweep_thread.start()
+        self._append_log("Sweep started")
+
+    def _abort_sweep(self):
+        if self.sweep_thread and self.sweep_thread.isRunning():
+            self.sweep_thread.abort()
+            self._append_log("Sweep abort requested")
+        else:
+            self._append_log("No running sweep to abort")
+
+    # ----- Tab: Trace & Buffer -----
+    def _tab_trace(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        grp_cfg = QGroupBox("Trace Configuration")
+        f = QFormLayout()
+        grp_cfg.setLayout(f)
+        self.combo_trace_feed = QComboBox()
+        self.combo_trace_feed.addItems(["SENSE","SOURCE"])
+        self.spin_trace_points = QSpinBox()
+        self.spin_trace_points.setRange(1, 1000000)
+        self.spin_trace_points.setValue(1000)
+        f.addRow(QLabel("Trace feed:"), self.combo_trace_feed)
+        f.addRow(QLabel("Points:"), self.spin_trace_points)
+        self.btn_trace_cfg = QPushButton("Configure Trace")
+        f.addRow(self.btn_trace_cfg)
+        v.addWidget(grp_cfg)
+
+        grp_read = QGroupBox("Read Trace")
+        fr = QFormLayout()
+        grp_read.setLayout(fr)
+        self.spin_trace_start = QSpinBox(); self.spin_trace_start.setRange(1, 1000000); self.spin_trace_start.setValue(1)
+        self.spin_trace_stop = QSpinBox(); self.spin_trace_stop.setRange(1, 1000000); self.spin_trace_stop.setValue(1000)
+        self.le_trace_buffer = QLineEdit("defbuffer1")
+        self.btn_trace_read = QPushButton("Read Trace ASCII")
+        fr.addRow(QLabel("Start:"), self.spin_trace_start)
+        fr.addRow(QLabel("Stop:"), self.spin_trace_stop)
+        fr.addRow(QLabel("Buffer name:"), self.le_trace_buffer)
+        fr.addRow(self.btn_trace_read)
+        v.addWidget(grp_read)
+
+        # handlers
+        self.btn_trace_cfg.clicked.connect(self._configure_trace)
+        self.btn_trace_read.clicked.connect(self._read_trace_ascii)
+
+        return w
+
+    def _configure_trace(self):
+        feed = self.combo_trace_feed.currentText()
+        pts = int(self.spin_trace_points.value())
+        buffer_name = self.le_trace_buffer.text().strip() or "defbuffer1"
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect instrument")
+            return
+        try:
+            self.driver.trace_config(feed, pts, buffer_name)
+            QMessageBox.information(self, "Trace", "Trace configured")
+            self._append_log(f"Trace configured feed={feed} pts={pts}")
+        except Exception as e:
+            QMessageBox.critical(self, "Trace config failed", str(e))
+
+    def _read_trace_ascii(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect instrument")
+            return
+        start = int(self.spin_trace_start.value())
+        stop = int(self.spin_trace_stop.value())
+        buffer_name = self.le_trace_buffer.text().strip() or "defbuffer1"
+        try:
+            data = self.driver.trace_read_ascii(start, stop, buffer_name)
+            # show in console and allow save
+            self._append_log(f"Trace data length {len(data)} chars")
+            dlg = QTextEdit()
+            dlg.setPlainText(data)
+            dlg.setReadOnly(True)
+            dlg.setWindowTitle("Trace ASCII Data")
+            dlg.resize(800, 600)
+            dlg.show()
+            # Keep a reference so it doesn't get GC'd
+            self._last_trace_window = dlg
+        except Exception as e:
+            QMessageBox.critical(self, "Trace read failed", str(e))
+
+    # ----- Tab: SRQ & Events -----
+    def _tab_srq_events(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        grp = QGroupBox("Event Registers")
+        f = QFormLayout()
+        grp.setLayout(f)
+
+        self.spin_ese = QSpinBox(); self.spin_ese.setRange(0, 65535)
+        self.spin_sre = QSpinBox(); self.spin_sre.setRange(0, 255)
+        self.btn_set_ese = QPushButton("Set ESE")
+        self.btn_set_sre = QPushButton("Set SRE")
+        self.btn_query_status = QPushButton("Query Status Registers")
+        f.addRow(QLabel("ESE mask:"), self.spin_ese)
+        f.addRow(QLabel("SRE mask:"), self.spin_sre)
+        f.addRow(self.btn_set_ese, self.btn_set_sre)
+        f.addRow(self.btn_query_status)
+        v.addWidget(grp)
+
+        self.btn_set_ese.clicked.connect(self._set_ese)
+        self.btn_set_sre.clicked.connect(self._set_sre)
+        self.btn_query_status.clicked.connect(self._query_status_regs)
+
+        return w
+
+    def _set_ese(self):
+        try:
+            v = int(self.spin_ese.value())
+            self.driver.set_eese(v)
+            self._append_log(f"ESE set to {v}")
+        except Exception as e:
+            QMessageBox.critical(self, "ESE failed", str(e))
+
+    def _set_sre(self):
+        try:
+            v = int(self.spin_sre.value())
+            self.driver.set_sre(v)
+            self._append_log(f"SRE set to {v}")
+        except Exception as e:
+            QMessageBox.critical(self, "SRE failed", str(e))
+
+    def _query_status_regs(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect instrument")
+            return
+        try:
+            regs = self.driver.read_status_registers()
+            QMessageBox.information(self, "Status Registers", f"{regs}")
+            self._append_log(f"Status regs: {regs}")
+        except Exception as e:
+            QMessageBox.critical(self, "Query failed", str(e))
+
+    # ----- Tab: Guard & Protection -----
+    def _tab_guard_protection(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        grp = QGroupBox("Guard / Interlock / Protection")
+        f = QFormLayout()
+        grp.setLayout(f)
+
+        self.chk_guard = QCheckBox("Enable Guard")
+        self.chk_floating = QCheckBox("Output Floating")
+        self.btn_set_guard = QPushButton("Apply Guard/Floating")
+        self.btn_read_interlock = QPushButton("Read Interlock / Protection")
+        f.addRow(self.chk_guard)
+        f.addRow(self.chk_floating)
+        f.addRow(self.btn_set_guard)
+        f.addRow(self.btn_read_interlock)
+        v.addWidget(grp)
+
+        self.btn_set_guard.clicked.connect(self._apply_guard_floating)
+        self.btn_read_interlock.clicked.connect(self._read_interlock)
+
+        return w
+
+    def _apply_guard_floating(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect instrument")
+            return
+        # 6220 uses commands for guard/floating; some firmwares may differ
+        guard = self.chk_guard.isChecked()
+        floating = self.chk_floating.isChecked()
+        try:
+            # Use general commands - some firmwares expect specific names
+            self.driver.enqueue(f"SOUR:SAFE:GUARD {'ON' if guard else 'OFF'}")
+            self.driver.enqueue(f"OUTP:FLOAT {'ON' if floating else 'OFF'}")
+            self._append_log(f"Guard {'ON' if guard else 'OFF'}, Floating {'ON' if floating else 'OFF'}")
+        except Exception as e:
+            QMessageBox.critical(self, "Apply failed", str(e))
+
+    def _read_interlock(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect instrument")
+            return
+        try:
+            inter = self.driver.read_interlock()
+            QMessageBox.information(self, "Interlock / Protection", f"{inter}")
+            self._append_log(f"Interlock: {inter}")
+        except Exception as e:
+            QMessageBox.critical(self, "Read failed", str(e))
+
+    # ----- Tab: Options & Advanced -----
+    def _tab_options_advanced(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        grp_opts = QGroupBox("Firmware & Options")
+        f1 = QFormLayout()
+        grp_opts.setLayout(f1)
+        self.btn_read_opts = QPushButton("Read Options")
+        self.btn_read_vers = QPushButton("Read Firmware")
+        f1.addRow(self.btn_read_opts, self.btn_read_vers)
+        v.addWidget(grp_opts)
+
+        grp_adv = QGroupBox("Advanced / Raw Commands")
+        f2 = QFormLayout()
+        grp_adv.setLayout(f2)
+        self.le_raw_cmd = QLineEdit()
+        self.btn_send_raw = QPushButton("Send (no query)")
+        self.btn_query_raw = QPushButton("Query")
+        self.le_timeout = QLineEdit("5000")
+        self.chk_eoi = QCheckBox("EOI on send")
+        self.btn_set_terms = QPushButton("Set Terminators")
+        self.le_read_term = QLineEdit("\\n")
+        self.le_write_term = QLineEdit("\\n")
+        f2.addRow(QLabel("Raw command:"), self.le_raw_cmd)
+        f2.addRow(self.btn_send_raw, self.btn_query_raw)
+        f2.addRow(QLabel("Timeout ms:"), self.le_timeout)
+        f2.addRow(self.chk_eoi)
+        f2.addRow(QLabel("Read term:"), self.le_read_term)
+        f2.addRow(QLabel("Write term:"), self.le_write_term)
+        f2.addRow(self.btn_set_terms)
+        v.addWidget(grp_adv)
+
+        # handlers
+        self.btn_read_opts.clicked.connect(self._read_options)
+        self.btn_read_vers.clicked.connect(self._read_versions)
+        self.btn_send_raw.clicked.connect(self._send_raw)
+        self.btn_query_raw.clicked.connect(self._query_raw)
+        self.btn_set_terms.clicked.connect(self._set_terminators)
+
+        return w
+
+    def _read_options(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect first")
+            return
+        try:
+            opts = self.driver.syst_opts()
+            self._append_log(f"Options: {opts}")
+            QMessageBox.information(self, "Options", opts)
+        except Exception as e:
+            QMessageBox.critical(self, "Read failed", str(e))
+
+    def _read_versions(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect first")
+            return
+        try:
+            v = self.driver.syst_vers()
+            self._append_log(f"Firmware: {v}")
+            QMessageBox.information(self, "Firmware Version", v)
+        except Exception as e:
+            QMessageBox.critical(self, "Read failed", str(e))
+
+    def _send_raw(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect first")
+            return
+        cmd = self.le_raw_cmd.text().strip()
+        if not cmd:
+            QMessageBox.warning(self, "No command", "Enter a command")
+            return
+        try:
+            self.driver.enqueue(cmd, expect_resp=False)
+            self._append_log(f"Sent raw: {cmd}")
+        except Exception as e:
+            QMessageBox.critical(self, "Send failed", str(e))
+
+    def _query_raw(self):
+        if not self.driver.is_connected():
+            QMessageBox.warning(self, "Not connected", "Connect first")
+            return
+        cmd = self.le_raw_cmd.text().strip()
+        if not cmd:
+            QMessageBox.warning(self, "No command", "Enter a command")
+            return
+        try:
+            resp = self.driver.query_now(cmd)
+            QMessageBox.information(self, "Query Response", resp)
+            self._append_log(f"Query '{cmd}' -> {resp}")
+        except Exception as e:
+            QMessageBox.critical(self, "Query failed", str(e))
+
+    def _set_terminators(self):
+        readt = self.le_read_term.text().encode('utf-8').decode('unicode_escape')
+        writet = self.le_write_term.text().encode('utf-8').decode('unicode_escape')
+        self.driver.read_term = readt
+        self.driver.write_term = writet
+        if self.driver.inst:
+            try:
+                self.driver.inst.read_termination = readt
+                self.driver.inst.write_termination = writet
+            except Exception:
+                pass
+        self._append_log(f"Terminators set R:'{readt}' W:'{writet}'")
+
+    # ----- Top-level connect / resource handlers -----
+    def _refresh_resources(self):
+        self.res_combo.clear()
+        try:
+            res = self.driver.list_resources()
+            self.res_combo.addItems(res)
+            self._append_log(f"Resources: {res}")
+        except Exception as e:
+            self._append_log(f"Refresh failed: {e}")
+
+    def _connect(self):
+        res = self.manual_res.text().strip() or self.res_combo.currentText().strip()
+        if not res:
+            QMessageBox.warning(self, "No resource", "Select or enter a VISA resource")
+            return
+        try:
+            self.driver.connect(res)
+            # query idn asynchronously to get label
+            try:
+                idn = self.driver.idn()
+                self.idn_label.setText(f"IDN: {idn}")
+                self._append_log(f"IDN: {idn}")
+            except Exception:
+                pass
+        except Exception as e:
+            QMessageBox.critical(self, "Connect failed", str(e))
+
+    def _disconnect(self):
+        try:
+            self.driver.close()
+            self.idn_label.setText("IDN: (n/c)")
+        except Exception as e:
+            self._append_log(f"Disconnect failed: {e}")
+
+    def _emergency_off(self):
+        try:
+            # Send output off and abort
+            self.driver.enqueue(SCPI["OUT_OFF"], expect_resp=False)
+            self.driver.enqueue("ABOR", expect_resp=False)
+            self._append_log("Emergency OFF: OUTP OFF + ABOR issued")
+        except Exception as e:
+            self._append_log(f"Emergency failed: {e}")
+
+    def _poll_errors(self):
+        if not self.driver.is_connected():
+            return
+        try:
+            err = self.driver.syst_err()
+            if err and not str(err).startswith("0"):
+                self._append_log(f"Instrument error: {err}")
+                # optionally show dialog
+        except Exception:
+            pass
+
+    # ----- Driver signal handlers -----
+    def _on_driver_result(self, cmd: str, resp: object):
+        if resp is None:
+            self._append_log(f"Sent: {cmd}")
+        else:
+            self._append_log(f"Query: {cmd} -> {resp}")
+
+    def _on_driver_error(self, cmd: str, err: str):
+        self._append_log(f"Driver error on '{cmd}': {err}")
+
+    def _on_driver_log(self, msg: str):
+        self._append_log(msg)
+
+    def _append_log(self, msg: str):
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{ts}] {msg}"
+        try:
+            self.console.appendPlainText(line)
+        except Exception:
+            pass
+
+# ----- Main -----
+def main():
+    app = QApplication(sys.argv)
+    w = Backpanel6220()
+    w.show()
+    sys.exit(app.exec_())
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,945 @@
+import sys
+import time
+import traceback
+import threading
+from ctypes import WinDLL, byref, c_double, c_int, c_bool, POINTER
+from ctypes import create_string_buffer
+from pathlib import Path
+
+from PyQt5 import QtWidgets, QtCore, QtGui
+
+# ---------------- CONFIG ----------------
+DLL_PATH = r"C:\Users\burchlab\anaconda3\Lib\site-packages\MIRPYTHON\MIRCATSDK.dll"
+
+# ---------------- EXPORT NAMES (from your dump) ----------------
+# We'll attempt to bind these names if present. If not present, GUI disables related features.
+EXPORT_NAMES = {
+    'Initialize': 'MIRcatSDK_Initialize',
+    'Deinitialize': 'MIRcatSDK_DeInitialize' ,  # try with alternate capitalization if available
+    'Deinitialize_alt': 'MIRcatSDK_DeInitialize',  # placeholder; we'll check actual 'MIRcatSDK_DeInitialize' is 'MIRcatSDK_DeInitialize' or 'MIRcatSDK_DeInitialize' - from dump we have 'MIRcatSDK_DeInitialize' appears as 'MIRcatSDK_DeInitialize'? We'll use the explicit names found
+}
+
+# Using the real names from the exports you pasted:
+REQUIRED_FUNCS = [
+    "MIRcatSDK_Initialize",
+    "MIRcatSDK_DeInitialize",  # note your dump lists "MIRcatSDK_DeInitialize" at ordinal 0xB? actual name in dump was MIRcatSDK_DeInitialize (capitalization as shown)
+    "MIRcatSDK_IsInterlockedStatusSet",  # export 0x4E in dump
+    "MIRcatSDK_IsKeySwitchStatusSet",    # export 0x4F
+    "MIRcatSDK_IsLaserArmed",            # export 0x50
+    "MIRcatSDK_IsEmissionOn",            # export 0x4D
+    "MIRcatSDK_TuneToWW",                # export 0x7F / 129/0x7F
+    "MIRcatSDK_GetActualWW",             # export 0x11
+    "MIRcatSDK_GetTuneWW",               # export 0x43
+    "MIRcatSDK_StartSweepScan",          # export 0x7D / 126
+    "MIRcatSDK_StopScanInProgress",      # export 0x7F? actually dump shows MIRcatSDK_StopScanInProgress at ordinal 0x7F? We will bind MIRcatSDK_StopScanInProgress and MIRcatSDK_StopScanInProgress alias StopScanInProgress
+    "MIRcatSDK_StopScanInProgress",      # export 0x7F (dump shows StopScanInProgress - used below)
+    "MIRcatSDK_SetQCLParams",            # export 0x76
+    "MIRcatSDK_GetQCLCurrent",           # export 0x24
+    "MIRcatSDK_ArmDisarmLaser",          # export 0x2? (exists)
+    "MIRcatSDK_EnableRedLaserPointer",   # export 0x0E
+    "MIRcatSDK_TurnEmissionOn",          # export 0x82
+    "MIRcatSDK_TurnEmissionOff",         # export 0x81
+]
+
+# Additional helpful exports from the list (we'll try to bind if present)
+OPTIONAL_FUNCS = [
+    "MIRcatSDK_ConnectToDevice",
+    "MIRcatSDK_DisconnectFromDevice",
+    "MIRcatSDK_GetQCLMaxCwCurrent",
+    "MIRcatSDK_GetSystemTemperatures",
+    "MIRcatSDK_GetQCLTemperatureRange",
+    "MIRcatSDK_IsConnectedToLaser",
+    "MIRcatSDK_InjectProcessTrigger",
+    "MIRcatSDK_GetScanStatus",
+    "MIRcatSDK_ArmLaser",
+    "MIRcatSDK_CancelManualTuneMode",
+]
+
+# Consolidate everything we'll probe
+ALL_FUNCS = list(dict.fromkeys(REQUIRED_FUNCS + OPTIONAL_FUNCS))
+
+
+# ---------------- Safe binder/wrapper ----------------
+class MircatBinder:
+    """Load the DLL and bind functions tolerantly. Missing functions are set to None.
+    Provides safe wrappers that return None or sensible default when a function is missing.
+    """
+
+    def __init__(self, dll_path):
+        p = Path(dll_path)
+        if not p.exists():
+            raise FileNotFoundError(f"DLL not found at {dll_path}")
+        try:
+            self._dll = WinDLL(str(p))
+        except Exception as e:
+            raise RuntimeError(f"Failed to load DLL: {e}")
+
+        # Try binding all expected functions; absent ones map to None
+        self.func = {}
+        for name in ALL_FUNCS:
+            try:
+                f = getattr(self._dll, name)
+                # set bool restype for status getters
+                if name in ("MIRcatSDK_IsInterlockedStatusSet", "MIRcatSDK_IsKeySwitchStatusSet",
+                            "MIRcatSDK_IsLaserArmed", "MIRcatSDK_IsEmissionOn", "MIRcatSDK_IsConnectedToLaser"):
+                    try:
+                        f.restype = c_bool
+                    except Exception:
+                        pass
+                self.func[name] = f
+            except AttributeError:
+                self.func[name] = None
+
+        # normalize certain alternate names seen in your dump:
+        # Deinitialize may appear as MIRcatSDK_DeInitialize or MIRcatSDK_DeInitialize etc.
+        # If there is a slightly different exported name, check typical alternates and attach
+        for alt in ("MIRcatSDK_DeInitialize", "MIRcatSDK_DeInit", "MIRcatSDK_Deinitialize"):
+            if self.func.get("MIRcatSDK_DeInitialize") is None and getattr(self._dll, alt, None) is not None:
+                self.func["MIRcatSDK_DeInitialize"] = getattr(self._dll, alt)
+
+        # Also check for StopScanInProgress / StopScan
+        for alt in ("MIRcatSDK_StopScanInProgress", "MIRcatSDK_StopScanInProgress", "MIRcatSDK_StopScanInProgress"):
+            if self.func.get("MIRcatSDK_StopScanInProgress") is None and getattr(self._dll, alt, None) is not None:
+                self.func["MIRcatSDK_StopScanInProgress"] = getattr(self._dll, alt)
+
+        # Log bound functions
+        bound = [n for n, f in self.func.items() if f is not None]
+        missing = [n for n, f in self.func.items() if f is None]
+        self.bound_names = bound
+        self.missing_names = missing
+
+    def has(self, name):
+        return self.func.get(name) is not None
+
+    # safe wrappers (return None when not available)
+    def initialize(self):
+        f = self.func.get("MIRcatSDK_Initialize")
+        if not f:
+            return None
+        try:
+            return f()
+        except Exception:
+            return None
+
+    def deinitialize(self):
+        f = self.func.get("MIRcatSDK_DeInitialize")
+        if not f:
+            return None
+        try:
+            return f()
+        except Exception:
+            return None
+
+    def is_interlock_set(self):
+        f = self.func.get("MIRcatSDK_IsInterlockedStatusSet")
+        if not f:
+            return None
+        try:
+            # restype set to c_bool where possible, so result will be bool
+            return bool(f())
+        except Exception:
+            return None
+
+    def is_key_switch_set(self):
+        f = self.func.get("MIRcatSDK_IsKeySwitchStatusSet")
+        if not f:
+            return None
+        try:
+            return bool(f())
+        except Exception:
+            return None
+
+    def is_laser_armed(self):
+        f = self.func.get("MIRcatSDK_IsLaserArmed")
+        if not f:
+            return None
+        try:
+            return bool(f())
+        except Exception:
+            return None
+
+    def is_emission_on(self):
+        f = self.func.get("MIRcatSDK_IsEmissionOn")
+        if not f:
+            return None
+        try:
+            return bool(f())
+        except Exception:
+            return None
+
+    def turn_emission_on(self):
+        f = self.func.get("MIRcatSDK_TurnEmissionOn")
+        if not f:
+            return None
+        try:
+            return f()
+        except Exception:
+            return None
+
+    def turn_emission_off(self):
+        f = self.func.get("MIRcatSDK_TurnEmissionOff")
+        if not f:
+            return None
+        try:
+            return f()
+        except Exception:
+            return None
+
+    def tune_to_ww(self, value):
+        f = self.func.get("MIRcatSDK_TuneToWW")
+        if not f:
+            return None
+        try:
+            # some versions expect c_double, some accept float
+            try:
+                return f(c_double(value))
+            except TypeError:
+                return f(float(value))
+        except Exception:
+            return None
+
+    def get_actual_ww(self):
+        # try pointer style first
+        fptr = self.func.get("MIRcatSDK_GetActualWW")
+        if fptr:
+            try:
+                out = c_double()
+                r = fptr(byref(out))
+                # out likely filled
+                return float(out.value)
+            except TypeError:
+                # maybe returns double
+                try:
+                    v = fptr()
+                    return float(v)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        # try GetTuneWW returning double
+        fval = self.func.get("MIRcatSDK_GetTuneWW")
+        if fval:
+            try:
+                v = fval()
+                return float(v)
+            except Exception:
+                pass
+        return None
+
+    def cancel_manual_tune(self):
+        f = self.func.get("MIRcatSDK_CancelManualTuneMode")
+        if not f:
+            return None
+        try:
+            return f()
+        except Exception:
+            return None
+
+    def set_qcl_params(self, qcl_index, current_ma, unknown=25.0):
+        f = self.func.get("MIRcatSDK_SetQCLParams")
+        if not f:
+            return None
+        try:
+            try:
+                return f(int(qcl_index), int(round(current_ma)), c_double(unknown))
+            except TypeError:
+                return f(int(qcl_index), int(round(current_ma)), float(unknown))
+        except Exception:
+            return None
+
+    def get_qcl_current(self, qcl_index):
+        f = self.func.get("MIRcatSDK_GetQCLCurrent")
+        if not f:
+            return None
+        try:
+            r = f(int(qcl_index))
+            try:
+                return int(r)
+            except Exception:
+                return None
+        except Exception:
+            return None
+
+    def arm_disarm(self, arm=True):
+        # try MIRcatSDK_ArmDisarmLaser or MIRcatSDK_ArmLaser / MIRcatSDK_DisarmLaser
+        f = self.func.get("MIRcatSDK_ArmDisarmLaser")
+        if f:
+            try:
+                return f()
+            except Exception:
+                return None
+        if arm:
+            f2 = self.func.get("MIRcatSDK_ArmLaser")
+            if f2:
+                try:
+                    return f2()
+                except Exception:
+                    return None
+        else:
+            f3 = self.func.get("MIRcatSDK_DisarmLaser")
+            if f3:
+                try:
+                    return f3()
+                except Exception:
+                    return None
+        return None
+
+    def enable_red_pointer(self, state: bool):
+        f = self.func.get("MIRcatSDK_EnableRedLaserPointer")
+        if not f:
+            return None
+        try:
+            return f(c_bool(state))
+        except Exception:
+            return None
+
+    def start_sweep(self, start, stop, step, qcl_idx=1):
+        f = self.func.get("MIRcatSDK_StartSweepScan") or self.func.get("MIRcatSDK_StartSweepScan")
+        if not f:
+            return None
+        try:
+            try:
+                return f(c_double(start), c_double(stop), c_double(step), c_int(1), c_int(qcl_idx))
+            except TypeError:
+                return f(float(start), float(stop), float(step))
+        except Exception:
+            return None
+
+    def stop_sweep(self):
+        f = self.func.get("MIRcatSDK_StopScanInProgress")
+        if not f:
+            f = self.func.get("MIRcatSDK_StopScanInProgress")
+        if not f:
+            return None
+        try:
+            return f()
+        except Exception:
+            return None
+
+
+# ---------------- Worker (hardware calls on a separate thread) ----------------
+class InstrumentWorker(QtCore.QObject):
+    log = QtCore.pyqtSignal(str)
+    connected = QtCore.pyqtSignal(bool, str)
+    status_update = QtCore.pyqtSignal(dict)
+    actual_ww = QtCore.pyqtSignal(float, str)
+    dll_inspect = QtCore.pyqtSignal(list, list)
+
+    def __init__(self, dll_path):
+        super().__init__()
+        self.dll_path = dll_path
+        self.sdk = None
+        self._polling = False
+
+    @QtCore.pyqtSlot()
+    def inspect_dll(self):
+        """Load binder and emit lists of bound/missing functions (non-destructive)."""
+        try:
+            binder = MircatBinder(self.dll_path)
+            self.dll_inspect.emit(binder.bound_names, binder.missing_names)
+        except Exception as e:
+            self.log.emit(f"Inspect failed: {e}")
+
+    @QtCore.pyqtSlot()
+    def initialize(self):
+        try:
+            self.log.emit("Loading MIRcat SDK...")
+            self.sdk = MircatBinder(self.dll_path)
+            self.log.emit(f"Bound functions: {', '.join(self.sdk.bound_names[:20])}{'...' if len(self.sdk.bound_names)>20 else ''}")
+            if self.sdk.missing_names:
+                self.log.emit(f"Missing exports: {', '.join(self.sdk.missing_names[:20])}{'...' if len(self.sdk.missing_names)>20 else ''}")
+            # Try calling SDK initialize if present
+            try:
+                r = self.sdk.initialize()
+                self.log.emit(f"SDK initialize returned: {r}")
+            except Exception as e:
+                self.log.emit(f"SDK initialize call failed: {e}")
+            self.connected.emit(True, "Initialized")
+            self._polling = True
+        except Exception as e:
+            tb = traceback.format_exc()
+            self.log.emit(f"Initialize failed: {e}\n{tb}")
+            self.connected.emit(False, f"Init failed: {e}")
+
+    @QtCore.pyqtSlot()
+    def deinitialize(self):
+        try:
+            if not self.sdk:
+                self.connected.emit(False, "Deinitialized")
+                self.log.emit("No SDK loaded.")
+                return
+            try:
+                r = self.sdk.deinitialize()
+                self.log.emit(f"Deinitialize -> {r}")
+            except Exception:
+                pass
+            self.sdk = None
+            self._polling = False
+            self.connected.emit(False, "Deinitialized")
+            self.log.emit("Deinitialized.")
+        except Exception:
+            self.log.emit("Deinitialize exception:\n" + traceback.format_exc())
+
+    @QtCore.pyqtSlot(float, str)
+    def tune(self, value, units):
+        if not self.sdk:
+            self.log.emit("Tune requested but SDK not loaded.")
+            return
+        try:
+            if units and "cm" in units:
+                value_um = 10000.0 / float(value)
+            else:
+                value_um = float(value)
+            self.log.emit(f"Tuning to {value_um:.6f} µm...")
+            r = self.sdk.tune_to_ww(value_um)
+            self.log.emit(f"Tune call -> {r}")
+            time.sleep(0.12)
+            val = self.sdk.get_actual_ww()
+            if val is not None:
+                self.actual_ww.emit(float(val), "um")
+                self.status_update.emit({'actual_ww': float(val)})
+            else:
+                self.log.emit("Could not read actual WW after tune.")
+        except Exception:
+            self.log.emit("Tune exception:\n" + traceback.format_exc())
+
+    @QtCore.pyqtSlot()
+    def cancel_manual_tune(self):
+        if not self.sdk:
+            self.log.emit("Cancel manual tune: SDK not loaded.")
+            return
+        try:
+            r = self.sdk.cancel_manual_tune()
+            self.log.emit(f"Cancel manual tune -> {r}")
+        except Exception:
+            self.log.emit("Cancel manual tune exception:\n" + traceback.format_exc())
+
+    @QtCore.pyqtSlot()
+    def turn_emission_on(self):
+        if not self.sdk:
+            self.log.emit("Emission ON requested but SDK not loaded.")
+            return
+        try:
+            inter = self.sdk.is_interlock_set()
+            key = self.sdk.is_key_switch_set()
+            self.log.emit(f"Interlock: {inter}, Key: {key}")
+            if inter is False:
+                self.log.emit("Blocked emission ON: interlock not set.")
+                self.status_update.emit({'interlock': False})
+                return
+            if key is False:
+                self.log.emit("Blocked emission ON: key switch not set.")
+                self.status_update.emit({'key_switch': False})
+                return
+            r = self.sdk.turn_emission_on()
+            self.log.emit(f"Turn emission on -> {r}")
+        except Exception:
+            self.log.emit("Turn emission on exception:\n" + traceback.format_exc())
+
+    @QtCore.pyqtSlot()
+    def turn_emission_off(self):
+        if not self.sdk:
+            self.log.emit("Emission OFF requested but SDK not loaded.")
+            return
+        try:
+            r = self.sdk.turn_emission_off()
+            self.log.emit(f"Turn emission off -> {r}")
+        except Exception:
+            self.log.emit("Turn emission off exception:\n" + traceback.format_exc())
+
+    @QtCore.pyqtSlot(float)
+    def set_qcl_current(self, current_ma):
+        if not self.sdk:
+            self.log.emit("Set QCL requested but SDK not loaded.")
+            return
+        try:
+            r = self.sdk.set_qcl_params(1, int(round(current_ma)))
+            self.log.emit(f"Set QCL -> {r}")
+        except Exception:
+            self.log.emit("Set QCL exception:\n" + traceback.format_exc())
+
+    @QtCore.pyqtSlot(int)
+    def arm_laser(self, num_qcls=1):
+        if not self.sdk:
+            self.log.emit("Arm requested but SDK not loaded.")
+            return
+        try:
+            self.log.emit("Arming laser...")
+            r = self.sdk.arm_disarm(True)
+            self.log.emit(f"arm_disarm -> {r}")
+        except Exception:
+            self.log.emit("Arm exception:\n" + traceback.format_exc())
+
+    @QtCore.pyqtSlot(float, float, float, str, int)
+    def start_sweep(self, start, stop, step, units, qcl_idx):
+        if not self.sdk:
+            self.log.emit("Start sweep requested but SDK not loaded.")
+            return
+        try:
+            self.log.emit(f"Requesting sweep {start}->{stop} step {step}")
+            r = self.sdk.start_sweep(start, stop, step, qcl_idx)
+            self.log.emit(f"start_sweep -> {r}")
+        except Exception:
+            self.log.emit("Start sweep exception:\n" + traceback.format_exc())
+
+    @QtCore.pyqtSlot()
+    def stop_sweep(self):
+        if not self.sdk:
+            self.log.emit("Stop sweep requested but SDK not loaded.")
+            return
+        try:
+            r = self.sdk.stop_sweep()
+            self.log.emit(f"stop_sweep -> {r}")
+        except Exception:
+            self.log.emit("Stop sweep exception:\n" + traceback.format_exc())
+
+    @QtCore.pyqtSlot()
+    def poll(self):
+        if not self.sdk:
+            return
+        try:
+            status = {}
+            try:
+                status['interlock'] = self.sdk.is_interlock_set()
+            except Exception:
+                status['interlock'] = None
+            try:
+                status['is_armed'] = self.sdk.is_laser_armed()
+            except Exception:
+                status['is_armed'] = None
+            try:
+                status['is_emitting'] = self.sdk.is_emission_on()
+            except Exception:
+                status['is_emitting'] = None
+            try:
+                status['actual_ww'] = self.sdk.get_actual_ww()
+            except Exception:
+                status['actual_ww'] = None
+            try:
+                status['qcl_current'] = self.sdk.get_qcl_current(1)
+            except Exception:
+                status['qcl_current'] = None
+            self.status_update.emit(status)
+        except Exception:
+            self.log.emit("Poll exception:\n" + traceback.format_exc())
+
+
+# ---------------- MainWindow UI (restored pretty layout) ----------------
+class MainWindow(QtWidgets.QMainWindow):
+    POLL_MS = 900
+
+    def __init__(self, dll_path):
+        super().__init__()
+        self.dll_path = dll_path
+        self.setWindowTitle("MIRcat Control — Hardware")
+        self.resize(1150, 720)
+        self._build_ui()
+        self._layout_ui()
+
+        # Worker and thread MUST be created before connecting signals that reference them
+        self.worker_thread = QtCore.QThread()
+        self.worker = InstrumentWorker(self.dll_path)
+        self.worker.moveToThread(self.worker_thread)
+        self.worker.log.connect(self.append_log)
+        self.worker.connected.connect(self.on_connected)
+        self.worker.status_update.connect(self.on_status_update)
+        self.worker.actual_ww.connect(self.on_actual_ww)
+        self.worker.dll_inspect.connect(self.on_dll_inspect)
+        self.worker_thread.start()
+
+        self._connect_signals()
+
+        # Poll timer
+        self.poll_timer = QtCore.QTimer(self)
+        self.poll_timer.setInterval(self.POLL_MS)
+        self.poll_timer.timeout.connect(lambda: QtCore.QMetaObject.invokeMethod(self.worker, "poll", QtCore.Qt.QueuedConnection))
+
+    def _build_ui(self):
+        # top controls (wavelength entry)
+        self.le_wavelength = QtWidgets.QLineEdit("4.80")
+        self.le_wavelength.setFixedWidth(90)
+        self.cb_units = QtWidgets.QComboBox()
+        self.cb_units.addItems(["µm", "cm⁻¹"])
+        self.cb_units.setFixedWidth(70)
+        self.btn_set_wl = QtWidgets.QPushButton("SET WL")
+        self.btn_set_wl.setFixedWidth(100)
+        self.chk_tune = QtWidgets.QCheckBox("Tune")
+        self.chk_tune.setFixedWidth(70)
+        self.btn_cancel_tune = QtWidgets.QPushButton("Cancel Manual Tune")
+        self.btn_cancel_tune.setFixedWidth(170)
+
+        # initialize/deinit
+        self.btn_initialize = QtWidgets.QPushButton("Initialize")
+        self.btn_initialize.setFixedWidth(160)
+        self.btn_deinitialize = QtWidgets.QPushButton("Deinitialize")
+        self.btn_deinitialize.setFixedWidth(130)
+        self.btn_deinitialize.setEnabled(False)
+
+        # inspect dll button
+    
+        # log
+        self.log_view = QtWidgets.QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setPlainText("Log (hardware mode).")
+
+        # ext fields
+        ext_labels = [
+            "Actual QCL Current (mA)", "QCL Voltage (V)", "VSRC (V)",
+            "Vfet", "TEC current (mA)", "Set point Temp (C)", "Actual Temperature (C)"
+        ]
+        self.ext_fields = {}
+        for lab in ext_labels:
+            le = QtWidgets.QLineEdit()
+            le.setReadOnly(True)
+            le.setFixedHeight(22)
+            self.ext_fields[lab] = le
+
+        # qcl set
+        self.le_qcl_current = QtWidgets.QLineEdit("0.00")
+        self.le_qcl_current.setFixedWidth(100)
+        self.le_qcl_current.setValidator(QtGui.QDoubleValidator(0.0, 5000.0, 3))
+        self.btn_qcl_set = QtWidgets.QPushButton("SET")
+        self.btn_qcl_set.setFixedWidth(70)
+
+        # sweep
+        self.le_start = QtWidgets.QLineEdit()
+        self.le_end = QtWidgets.QLineEdit()
+        self.le_step = QtWidgets.QLineEdit()
+        for le in (self.le_start, self.le_end, self.le_step):
+            le.setFixedWidth(80)
+        self.le_speed = QtWidgets.QLineEdit()
+        self.le_speed.setFixedWidth(80)
+        self.btn_start_sweep = QtWidgets.QPushButton("START SWEEP SCAN")
+        self.btn_stop_sweep = QtWidgets.QPushButton("STOP SWEEP")
+        self.btn_pause = QtWidgets.QPushButton("Pause")
+        self.btn_resume = QtWidgets.QPushButton("Resume")
+        self.progress = QtWidgets.QProgressBar()
+        self.progress.setRange(0, 100)
+        self.lbl_progress = QtWidgets.QLabel("0%")
+
+        # center big label
+        self.lbl_big_wl = QtWidgets.QLabel("Wavelength: --- µm")
+        f = QtGui.QFont()
+        f.setPointSize(18)
+        f.setBold(True)
+        self.lbl_big_wl.setFont(f)
+        self.lbl_big_wl.setAlignment(QtCore.Qt.AlignCenter)
+
+        # side status
+        side_labels = [
+            "Interlocks", "Key Switch", "Temperature", "Connected",
+            "Emission", "System Fault", "Current QCL", "Mode",
+            "Pulse Rate (Hz)", "Pulse Width (ns)", "Current (mA)",
+            "Wavenumber (cm-1)", "Wavelength (µm)"
+        ]
+        self.side_fields = {}
+        for lab in side_labels:
+            le = QtWidgets.QLineEdit()
+            le.setReadOnly(True)
+            le.setFixedHeight(22)
+            self.side_fields[lab] = le
+
+        # right buttons
+        self.btn_red = QtWidgets.QPushButton("RED LASER ON")
+        self.btn_arm = QtWidgets.QPushButton("ARM LASER")
+        self.btn_emission = QtWidgets.QPushButton("TURN EMISSION ON")
+        self.btn_off = QtWidgets.QPushButton("OFF")
+
+    def _layout_ui(self):
+        main = QtWidgets.QWidget()
+        h = QtWidgets.QHBoxLayout(main)
+        h.setSpacing(16)
+        h.setContentsMargins(12, 12, 12, 12)
+
+        # left column
+        left = QtWidgets.QVBoxLayout()
+        top_box = QtWidgets.QWidget()
+        top_v = QtWidgets.QVBoxLayout(top_box)
+        top_v.setSpacing(6)
+        wl_row = QtWidgets.QHBoxLayout()
+        wl_row.addWidget(QtWidgets.QLabel("Wavelength:"))
+        wl_row.addWidget(self.le_wavelength)
+        wl_row.addWidget(self.cb_units)
+        wl_row.addWidget(self.btn_set_wl)
+        wl_row.addSpacing(8)
+        wl_row.addWidget(self.chk_tune)
+        wl_row.addWidget(self.btn_cancel_tune)
+        wl_row.addStretch()
+        top_v.addLayout(wl_row)
+        init_row = QtWidgets.QHBoxLayout()
+        init_row.addStretch()
+        init_row.addWidget(self.btn_initialize)
+        init_row.addWidget(self.btn_deinitialize)
+        top_v.addLayout(init_row)
+        top_box.setMinimumWidth(780)
+        left.addWidget(top_box)
+
+        # log + ext
+        le_h = QtWidgets.QHBoxLayout()
+        self.log_view.setFixedHeight(260)
+        le_h.addWidget(self.log_view, 2)
+        ext_w = QtWidgets.QWidget()
+        ext_form = QtWidgets.QFormLayout()
+        for k, v in self.ext_fields.items():
+            ext_form.addRow(QtWidgets.QLabel(k + ":"), v)
+        ext_w.setLayout(ext_form)
+        ext_w.setFixedWidth(340)
+        le_h.addWidget(ext_w)
+        left.addLayout(le_h)
+
+        # qcl
+        qcl_h = QtWidgets.QHBoxLayout()
+        qcl_h.addWidget(QtWidgets.QLabel("QCL Current (mA):"))
+        qcl_h.addWidget(self.le_qcl_current)
+        qcl_h.addWidget(self.btn_qcl_set)
+        qcl_h.addStretch()
+        left.addLayout(qcl_h)
+
+        # sweep
+        sweep_g = QtWidgets.QGroupBox("Sweep Controls")
+        sweep_f = QtWidgets.QFormLayout()
+        sweep_f.addRow("Start WL:", self.le_start)
+        sweep_f.addRow("End WL:", self.le_end)
+        sweep_f.addRow("Step Size:", self.le_step)
+        sweep_f.addRow("Scan Speed:", self.le_speed)
+        sbtns = QtWidgets.QHBoxLayout()
+        sbtns.addWidget(self.btn_start_sweep)
+        sbtns.addWidget(self.btn_stop_sweep)
+        sbtns.addWidget(self.btn_pause)
+        sbtns.addWidget(self.btn_resume)
+        sbtns.addStretch()
+        sweep_f.addRow(sbtns)
+        prog = QtWidgets.QHBoxLayout()
+        prog.addWidget(self.progress)
+        prog.addWidget(self.lbl_progress)
+        sweep_f.addRow(prog)
+        sweep_g.setLayout(sweep_f)
+        left.addWidget(sweep_g)
+        left.addStretch()
+        h.addLayout(left, 3)
+
+        # center
+        center = QtWidgets.QVBoxLayout()
+        center.addStretch()
+        center.addWidget(self.lbl_big_wl)
+        center.addStretch()
+        h.addLayout(center, 1)
+
+        # right
+        right = QtWidgets.QVBoxLayout()
+        status_g = QtWidgets.QGroupBox("Laser Status")
+        status_f = QtWidgets.QFormLayout()
+        for k, v in self.side_fields.items():
+            status_f.addRow(QtWidgets.QLabel(k + ":"), v)
+        status_g.setLayout(status_f)
+        status_g.setFixedWidth(340)
+        right.addWidget(status_g)
+        right.addWidget(self.btn_red)
+        right.addWidget(self.btn_arm)
+        right.addWidget(self.btn_emission)
+        right.addWidget(self.btn_off)
+        right.addStretch()
+        h.addLayout(right, 1)
+
+        self.setCentralWidget(main)
+
+    def _connect_signals(self):
+        # initialize / deinit
+        self.btn_initialize.clicked.connect(lambda: QtCore.QMetaObject.invokeMethod(self.worker, "initialize", QtCore.Qt.QueuedConnection))
+        self.btn_deinitialize.clicked.connect(lambda: QtCore.QMetaObject.invokeMethod(self.worker, "deinitialize", QtCore.Qt.QueuedConnection))
+
+        # tune / cancel
+        self.btn_set_wl.clicked.connect(self._on_set_wl)
+        self.btn_cancel_tune.clicked.connect(lambda: QtCore.QMetaObject.invokeMethod(self.worker, "cancel_manual_tune", QtCore.Qt.QueuedConnection))
+
+        # qcl set
+        self.btn_qcl_set.clicked.connect(self._on_set_qcl)
+
+        # sweep
+        self.btn_start_sweep.clicked.connect(self._on_start_sweep)
+        self.btn_stop_sweep.clicked.connect(lambda: QtCore.QMetaObject.invokeMethod(self.worker, "stop_sweep", QtCore.Qt.QueuedConnection))
+        self.btn_pause.clicked.connect(lambda: QtCore.QMetaObject.invokeMethod(self.worker, "stop_sweep", QtCore.Qt.QueuedConnection))
+        self.btn_resume.clicked.connect(self._on_resume)
+
+        # arm / red / emission
+        self.btn_arm.clicked.connect(lambda: QtCore.QMetaObject.invokeMethod(self.worker, "arm_laser", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(int, 1)))
+        self.btn_red.clicked.connect(self._on_red_toggle)
+        self.btn_emission.clicked.connect(self._on_emission_request)
+        self.btn_off.clicked.connect(lambda: QtCore.QMetaObject.invokeMethod(self.worker, "turn_emission_off", QtCore.Qt.QueuedConnection))
+
+        # worker signals already connected in __init__
+
+    # ---------- UI handlers ----------
+    def append_log(self, s: str):
+        ts = time.strftime("%H:%M:%S")
+        self.log_view.appendPlainText(f"[{ts}] {s}")
+
+    def on_dll_inspect(self, bound, missing):
+        self.append_log("DLL inspection complete.")
+        self.append_log(f"Bound functions ({len(bound)}): {', '.join(bound[:20])}{'...' if len(bound)>20 else ''}")
+        if missing:
+            self.append_log(f"Missing functions ({len(missing)}): {', '.join(missing[:20])}{'...' if len(missing)>20 else ''}")
+            # show user dialog listing missing
+            QtWidgets.QMessageBox.warning(self, "DLL Inspection", f"Some expected functions are missing. Check log for details.\nMissing (first 10):\n{', '.join(missing[:10])}")
+        else:
+            QtWidgets.QMessageBox.information(self, "DLL Inspection", "All expected functions found (or at least many). See log.")
+
+    def on_connected(self, ok: bool, msg: str):
+        self.append_log(f"Connected: {ok} - {msg}")
+        self.btn_initialize.setEnabled(not ok)
+        self.btn_deinitialize.setEnabled(ok)
+        if ok:
+            if not self.poll_timer.isActive():
+                self.poll_timer.start()
+        else:
+            if self.poll_timer.isActive():
+                self.poll_timer.stop()
+
+    def on_status_update(self, d: dict):
+        try:
+            if 'actual_ww' in d and d['actual_ww'] is not None:
+                val = float(d['actual_ww'])
+                self.lbl_big_wl.setText(f"Wavelength: {val:.4f} µm")
+                self.side_fields["Wavelength (µm)"].setText(f"{val:.4f}")
+                try:
+                    self.side_fields["Wavenumber (cm-1)"].setText(f"{10000.0/val:.2f}")
+                except Exception:
+                    pass
+            if 'is_armed' in d and d['is_armed'] is not None:
+                self.side_fields["Mode"].setText("Armed" if d['is_armed'] else "Disarmed")
+            if 'is_emitting' in d and d['is_emitting'] is not None:
+                self.side_fields["Emission"].setText("ON" if d['is_emitting'] else "OFF")
+            if 'interlock' in d and d['interlock'] is not None:
+                self.side_fields["Interlocks"].setText("OK" if d['interlock'] else "NOT OK")
+            if 'qcl_current' in d and d['qcl_current'] is not None:
+                self.ext_fields["Actual QCL Current (mA)"].setText(str(d['qcl_current']))
+        except Exception:
+            self.append_log("Status update parse error:\n" + traceback.format_exc())
+
+    def on_actual_ww(self, val, units):
+        self.append_log(f"Actual WW: {val} {units}")
+
+    def _on_set_wl(self):
+        try:
+            val = float(self.le_wavelength.text())
+        except Exception:
+            self.append_log("Invalid wavelength")
+            return
+        units = 'um' if self.cb_units.currentText() == 'µm' else 'cm-1'
+        QtCore.QMetaObject.invokeMethod(self.worker, "tune", QtCore.Qt.QueuedConnection,
+                                        QtCore.Q_ARG(float, val), QtCore.Q_ARG(str, units))
+        self.append_log(f"Tune requested: {val} {units}")
+
+    def _on_set_qcl(self):
+        try:
+            val = float(self.le_qcl_current.text())
+        except Exception:
+            self.append_log("Invalid QCL current")
+            return
+        QtCore.QMetaObject.invokeMethod(self.worker, "set_qcl_current", QtCore.Qt.QueuedConnection,
+                                        QtCore.Q_ARG(float, val))
+        self.append_log(f"Set QCL current requested: {val} mA")
+
+    def _on_start_sweep(self):
+        try:
+            s = float(self.le_start.text())
+            e = float(self.le_end.text())
+            st = float(self.le_step.text())
+        except Exception:
+            self.append_log("Invalid sweep parameters")
+            return
+        units = 'um'
+        qcl_idx = 1
+        QtCore.QMetaObject.invokeMethod(self.worker, "start_sweep", QtCore.Qt.QueuedConnection,
+                                        QtCore.Q_ARG(float, s), QtCore.Q_ARG(float, e),
+                                        QtCore.Q_ARG(float, st), QtCore.Q_ARG(str, units), QtCore.Q_ARG(int, qcl_idx))
+        self.append_log("Sweep start requested")
+
+    def _on_resume(self):
+        self.append_log("Resume requested (not implemented in SDK wrapper)")
+
+    def _on_red_toggle(self):
+        if self.btn_red.text().endswith("ON"):
+            if not self._confirm_action("Enable red pointer?"):
+                return
+            if self.worker.sdk is None:
+                self.append_log("Not initialized.")
+                return
+            try:
+                r = self.worker.sdk.enable_red_pointer(True)
+                self.append_log(f"Red pointer enable -> {r}")
+                self.btn_red.setText("RED LASER OFF")
+            except Exception:
+                self.append_log("Red pointer exception:\n" + traceback.format_exc())
+        else:
+            try:
+                r = self.worker.sdk.enable_red_pointer(False)
+                self.append_log(f"Red pointer disable -> {r}")
+                self.btn_red.setText("RED LASER ON")
+            except Exception:
+                self.append_log("Red pointer off exception:\n" + traceback.format_exc())
+
+    def _confirm_action(self, prompt):
+        txt, ok = QtWidgets.QInputDialog.getText(self, "Confirm action", prompt + "\nType YES to confirm:")
+        return ok and txt.strip().upper() == "YES"
+
+    def _on_emission_request(self):
+        if self.worker.sdk is None:
+            self.append_log("Not initialized.")
+            return
+        # check interlock/key switch
+        try:
+            inter = self.worker.sdk.is_interlock_set()
+            key = self.worker.sdk.is_key_switch_set()
+        except Exception:
+            inter = None
+            key = None
+
+        if inter is False:
+            QtWidgets.QMessageBox.warning(self, "Safety", "Interlock not set. Cannot enable emission.")
+            return
+        if key is False:
+            QtWidgets.QMessageBox.warning(self, "Safety", "Key switch not set. Cannot enable emission.")
+            return
+
+        token, ok = QtWidgets.QInputDialog.getText(self, "Confirm emission", "Type ENABLE to turn emission ON:")
+        if not ok or token.strip() != "ENABLE":
+            self.append_log("Emission not enabled (confirmation failed).")
+            return
+
+        QtCore.QMetaObject.invokeMethod(self.worker, "turn_emission_on", QtCore.Qt.QueuedConnection)
+        self.append_log("Emission ON requested.")
+
+    def closeEvent(self, event):
+        try:
+            if self.btn_deinitialize.isEnabled():
+                QtCore.QMetaObject.invokeMethod(self.worker, "deinitialize", QtCore.Qt.QueuedConnection)
+            if self.poll_timer.isActive():
+                self.poll_timer.stop()
+            self.worker_thread.quit()
+            self.worker_thread.wait(2000)
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+
+# ---------------- Run ----------------
+def main():
+    app = QtWidgets.QApplication(sys.argv)
+
+    # Quick early check: does the DLL file exist? show a fatal dialog if not.
+    if not Path(DLL_PATH).exists():
+        msg = f"MIRCAT SDK DLL not found at:\n{DLL_PATH}\n\nPlease verify the path."
+        try:
+            QtWidgets.QMessageBox.critical(None, "DLL Not Found", msg)
+        except Exception:
+            print(msg)
+        sys.exit(1)
+
+    w = MainWindow(DLL_PATH)
+    w.show()
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
