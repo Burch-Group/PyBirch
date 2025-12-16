@@ -16,37 +16,6 @@ from pybirch.setups.fake_setup.multimeter.multimeter import VoltageMeterMeasurem
 
 def create_example_scan():
     """Create and return a complete example scan with X/Y stages, spectrometer, and multimeter."""
-    # Create movement instruments
-    x_stage = FakeXStage("X Stage")
-    y_stage = FakeYStage("Y Stage")
-    
-    # Create measurement instruments
-    spectrometer = SpectrometerMeasurement("Spectrometer")
-    multimeter = VoltageMeterMeasurement("Multimeter")
-    
-    # Define scan parameters
-    x_positions = np.linspace(0, 100, 101)  # 0 to 100mm in 1mm steps
-    y_positions = np.linspace(0, 100, 101)  # 0 to 100mm in 1mm steps
-    
-    # Create movement items
-    x_movement = MovementItem(
-        movement=x_stage,
-        positions=x_positions
-    )
-    
-    y_movement = MovementItem(
-        movement=y_stage,
-        positions=y_positions
-    )
-    
-    # Create measurement items
-    spectrometer_measurement = MeasurementItem(
-        measurement=spectrometer
-    )
-    
-    multimeter_measurement = MeasurementItem(
-        measurement=multimeter
-    )
     
     # Create scan settings
     scan_settings = ScanSettings(
@@ -82,8 +51,8 @@ def setup_scan_tree() -> ScanTreeModel:
     multimeter = VoltageMeterMeasurement("Multimeter")
     
     # Define scan parameters
-    x_positions = np.linspace(0, 100, 101).tolist()  # 0 to 100mm in 1mm steps
-    y_positions = np.linspace(0, 100, 101).tolist()  # 0 to 100mm in 1mm steps
+    x_positions = np.linspace(0, 10, 11).tolist()  # 0 to 10mm in 1mm steps
+    y_positions = np.linspace(0, 10, 11).tolist()  # 0 to 10mm in 1mm steps
     
     # Create movement items
     x_movement = MovementItem(
@@ -110,22 +79,30 @@ def setup_scan_tree() -> ScanTreeModel:
         parent=None,
         instrument_object=x_movement
     )
+
+    x_item.type = "Movement"
     
     y_item = InstrumentTreeItem(
         parent=x_item,
         instrument_object=y_movement
     )
+
+    y_item.type = "Movement"
     
     # Create measurement items as children of Y stage
     spec_item = InstrumentTreeItem(
         parent=y_item,
         instrument_object=spectrometer_measurement
     )
+
+    spec_item.type = "Measurement"
     
     mult_item = InstrumentTreeItem(
         parent=y_item,
         instrument_object=multimeter_measurement
     )
+
+    mult_item.type = "Measurement"
     
     # Set up the tree structure
     x_item.child_items = [y_item]

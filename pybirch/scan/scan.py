@@ -96,7 +96,6 @@ class Scan():
 
         self._max_workers = 1000 # essentially no default limit
         self._buffer_size = buffer_size
-        print("Buffer size set to:", self._buffer_size)
         self._data_buffer: Dict[str, List[Dict]] = {}
         self._buffer_lock = Lock()
         self._stop_event = Event()
@@ -106,7 +105,7 @@ class Scan():
         
         # Initialize buffer for each measurement
         for item in self.scan_settings.scan_tree.get_measurement_items():
-            self._data_buffer[item.instrument_object.instrument.name] = []
+            self._data_buffer[item.unique_id()] = []
 
     def startup(self):
 
@@ -160,7 +159,7 @@ class Scan():
         # Create a wandb table for each measurement tool
         self.wandb_tables = {}
         for item in self.scan_settings.scan_tree.get_measurement_items():
-            self.wandb_tables[item.instrument_object.instrument.name] = wandb.Table(columns=[*item.instrument_object.instrument.columns().tolist(), *[f"{m.instrument_object.instrument.position_column} M({m.instrument_object.instrument.position_units})" for m in self.scan_settings.scan_tree.get_movement_items()]], log_mode="INCREMENTAL")
+            self.wandb_tables[item.unique_id()] = wandb.Table(columns=[*item.instrument_object.instrument.columns().tolist(), *[f"{m.instrument_object.instrument.position_column} M({m.instrument_object.instrument.position_units})" for m in self.scan_settings.scan_tree.get_movement_items()]], log_mode="INCREMENTAL")
 
     def save_data(self, data: pd.DataFrame, measurement_name: str):
         """Save data to the buffer for asynchronous processing.
@@ -180,26 +179,20 @@ class Scan():
 
         with self._buffer_lock:
             self._data_buffer[measurement_name].extend(rows)
-            print(f"Buffer size for {measurement_name}: {len(self._data_buffer.get(measurement_name, []))}")
             # Check if we've reached the buffer size and need to flush
             if len(self._data_buffer[measurement_name]) >= self._buffer_size:
-                print(f"Buffer size reached for {measurement_name}, flushing buffer.")
                 self._flush_buffer(measurement_name)
                 
     def _flush_buffer(self, measurement_name: str):
         """Flush the data buffer for a specific measurement."""
-        print("Starting buffer flush...")
         if not self._data_buffer[measurement_name]:
-            print(f"No data to flush for {measurement_name}.")
             return
             
         # Get the data and clear the buffer
-        print("Getting data to save for", measurement_name)
         data_to_save = self._data_buffer[measurement_name].copy()
         self._data_buffer[measurement_name].clear()
             
         if not data_to_save:
-            print(f"No data to save for {measurement_name}. Buffer was empty.")
             return
             
         # Submit the save task to the thread pool
@@ -250,52 +243,7 @@ class Scan():
     def __del__(self):
         """Ensure all data is saved when the scan is destroyed."""
         self.shutdown()
-        
-    def shutdown(self):
-        """Cleanup resources and ensure all data is saved."""
-        if hasattr(self, '_stop_event'):
-            self._stop_event.set()
-            
-        # Flush any remaining data
-        self.flush()
-        
-        # Shutdown the executor
-        if hasattr(self, '_executor'):
-            self._executor.shutdown(wait=True)
-            
-        # Clean up any remaining resources
-        if hasattr(self, 'run') and self.run is not None:
-            self.run.finish()
 
-    def move_to_positions(self, items_to_move: list[tuple[MovementItem, float]]):
-        for extension in self.extensions:
-            extension.move_to_positions(items_to_move)
-
-        for movement_item, position in items_to_move:
-            movement_item.movement.position = position
-
-    def take_measurements(self):
-        for extension in self.extensions:
-            extension.take_measurements()
-        
-        # Get the current position of each movement tool
-        position_data: dict[str, float] = {}
-        for movement_tool in self.scan_settings.movement_items:
-            position_data[movement_tool.movement.name] = movement_tool.movement.position
-
-        # Perform measurements at the current position, add movement positions to each measurement, save as individual DataFrames
-        for item in self.scan_settings.measurement_items:
-            data = item.measurement.measurement_df()
-
-            # Add position
-            for movement_tool in self.scan_settings.movement_items:
-                position = position_data[movement_tool.movement.name]
-                data[f"{movement_tool.movement.position_column} M({movement_tool.movement.position_units})"] = pd.Series([position] * data.shape[0], index=data.index)
-
-            # Save the data
-            self.save_data(data, item.measurement.name)
-
-        
     def execute(self):
         """Execute the scan procedure using the FastForward traversal and move_next functionality."""
         print(f"Starting scan: {self.scan_settings.scan_name} for sample {self.sample_ID} owned by {self.owner}")
@@ -382,21 +330,17 @@ class Scan():
 
             # Use FastForward to get the next item to process
             ff = InstrumentTreeItem.FastForward(current_item)
-            print(f"Current item: {current_item.instrument_object.instrument.name if current_item.instrument_object else 'None'}")
-            if first_iteration or (not current_item.finished() and all(child.finished() for child in current_item.child_items)):
-                ff = ff.new_item(current_item)
-                first_iteration = False
+            ff = ff.new_item(current_item)
 
             while not ff.done and ff.current_item is not None:
                 ff = ff.current_item.propagate(ff)
                 if ff.done:
                     break
-            # pause for user to see print statements
-            # input("Press Enter to continue...")
+
             # Process the stack of items in parallel
             if ff.stack:
-                print(f"Processing {len(ff.stack)} items in parallel...")
-                print("Items to process:", [item.instrument_object.instrument.name if item.instrument_object else 'None' for item in ff.stack])
+                print(f"Processing items in parallel: {[item.unique_id() for item in ff.stack]}")
+                input("Press Enter to continue...")
                 
                 with ThreadPoolExecutor(max_workers=min(len(ff.stack),self._max_workers)) as executor:
                     # Submit all move_next tasks
@@ -412,13 +356,17 @@ class Scan():
                             result = future.result()
                             if isinstance(result, pd.DataFrame):
                                 # This was a measurement
-                                print(f"Measurement completed for {item.name}")
-                                self.save_data(result, item.instrument_object.instrument.name)
-                            elif result is False:
-                                # Movement completed or failed
-                                print(f"Movement completed for {item.name}")
+                                # Add movement positions to the result, including only the relevant, ancestral movements
+                                for movement_item in self.scan_settings.scan_tree.get_movement_items():
+                                    if movement_item.is_ancestor_of(item):
+                                        movement_instr = movement_item.instrument_object.instrument
+                                        position_col = f"{movement_instr.position_column} M({movement_instr.position_units})"
+                                        result[position_col] = movement_instr.position
+
+                                # Save the measurement data
+                                self.save_data(result, item.unique_id())
                         except Exception as exc:
-                            print(f"{item.name} generated an exception: {exc}")
+                            print(f"{item.unique_id()} generated an exception: {exc}")
                             # Optionally re-raise if you want the scan to stop on error
                             # raise
 

@@ -114,3 +114,14 @@ class MeasurementItem:
         return f"MeasurementItem(measurement={self.instrument}, settings={self.settings})"
     def __str__(self):
         return self.__repr__()
+    
+    def serialize(self) -> dict:
+        return {
+            "instrument": self.instrument.serialize(),
+            "settings": self.settings
+        }
+    
+    def deserialize(self, data: dict, initialize: bool = False):
+        if self.instrument:
+            self.instrument.deserialize(data.get("instrument", {}), initialize=initialize)
+        self.settings = data.get("settings", {})

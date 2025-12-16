@@ -5,7 +5,12 @@ from typing import Callable, Optional
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from PySide6.QtCore import QModelIndex, Qt, QAbstractItemModel, QPersistentModelIndex, QThreadPool
-from .treeitem import InstrumentTreeItem
+
+# Import treeitem from the same directory
+current_dir = os.path.dirname(__file__)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+from treeitem import InstrumentTreeItem
 from pybirch.scan.movements import Movement, VisaMovement, MovementItem
 from pybirch.scan.measurements import Measurement, VisaMeasurement, MeasurementItem
 import pickle
@@ -368,15 +373,63 @@ class ScanTreeModel(QAbstractItemModel):
 
         traverse(self.root_item)
         return all_items
+    
+    def pair_all_pybirch_objects(self, pybirch_objects: list[type]) -> tuple[list[str], list[str], list[bool]]:
+        """Attempt to pair all instrument items with their corresponding PyBirch objects.
+        
+        Returns a tuple of three lists:
+        - A list of instrument item names.
+        - A list of found PyBirch object class names.
+        - A list of booleans indicating whether a match was found for each item.
+        """
+        instrument_names = []
+        found_classes = []
+        match_statuses = []
+
+        all_items = self.get_all_instrument_items()
+        for item in all_items:
+            name, class_name, found = item.find_pybirch_object(pybirch_objects)
+            instrument_names.append(name)
+            found_classes.append(class_name)
+            match_statuses.append(found)
+
+        return instrument_names, found_classes, match_statuses
+    
+    def pair_all_instrument_adapters(self, known_adapters: list[str]) -> tuple[list[str], list[str], list[bool]]:
+        """Attempt to pair all instrument items with their corresponding adapters.
+        
+        Returns a tuple of three lists:
+        - A list of instrument item names.
+        - A list of found adapter strings.
+        - A list of booleans indicating whether a match was found for each item.
+        """
+        instrument_names = []
+        found_adapters = []
+        match_statuses = []
+
+        all_items = self.get_all_instrument_items()
+        for item in all_items:
+            adapter, found = item.find_instrument_adapter(known_adapters)
+            if item.instrument_object and item.instrument_object.instrument:
+                instrument_names.append(item.instrument_object.instrument.name)  # Use the instrument name from the first column
+            else:
+                instrument_names.append("Unknown Instrument")
+            found_adapters.append(adapter)
+            match_statuses.append(found)
+
+        return instrument_names, found_adapters, match_statuses
+    
 
     def serialize(self) -> dict:
         """Serialize the entire model to a dictionary."""
         return {
+            "all_instruments": [item.serialize() for item in self.get_all_instrument_items()],
+            "tree_structure": self.root_item.structure_to_dict(),
             "root_item": self.root_item.serialize(),
             "completed": self.completed,
             "paused": self.paused,
             "stopped": self.stopped,
-            "next_item": self.next_item.serialize() if self.next_item else None
+            "next_item": self.next_item.serialize() if self.next_item else None         
         }
 
     def deserialize(self, data: dict) -> None:

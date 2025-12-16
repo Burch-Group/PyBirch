@@ -22,6 +22,10 @@ class InstrumentTreeItem:
         self.movement_entries: dict = {}
         self.checked: bool = False  # Add checkbox state
         self._runtime_initialized = False
+        self._unique_id = id(self)
+
+        self.deserialized_instrument_data: dict | None = None # To hold deserialized data temporarily
+
         if self.instrument_object is None:
             self.name = ""
             self.type = ""
@@ -44,21 +48,18 @@ class InstrumentTreeItem:
             self.item_indices = []
             self.final_indices = []
         elif instrument_object.instrument.__base_class__() is Movement:
-            print(f"Instrument is a Movement: {self.name}")
             if not self.item_indices:
                 self.item_indices = [0]
             if not self.final_indices:
                 # Check if the movement object has positions attribute, otherwise default to 1
                 try:
                     positions = getattr(instrument_object, 'positions', None)
-                    print(f"Positions attribute found: {positions}")
                     if positions and len(positions) > 0:
                         self.final_indices = [len(positions) - 1]
                     else:
                         # Default if no positions attribute or empty positions
                         self.final_indices = [1]
                 except Exception:
-                    print("Error accessing positions attribute.")
                     # Default if any error accessing positions
                     self.final_indices = [1]
         else:
@@ -66,7 +67,11 @@ class InstrumentTreeItem:
             self.item_indices = [0]
             self.final_indices = [1]
 
-
+    def unique_id(self) -> str:
+        """Generate a unique identifier for this MovementItem based on its instrument and settings."""
+        if self.instrument_object is None:
+            return f"None__{self._unique_id}"
+        return f"{self.instrument_object.instrument.name}_{self.instrument_object.instrument.adapter}_{self._unique_id}"
 
     def child(self, number: int) -> 'InstrumentTreeItem':
         if number < 0 or number >= len(self.child_items):
@@ -146,9 +151,9 @@ class InstrumentTreeItem:
         
         if checked_count == len(self.child_items):
             self.checked = True
-        elif checked_count == 0:
-            print(self.checked)
+        # elif checked_count == 0:
             # self.checked = False
+
         else:
             # For partial states, we'll use False but the model will handle partial display
             self.checked = False
@@ -194,14 +199,12 @@ class InstrumentTreeItem:
 
         
         if self.instrument_object.instrument.__base_class__() is Movement:
-            print(f"Moving instrument {self.instrument_object.instrument.name} to next position...")
             if not self.item_indices or not self.final_indices:
                 return False
             for i in reversed(range(len(self.item_indices))):
                 if self.item_indices[i] < self.final_indices[i]:
                     self.item_indices[i] += 1
                 else:
-                    print(f"Resetting indices")
                     self.reset_indices()
                 self.instrument_object.instrument.position = self.instrument_object.positions[self.item_indices[i]]  #type: ignore
                 print(f"Moved to position {self.instrument_object.instrument.position}, with index {self.item_indices[i]} out of {self.final_indices[i]}")
@@ -226,13 +229,14 @@ class InstrumentTreeItem:
             "movement_positions": self.movement_positions,
             "movement_entries": self.movement_entries,
             "checked": self.checked,
+            "instrument_object": self.instrument_object.serialize() if self.instrument_object else None,
             "child_items": [child.serialize() for child in self.child_items]
         }
         return data
     
     @staticmethod
     def deserialize(data: dict, parent: Optional[InstrumentTreeItem] = None) -> InstrumentTreeItem:
-        instrument_object = None  # Placeholder, actual object reconstruction would depend on more context
+        instrument_object = None  # Placeholder, actual object reconstruction will occur later
         item = InstrumentTreeItem(parent, instrument_object, data.get("item_indices", []), data.get("final_indices", []), data.get("semaphore", ""))
         item.name = data.get("name", "")
         item.type = data.get("type", "")
@@ -240,6 +244,8 @@ class InstrumentTreeItem:
         item.movement_positions = data.get("movement_positions", [])
         item.movement_entries = data.get("movement_entries", {})
         item.checked = data.get("checked", False)
+        item.deserialized_instrument_data = data.get("instrument_object", None)
+        
         
         for child_data in data.get("child_items", []):
             child_item = InstrumentTreeItem.deserialize(child_data, item)
@@ -247,9 +253,62 @@ class InstrumentTreeItem:
         
         return item
 
-    def find_instrument_object(self) -> None:
-        # To be implemented based on application context
-        return
+    def find_pybirch_object(self, known_objects: list[type]) -> tuple[str, str, bool]:
+        # Returns a string of the PyBirch object class name, object name, and whether a match was found as a bool
+        # Takes, as input, a list of known PyBirch objects (Measurement, Movement, or subclasses) to search through
+        if self.deserialized_instrument_data is None:
+            return "", "", False
+        
+        if self.instrument_object is not None:
+            return self.instrument_object.instrument.name, self.instrument_object.instrument.__class__.__name__, True
+        
+        instrument_data = self.deserialized_instrument_data.get("instrument", {})
+
+        pybirch_class_name = instrument_data.get("pybirch_class", "")
+        name = instrument_data.get("name", "")
+        for obj in known_objects:
+            if obj.__class__.__name__ == pybirch_class_name and obj().name == name:
+                # Create an instrument_object with this instrument and the deserialized settings
+                instrument_instance = obj()
+                instrument_instance.deserialize(self.deserialized_instrument_data, initialize=False)
+                
+                return name, pybirch_class_name, True
+        return name, pybirch_class_name, False
+
+    def find_instrument_adapter(self, known_objects: list[str]) -> tuple[str, bool]:
+        # Returns a tuple of the instrument adapter string, and whether a match was found as a bool
+        if self.instrument_object is None or self.instrument_object.instrument is None:
+            return "", False
+        
+        if self.instrument_object.instrument.adapter and self.instrument_object.instrument.adapter in known_objects:
+            return self.instrument_object.instrument.adapter, True
+        
+        if self.deserialized_instrument_data is None:
+            return "", False
+        
+        instrument_data = self.deserialized_instrument_data.get("instrument", {})
+        adapter = instrument_data.get("adapter", "")
+        if adapter in known_objects:
+            self.instrument_object.instrument.adapter = adapter
+            return adapter, True
+        return adapter, False
+
+    def structure_to_dict(self) -> dict:
+         """Convert this tree item and all its children to a dictionary"""
+         result = {
+             'name': self.name,
+             'type': self.type,
+             'adapter': self.adapter,
+             'semaphore': self.semaphore,
+             'children': []
+         }
+         
+         # Recursively convert all children
+         for child in self.child_items:
+             result['children'].append(child.structure_to_dict())
+         
+         return result
+
 
     class FastForward:
         def __init__(self, current_item: InstrumentTreeItem):
@@ -259,21 +318,26 @@ class InstrumentTreeItem:
             self.semaphore: list[str] = []
             self.type: dict[str, list[str]] = {}
             self.adapter: dict[str, list[str]] = {}
+            self.unique_ids: list[str] = []
             self.final_item: InstrumentTreeItem | None = None
 
         def check_if_last(self, next: InstrumentTreeItem) -> bool:
-            if next.adapter in self.adapter.keys() and next.semaphore not in self.adapter[next.adapter]:
+            if next.adapter in self.adapter.keys() and next.semaphore and next.semaphore not in self.adapter[next.adapter]:
                 return True
 
-            if next.type not in self.type.keys() and all(
-                next.semaphore not in sems for sems in self.type.values()
-            ):
+            if self.type.keys() and next.type not in self.type.keys() and (
+                (next.semaphore and all(next.semaphore not in sems for sems in self.type.values())) 
+                or not next.semaphore): # Completely legible pythonic syntax... nothing to see here
+                print(f"Type check failed for type '{next.type}', current types: {list(self.type.keys())}")
                 return True
+            else:
+                print(f"Type check passed for type '{next.type}', current types: {list(self.type.keys())}")
             
             if next.semaphore and self.semaphore and next.semaphore not in self.semaphore:
+                print(f"Semaphore '{next.semaphore}' not in current semaphores: {self.semaphore}")
                 return True
             
-            if next.parent() and next == next.parent().last_child() and not next.child_items: # type: ignore
+            if next.unique_id() in self.unique_ids:
                 return True
             
             return False
@@ -281,22 +345,24 @@ class InstrumentTreeItem:
         def new_item(self, item: InstrumentTreeItem):
             self.current_item = item
             self.current_item.reset_children_indices()
-            print(f"FastForward examining item: {item.instrument_object.instrument.name if item.instrument_object else 'None'}")
             if self.check_if_last(item):
                 self.final_item = item
                 self.done = True
-                self.stack.append(item)
-                print(f"FastForward reached final item: {item.instrument_object.instrument.name if item.instrument_object else 'None'}")
+                print(f"FastForward reached final item: {item.name}")
                 return self
-            
+            print(f"FastForward adding item: {item.name}")
             if item.semaphore and item.semaphore not in self.semaphore:
                 self.semaphore.append(item.semaphore)
 
+            if item.unique_id() not in self.unique_ids:
+                self.unique_ids.append(item.unique_id())
+
             for characteristic in ['type', 'adapter']:
                 value = getattr(item, characteristic)
+                print(f"Processing characteristic '{characteristic}' with value '{value}'")
                 if value:
-                    getattr(self, characteristic)[value] = getattr(self, characteristic).get(value, []) + [item]
-            print(f"FastForward adding item: {item.instrument_object.instrument.name if item.instrument_object else 'None'}")
+                    getattr(self, characteristic)[value] = (getattr(self, characteristic).get(value, []) + [item.semaphore]) if item.semaphore else getattr(self, characteristic).get(value, [])
+
             self.stack.append(item)
 
             return self
@@ -319,6 +385,15 @@ class InstrumentTreeItem:
         else:
             ff.done = True
             return ff
+        
+    def is_ancestor_of(self, descendant: 'InstrumentTreeItem') -> bool:
+        """Check if this item is an ancestor of the given descendant item."""
+        current = descendant.parent_item
+        while current is not None:
+            if current == self:
+                return True
+            current = current.parent_item
+        return False
         
     
 

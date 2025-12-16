@@ -11,7 +11,7 @@ class AvailableInstrumentWidget(QtWidgets.QDialog):
     and lets the user select exactly one to continue.
     """
 
-    def __init__(self, instrument_data: , parent=None):
+    def __init__(self, instrument_data: [], parent=None):
         """
         instrument_data: list of Measurement or Movement objects from InstrumentManager
         Each object should have 'name', 'adapter', and 'status' attributes.

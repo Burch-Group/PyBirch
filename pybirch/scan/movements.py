@@ -60,7 +60,7 @@ class Movement:
         # Shutdown the movement equipment
         pass
 
-    def dict_repr(self) -> dict:
+    def serialize(self) -> dict:
         return {
             "name": self.name,
             "nickname": self.nickname,
@@ -69,10 +69,9 @@ class Movement:
             "adapter": getattr(self, 'adapter', ''),
             "position_units": self.position_units,
             "position_column": self.position_column,
-            "settings": self.settings
         }
-    
-    def load_from_dict(self, data: dict, initialize: bool = False):
+
+    def deserialize(self, data: dict, initialize: bool = False):
         self.name = data.get("name", self.name)
         self.nickname = data.get("nickname", self.nickname)
         self.adapter = data.get("adapter", getattr(self, 'adapter', ''))
@@ -80,7 +79,7 @@ class Movement:
         self.position_column = data.get("position_column", self.position_column)
         if "settings" in data:
             self.settings = data["settings"]
-        
+
         # check connection status and, if it fails, set adapter to a placeholder.
         self.status = self.check_connection()
         if not self.status:
@@ -112,10 +111,28 @@ class MovementItem:
     def __init__(self, movement: Movement | VisaMovement, positions: np.ndarray, settings: dict = {}):
         self.instrument = movement
         self.settings = settings
-        self._runtime_settings = settings
         self.positions = positions
 
     def __repr__(self):
         return f"MovementItem(movement={self.instrument}, settings={self.settings}, positions={self.positions})"
     def __str__(self):
         return self.__repr__()
+    
+    def serialize(self) -> dict:
+        return {
+            "instrument": self.instrument.serialize(),
+            "settings": self.settings
+        }
+    def deserialize(self, data: dict, initialize: bool = False):
+        if self.instrument:
+            self.instrument.deserialize(data.get("instrument", {}), initialize=initialize)
+        self.settings = data.get("settings", {})
+    
+def empty_MovementItem() -> MovementItem:
+    """Create an empty MovementItem for placeholder purposes."""
+    class EmptyMovement(Movement):
+        def check_connection(self) -> bool:
+            return False
+
+    empty_movement = EmptyMovement("Empty Movement")
+    return MovementItem(movement=empty_movement, positions=np.array([]), settings={})
