@@ -8,6 +8,15 @@ from pybirch.scan.measurements import Measurement, VisaMeasurement
 from pybirch.scan.movements import Movement, VisaMovement
 from PySide6 import QtCore, QtWidgets, QtGui
 
+# Import theme
+try:
+    from GUI.theme import Theme
+except ImportError:
+    try:
+        from theme import Theme
+    except ImportError:
+        Theme = None
+
 def get_classes_from_file(file_path: str, acceptable_class_types: tuple = (type,)) -> list[tuple[str, type]]:
     """Return a list of class names defined in the specified module."""
     module_name = Path(file_path).stem
@@ -57,15 +66,7 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
         self.setWindowIcon(QtGui.QIcon.fromTheme("folder"))
         self.resize(400, 500)
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        self.setStyleSheet("""
-            QTreeWidget {
-                border: 1px solid #ccc;
-                border-radius: 4px;
-            }
-            QTreeWidget::item {
-                padding: 4px 8px;
-            }
-        """)
+        # Styling handled by global theme
     
     def init_ui(self):
         """Initialize the user interface components."""
@@ -97,58 +98,67 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
         self.refresh_button = QtWidgets.QPushButton("Refresh")
         self.refresh_button.setToolTip("Refresh the list of available classes")
         self.refresh_button.setFixedSize(100, 32)
-        self.refresh_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: #0078d7;
-                color: white;
-            }
-            QPushButton:hover {
-                background-color: #0056a1;
-            }
-            QPushButton:pressed {
-                background-color: #003f6b;
-            }
-        """)
+        if Theme:
+            self.refresh_button.setStyleSheet(Theme.primary_button_style())
+        else:
+            self.refresh_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: #0078d7;
+                    color: white;
+                }
+                QPushButton:hover {
+                    background-color: #0056a1;
+                }
+                QPushButton:pressed {
+                    background-color: #003f6b;
+                }
+            """)
 
         # Create the 'control' button
         self.open_front_panel_button = QtWidgets.QPushButton("Control")
         self.open_front_panel_button.setToolTip("Open the instrument front panel")
         self.open_front_panel_button.setFixedSize(100, 32)
-        self.open_front_panel_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: #0078d7;
-                color: white;
-            }
-            QPushButton:hover {
-                background-color: #0056a1;
-            }
-            QPushButton:pressed {
-                background-color: #003f6b;
-            }
-        """)
+        if Theme:
+            self.open_front_panel_button.setStyleSheet(Theme.primary_button_style())
+        else:
+            self.open_front_panel_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: #0078d7;
+                    color: white;
+                }
+                QPushButton:hover {
+                    background-color: #0056a1;
+                }
+                QPushButton:pressed {
+                    background-color: #003f6b;
+                }
+            """)
 
         # Create the 'open instrument settings panel' button
         self.open_settings_panel_button = QtWidgets.QPushButton("Settings")
         self.open_settings_panel_button.setToolTip("Open the instrument settings panel")
         self.open_settings_panel_button.setFixedSize(100, 32)
-        self.open_settings_panel_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: #0078d7;
-                color: white;
-            }
-            QPushButton:hover {
-                background-color: #0056a1;
-            }
-            QPushButton:pressed {
-                background-color: #003f6b;
-            }
-        """)
+        if Theme:
+            self.open_settings_panel_button.setStyleSheet(Theme.primary_button_style())
+        else:
+            self.open_settings_panel_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: #0078d7;
+                    color: white;
+                }
+                QPushButton:hover {
+                    background-color: #0056a1;
+                }
+                QPushButton:pressed {
+                    background-color: #003f6b;
+                }
+            """)
 
         # Button container
         button_container = QtWidgets.QWidget()
@@ -233,9 +243,19 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
 
 
     def refresh_classes(self):
-        """Refresh the list of available classes from the directory."""
+        """Refresh the list of available classes from the directory while preserving checked items."""
+        # Save current selections before refreshing
+        current_selections = self.get_selected_classes()
+        
+        # Refresh the classes from directory
         self.pybirch_classes = get_classes_from_directory(self.directory, self.acceptable_class_types)
+        
+        # Repopulate the tree
         self.populate_tree()
+        
+        # Restore selections for items that are still available
+        if current_selections:
+            self.update_selections_from_dict(current_selections)
     
     def handle_item_changed(self, item: QtWidgets.QTreeWidgetItem):
         """Handle changes in item check states with performance optimization"""
@@ -292,18 +312,24 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
 
 
     def get_selected_classes(self) -> dict[str, type]:
-        """Return a dictionary of selected classes."""
+        """Return a dictionary of selected classes and folder states."""
         selected_classes = {}
+        folder_states = {}
 
-        def traverse(item: QtWidgets.QTreeWidgetItem, current_dict: dict):
+        def traverse(item: QtWidgets.QTreeWidgetItem, current_dict: dict, current_folder_states: dict, path: str = ""):
             for i in range(item.childCount()):
                 child = item.child(i)
+                child_path = f"{path}/{child.text(0)}" if path else child.text(0)
+                
                 if child.childCount() > 0:
-                    # It's a folder
+                    # It's a folder - save its state
+                    current_folder_states[child_path] = child.checkState(0)
                     folder_dict = {}
-                    traverse(child, folder_dict)
-                    if folder_dict:
+                    folder_states_dict = {}
+                    traverse(child, folder_dict, folder_states_dict, child_path)
+                    if folder_dict or any(state != QtCore.Qt.Unchecked for state in folder_states_dict.values()):
                         current_dict[child.text(0)] = folder_dict
+                        current_folder_states.update(folder_states_dict)
                 else:
                     # It's a class
                     if child.checkState(0) == QtCore.Qt.Checked:
@@ -312,7 +338,14 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
                             current_dict[child.text(0)] = cls_obj
 
         root = self.tree.invisibleRootItem()
-        traverse(root, selected_classes)
+        traverse(root, selected_classes, folder_states)
+        
+        # Store folder states in the result
+        if hasattr(self, '_folder_states'):
+            self._folder_states = folder_states
+        else:
+            setattr(self, '_folder_states', folder_states)
+            
         return selected_classes
         
     def save_selected_classes(self, filepath: str):
@@ -327,22 +360,101 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
             selected_classes = pickle.load(f)
         return selected_classes
 
+    def _serialize_selections(self, selections: dict) -> dict:
+        """Convert selections dict to JSON-serializable format (class names instead of objects)."""
+        result = {}
+        for key, value in selections.items():
+            if isinstance(value, dict):
+                result[key] = self._serialize_selections(value)
+            elif isinstance(value, type):
+                # Store class name and module for later restoration
+                result[key] = {
+                    '__class_name__': value.__name__,
+                    '__module__': getattr(value, '__module__', '')
+                }
+            else:
+                result[key] = str(value)
+        return result
+    
+    def _deserialize_selections(self, data: dict) -> dict:
+        """Convert JSON selections back to dict with class references."""
+        result = {}
+        for key, value in data.items():
+            if isinstance(value, dict):
+                if '__class_name__' in value:
+                    # This is a serialized class reference - just store the class name
+                    # The actual matching will be done by update_selections_from_dict
+                    result[key] = value['__class_name__']
+                else:
+                    result[key] = self._deserialize_selections(value)
+            else:
+                result[key] = value
+        return result
+
+    def serialize(self) -> dict:
+        """Serialize the instrument autoload widget data to a dictionary."""
+        selected_classes = self.get_selected_classes()
+        folder_states = getattr(self, '_folder_states', {})
+        
+        # Convert folder states to JSON-serializable format
+        json_folder_states = {}
+        for path, state in folder_states.items():
+            json_folder_states[path] = state.value if hasattr(state, 'value') else int(state)
+        
+        return {
+            'selected_classes': self._serialize_selections(selected_classes),
+            'folder_states': json_folder_states,
+            'directory': self.directory,
+            'acceptable_class_types': [cls.__name__ for cls in self.acceptable_class_types]
+        }
+    
+    def deserialize(self, data: dict):
+        """Deserialize and restore instrument autoload widget data from a dictionary."""
+        # Restore folder states (convert back to Qt CheckState)
+        if 'folder_states' in data:
+            restored_states = {}
+            for path, state_value in data['folder_states'].items():
+                if state_value == 2:
+                    restored_states[path] = QtCore.Qt.Checked
+                elif state_value == 1:
+                    restored_states[path] = QtCore.Qt.PartiallyChecked
+                else:
+                    restored_states[path] = QtCore.Qt.Unchecked
+            self._folder_states = restored_states
+        
+        # Restore selected classes
+        if 'selected_classes' in data:
+            selections = self._deserialize_selections(data['selected_classes'])
+            self.update_selections_from_dict_by_name(selections)
+
     def update_selections_from_dict(self, selections: dict[str, type]) -> dict[str, type]:
         """Update the tree selections based on a dictionary of selections. Return a list of
         the selections objects not found in the tree."""
 
-        def traverse(item: QtWidgets.QTreeWidgetItem, selections_dict: dict):
+        # Get the stored folder states if available
+        folder_states = getattr(self, '_folder_states', {})
+
+        def traverse(item: QtWidgets.QTreeWidgetItem, selections_dict: dict, path: str = ""):
             for i in range(item.childCount()):
                 child = item.child(i)
+                child_path = f"{path}/{child.text(0)}" if path else child.text(0)
+                
                 if child.childCount() > 0:
                     # It's a folder
                     if child.text(0) in selections_dict:
-                        traverse(child, selections_dict[child.text(0)])
-                        # After traversing children, update parent state
+                        traverse(child, selections_dict[child.text(0)], child_path)
+                    
+                    # Restore explicit folder state if it was saved
+                    if child_path in folder_states:
+                        child.setCheckState(0, folder_states[child_path])
+                    else:
+                        # Fall back to calculating state based on children
                         checked_count = sum(1 for j in range(child.childCount()) if child.child(j).checkState(0) == QtCore.Qt.Checked)
-                        if checked_count == child.childCount():
+                        partially_checked_count = sum(1 for j in range(child.childCount()) if child.child(j).checkState(0) == QtCore.Qt.PartiallyChecked)
+                        
+                        if checked_count == child.childCount() and partially_checked_count == 0:
                             child.setCheckState(0, QtCore.Qt.Checked)
-                        elif checked_count == 0:
+                        elif checked_count == 0 and partially_checked_count == 0:
                             child.setCheckState(0, QtCore.Qt.Unchecked)
                         else:
                             child.setCheckState(0, QtCore.Qt.PartiallyChecked)
@@ -368,6 +480,65 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
                     if key not in current_dict or current_dict[key] != value:
                         not_found[key] = value
         find_not_found(selections, self.get_selected_classes())
+        
+        return not_found
+    
+    def update_selections_from_dict_by_name(self, selections: dict) -> dict:
+        """Update the tree selections based on class names (for JSON deserialization).
+        
+        This method matches selections by class name string instead of class object reference.
+        Used when restoring from JSON where class objects aren't preserved.
+        
+        Args:
+            selections: Dict with structure {folder: {class_name: "ClassName", ...}, ...}
+        
+        Returns:
+            Dict of selections that couldn't be matched in the tree
+        """
+        # Get the stored folder states if available
+        folder_states = getattr(self, '_folder_states', {})
+        not_found = {}
+
+        def traverse(item: QtWidgets.QTreeWidgetItem, selections_dict: dict, path: str = ""):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                child_path = f"{path}/{child.text(0)}" if path else child.text(0)
+                
+                if child.childCount() > 0:
+                    # It's a folder
+                    if child.text(0) in selections_dict:
+                        traverse(child, selections_dict[child.text(0)], child_path)
+                    
+                    # Restore explicit folder state if it was saved
+                    if child_path in folder_states:
+                        child.setCheckState(0, folder_states[child_path])
+                    else:
+                        # Calculate state based on children
+                        checked_count = sum(1 for j in range(child.childCount()) 
+                                          if child.child(j).checkState(0) == QtCore.Qt.Checked)
+                        partially_checked_count = sum(1 for j in range(child.childCount()) 
+                                                     if child.child(j).checkState(0) == QtCore.Qt.PartiallyChecked)
+                        
+                        if checked_count == child.childCount() and partially_checked_count == 0:
+                            child.setCheckState(0, QtCore.Qt.Checked)
+                        elif checked_count == 0 and partially_checked_count == 0:
+                            child.setCheckState(0, QtCore.Qt.Unchecked)
+                        else:
+                            child.setCheckState(0, QtCore.Qt.PartiallyChecked)
+                else:
+                    # It's a class - match by name
+                    class_name = child.text(0)
+                    if class_name in selections_dict:
+                        # Check if the selection is a string (class name) or has the name stored
+                        selection = selections_dict[class_name]
+                        if isinstance(selection, str) and selection == class_name:
+                            child.setCheckState(0, QtCore.Qt.Checked)
+                        elif isinstance(selection, str):
+                            # The value is the class name
+                            child.setCheckState(0, QtCore.Qt.Checked)
+
+        root = self.tree.invisibleRootItem()
+        traverse(root, selections)
         
         return not_found
 

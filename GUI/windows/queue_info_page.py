@@ -7,6 +7,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from GUI.widgets.single_entry_widget import SingleEntryWidget
 from GUI.widgets.single_checkbox_widget import SingleCheckboxWidget
 from GUI.widgets.queue_title_bar import QueueTitleBar
+from GUI.theme import Theme
 
 # Import UserFieldMainWindow
 from GUI.widgets.user_fields.mainwindow import UserFieldMainWindow
@@ -53,14 +54,7 @@ class QueueInfoPage(QtWidgets.QWidget):
         
         # Add user fields section
         user_fields_label = QtWidgets.QLabel("User Fields")
-        user_fields_label.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                font-weight: bold;
-                margin-top: 10px;
-                margin-bottom: 5px;
-            }
-        """)
+        user_fields_label.setStyleSheet(Theme.section_title_style())
         content_layout.addWidget(user_fields_label)
         
         self.user_fields_widget = UserFieldMainWindow()
@@ -148,7 +142,10 @@ class QueueInfoPage(QtWidgets.QWidget):
 
 def main():
     """Test the QueueInfoPage widget."""
+    from GUI.theme import apply_theme
+    
     app = QtWidgets.QApplication(sys.argv)
+    apply_theme(app)
     
     # Create main window
     main_window = QtWidgets.QMainWindow()

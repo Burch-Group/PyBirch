@@ -1,9 +1,30 @@
 import sys
 from PySide6 import QtCore, QtWidgets, QtGui
+from PySide6.QtCore import Signal
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from pybirch.scan.scan import Scan, get_empty_scan
 import pickle
+
+# Import theme
+try:
+    from GUI.theme import Theme, apply_theme
+except ImportError:
+    try:
+        from theme import Theme, apply_theme
+    except ImportError:
+        Theme = None
+        apply_theme = None
+
+# Import preset manager
+try:
+    from GUI.widgets.preset_manager import PresetManager, PresetDialog
+except ImportError:
+    try:
+        from widgets.preset_manager import PresetManager, PresetDialog
+    except ImportError:
+        PresetManager = None
+        PresetDialog = None
 
 class ScanTitleBar(QtWidgets.QWidget):
     """
@@ -15,6 +36,15 @@ class ScanTitleBar(QtWidgets.QWidget):
     - Save/Load
     """
     
+    # Signal emitted when info button is clicked
+    info_clicked = Signal()
+    
+    # Signal emitted when a scan preset is loaded
+    scan_preset_loaded = Signal(object)
+    
+    # Signal emitted when state should be saved before preset operations
+    save_state_requested = Signal()
+    
     def __init__(self, scan: Scan, title: str = "Scan"):
         super().__init__()
         self.scan = scan
@@ -22,6 +52,10 @@ class ScanTitleBar(QtWidgets.QWidget):
         self.connect_signals()
         self.default_savepath = ""
         self.default_loadpath = ""
+    
+    def set_title(self, title: str):
+        """Update the title displayed in the title bar"""
+        self.scan_label.setText(title if title else "Scan")
 
     def init_ui(self, title: str):
         """Initialize the user interface components."""
@@ -32,12 +66,15 @@ class ScanTitleBar(QtWidgets.QWidget):
         
         # Add "Scan" label on the left
         self.scan_label = QtWidgets.QLabel(title)
-        self.scan_label.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
-                font-weight: bold;
-            }
-        """)
+        if Theme:
+            self.scan_label.setStyleSheet(Theme.title_label_style())
+        else:
+            self.scan_label.setStyleSheet("""
+                QLabel {
+                    font-size: 16px;
+                    font-weight: bold;
+                }
+            """)
         layout.addWidget(self.scan_label)
         
         # Add stretch to push buttons to the right
@@ -50,98 +87,113 @@ class ScanTitleBar(QtWidgets.QWidget):
         button_layout.setSpacing(4)
         
         # Info button
-        self.info_button = QtWidgets.QPushButton()
-        self.info_button.setIcon(QtGui.QIcon.fromTheme("dialog-information"))
+        self.info_button = QtWidgets.QPushButton("ℹ")
         self.info_button.setToolTip("Show scan information")
         self.info_button.setFixedSize(32, 32)
-        self.info_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        self.info_button.setFont(QtGui.QFont("Segoe UI", 14))
+        if Theme:
+            self.info_button.setStyleSheet(Theme.icon_button_style())
+        else:
+            self.info_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
         
         # WandB button
-        self.wandb_button = QtWidgets.QPushButton()
-        self.wandb_button.setIcon(QtGui.QIcon.fromTheme("applications-internet"))
+        self.wandb_button = QtWidgets.QPushButton("🌐")
         self.wandb_button.setToolTip("WandB integration")
         self.wandb_button.setFixedSize(32, 32)
-        self.wandb_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        self.wandb_button.setFont(QtGui.QFont("Segoe UI", 14))
+        if Theme:
+            self.wandb_button.setStyleSheet(Theme.icon_button_style())
+        else:
+            self.wandb_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
         
         # Presets button. Bold P as the logo
         self.presets_button = QtWidgets.QPushButton("P")
         self.presets_button.setToolTip("Manage presets")
         self.presets_button.setFixedSize(32, 32)
-        self.presets_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        if Theme:
+            self.presets_button.setStyleSheet(Theme.icon_button_style())
+        else:
+            self.presets_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
         
         # Save button
-        self.save_button = QtWidgets.QPushButton()
-        self.save_button.setIcon(QtGui.QIcon.fromTheme("document-save"))
+        self.save_button = QtWidgets.QPushButton("💾")
         self.save_button.setToolTip("Save configuration")
         self.save_button.setFixedSize(32, 32)
-        self.save_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        self.save_button.setFont(QtGui.QFont("Segoe UI", 14))
+        if Theme:
+            self.save_button.setStyleSheet(Theme.icon_button_style())
+        else:
+            self.save_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
 
         # Load button
-        self.load_button = QtWidgets.QPushButton()
-        self.load_button.setIcon(QtGui.QIcon.fromTheme("document-open"))
+        self.load_button = QtWidgets.QPushButton("📂")
         self.load_button.setToolTip("Load configuration")
         self.load_button.setFixedSize(32, 32)
-        self.load_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        self.load_button.setFont(QtGui.QFont("Segoe UI", 14))
+        if Theme:
+            self.load_button.setStyleSheet(Theme.icon_button_style())
+        else:
+            self.load_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
         
         # Add buttons to button layout
         button_layout.addWidget(self.info_button)
@@ -154,12 +206,20 @@ class ScanTitleBar(QtWidgets.QWidget):
         layout.addWidget(button_container)
         
         # Set overall widget styling
-        self.setStyleSheet("""
-            ScanTitleBar {
-                background-color: #f5f5f5;
-                border-bottom: 1px solid #cccccc;
-            }
-        """)
+        if Theme:
+            self.setStyleSheet(f"""
+                ScanTitleBar {{
+                    background-color: {Theme.colors.background_secondary};
+                    border-bottom: 1px solid {Theme.colors.border_light};
+                }}
+            """)
+        else:
+            self.setStyleSheet("""
+                ScanTitleBar {
+                    background-color: #f5f5f5;
+                    border-bottom: 1px solid #cccccc;
+                }
+            """)
         
         # Set fixed height for the title bar
         self.setFixedHeight(40)
@@ -175,8 +235,7 @@ class ScanTitleBar(QtWidgets.QWidget):
     # Signal handler methods
     def on_info_clicked(self):
         """Handle info button click."""
-        print("Info button clicked")
-        # TODO: Implement info dialog or panel
+        self.info_clicked.emit()
 
     def on_wandb_clicked(self):
         """Handle WandB button click."""
@@ -185,8 +244,33 @@ class ScanTitleBar(QtWidgets.QWidget):
 
     def on_presets_clicked(self):
         """Handle presets button click."""
-        print("Presets button clicked")
-        # TODO: Implement presets management
+        if PresetDialog is None:
+            QtWidgets.QMessageBox.warning(self, "Error", "Preset manager not available.")
+            return
+        
+        # Request parent to save current state before showing dialog
+        self.save_state_requested.emit()
+        
+        # Create dialog with current scan only (no queue in scan title bar context)
+        dialog = PresetDialog(self, queue=None, scan=self.scan)
+        
+        # Connect scan preset loaded signal
+        dialog.scan_preset_loaded.connect(self.on_scan_preset_loaded)
+        
+        # Switch to scan presets tab
+        dialog.tab_widget.setCurrentIndex(1)
+        
+        dialog.exec()
+    
+    def on_scan_preset_loaded(self, scan):
+        """Handle when a scan preset is loaded from the dialog."""
+        if isinstance(scan, Scan):
+            # Update our internal scan reference
+            self.scan = scan
+            # Emit signal so parent can update
+            self.scan_preset_loaded.emit(scan)
+            # Update UI
+            self.update_ui()
 
     def on_save_clicked(self):
         dialog = QtWidgets.QFileDialog(self)
@@ -231,6 +315,10 @@ class ScanTitleBar(QtWidgets.QWidget):
 def main():
     """Test the ScanTitleBar widget."""
     app = QtWidgets.QApplication(sys.argv)
+    
+    # Apply theme if available
+    if Theme and apply_theme:
+        apply_theme(app)
     
     # Create a main window to display the title bar
     main_window = QtWidgets.QMainWindow()

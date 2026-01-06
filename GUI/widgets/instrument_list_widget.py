@@ -13,6 +13,15 @@ from pybirch.scan.measurements import Measurement
 from pybirch.setups.fake_setup.lock_in_amplifier.lock_in_amplifier import LockInAmplifierMeasurement, FakeLockinAmplifier
 from pybirch.setups.fake_setup.multimeter.multimeter import VoltageMeterMeasurement, FakeMultimeter, CurrentSourceMovement
 
+# Import theme
+try:
+    from GUI.theme import Theme
+except ImportError:
+    try:
+        from theme import Theme
+    except ImportError:
+        Theme = None
+
 class SettingsCogFrame(QtWidgets.QFrame):
     def __init__(self):
         super().__init__()
@@ -109,11 +118,18 @@ class MovementItemWidget(QtWidgets.QWidget):
         self.setLayout(layout)
         self.settings: dict = {}
 
-        # set hover animation to change color to a slight gray
-        self.setStyleSheet("QLabel::hover"
-                            "{"
-                            "background-color : lightgray;"
-                            "}")
+        # set hover animation to change color
+        if Theme:
+            self.setStyleSheet(f"""
+                QLabel:hover {{
+                    background-color: {Theme.colors.background_secondary};
+                }}
+            """)
+        else:
+            self.setStyleSheet("QLabel::hover"
+                               "{"
+                               "background-color : lightgray;"
+                               "}")
 
     def open_settings(self):
         if not self.settings_cog.isEnabled():

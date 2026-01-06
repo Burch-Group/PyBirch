@@ -5,6 +5,15 @@ import numpy as np
 import pandas as pd
 from typing import Callable
 
+# Import theme
+try:
+    from GUI.theme import Theme
+except ImportError:
+    try:
+        from theme import Theme
+    except ImportError:
+        Theme = None
+
 
 class RangeWidget(QtWidgets.QWidget):
     def __init__(self, start: float = 0.0, stop: float = 0.0, n_step: int = 0):
@@ -324,6 +333,11 @@ class MovementPositionsTitleBar(QtWidgets.QFrame):
         self.collapse_arrow_button = QtWidgets.QPushButton("▼")
         self.collapse_arrow_button.setFixedWidth(35)
         self.collapse_arrow_button.setCheckable(True)
+        # Set font to ensure arrow renders properly
+        arrow_font = QtGui.QFont("Segoe UI Symbol", 12)
+        self.collapse_arrow_button.setFont(arrow_font)
+        if Theme:
+            self.collapse_arrow_button.setStyleSheet(Theme.icon_button_style())
 
         self.layouts.addWidget(self.collapse_arrow_button)
         

@@ -9,6 +9,16 @@ except ImportError:
     Queue = object
 import pickle
 
+# Import theme
+try:
+    from GUI.theme import Theme, apply_theme
+except ImportError:
+    try:
+        from theme import Theme, apply_theme
+    except ImportError:
+        Theme = None
+        apply_theme = None
+
 class QueueTitleBar(QtWidgets.QWidget):
     """
     A title bar widget for the queue interface with various control buttons.
@@ -36,12 +46,15 @@ class QueueTitleBar(QtWidgets.QWidget):
         
         # Add "Queue" label on the left
         self.queue_label = QtWidgets.QLabel(title)
-        self.queue_label.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
-                font-weight: bold;
-            }
-        """)
+        if Theme:
+            self.queue_label.setStyleSheet(Theme.title_label_style())
+        else:
+            self.queue_label.setStyleSheet("""
+                QLabel {
+                    font-size: 16px;
+                    font-weight: bold;
+                }
+            """)
         layout.addWidget(self.queue_label)
         
         # Add stretch to push buttons to the right
@@ -58,94 +71,109 @@ class QueueTitleBar(QtWidgets.QWidget):
         self.info_button.setIcon(QtGui.QIcon.fromTheme("dialog-information"))
         self.info_button.setToolTip("Show queue information")
         self.info_button.setFixedSize(32, 32)
-        self.info_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        if Theme:
+            self.info_button.setStyleSheet(Theme.icon_button_style())
+        else:
+            self.info_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
         
         # WandB button
         self.wandb_button = QtWidgets.QPushButton()
         self.wandb_button.setIcon(QtGui.QIcon.fromTheme("applications-internet"))
         self.wandb_button.setToolTip("WandB integration")
         self.wandb_button.setFixedSize(32, 32)
-        self.wandb_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        if Theme:
+            self.wandb_button.setStyleSheet(Theme.icon_button_style())
+        else:
+            self.wandb_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
         
         # Presets button. Bold P as the logo
         self.presets_button = QtWidgets.QPushButton("P")
         self.presets_button.setToolTip("Manage presets")
         self.presets_button.setFixedSize(32, 32)
-        self.presets_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        if Theme:
+            self.presets_button.setStyleSheet(Theme.icon_button_style())
+        else:
+            self.presets_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
         
         # Save button
         self.save_button = QtWidgets.QPushButton()
         self.save_button.setIcon(QtGui.QIcon.fromTheme("document-save"))
         self.save_button.setToolTip("Save configuration")
         self.save_button.setFixedSize(32, 32)
-        self.save_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        if Theme:
+            self.save_button.setStyleSheet(Theme.icon_button_style())
+        else:
+            self.save_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
 
         # Load button
         self.load_button = QtWidgets.QPushButton()
         self.load_button.setIcon(QtGui.QIcon.fromTheme("document-open"))
         self.load_button.setToolTip("Load configuration")
         self.load_button.setFixedSize(32, 32)
-        self.load_button.setStyleSheet("""
-            QPushButton {
-                border: none;
-                border-radius: 4px;
-                background-color: transparent;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        if Theme:
+            self.load_button.setStyleSheet(Theme.icon_button_style())
+        else:
+            self.load_button.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    border-radius: 4px;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
         
         # Add buttons to button layout
         button_layout.addWidget(self.info_button)
@@ -158,12 +186,20 @@ class QueueTitleBar(QtWidgets.QWidget):
         layout.addWidget(button_container)
         
         # Set overall widget styling
-        self.setStyleSheet("""
-            QueueTitleBar {
-                background-color: #f5f5f5;
-                border-bottom: 1px solid #cccccc;
-            }
-        """)
+        if Theme:
+            self.setStyleSheet(f"""
+                QueueTitleBar {{
+                    background-color: {Theme.colors.background_secondary};
+                    border-bottom: 1px solid {Theme.colors.border_light};
+                }}
+            """)
+        else:
+            self.setStyleSheet("""
+                QueueTitleBar {
+                    background-color: #f5f5f5;
+                    border-bottom: 1px solid #cccccc;
+                }
+            """)
         
         # Set fixed height for the title bar
         self.setFixedHeight(40)
@@ -235,6 +271,10 @@ class QueueTitleBar(QtWidgets.QWidget):
 def main():
     """Test the QueueTitleBar widget."""
     app = QtWidgets.QApplication(sys.argv)
+    
+    # Apply theme if available
+    if Theme and apply_theme:
+        apply_theme(app)
     
     # Create a main window to display the title bar
     main_window = QtWidgets.QMainWindow()

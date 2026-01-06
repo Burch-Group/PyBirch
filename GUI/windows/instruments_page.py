@@ -6,6 +6,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 # Import required widgets
 from GUI.widgets.adapter_autoload import InstrumentManager
 from GUI.widgets.instrument_autoload import InstrumentAutoLoadWidget
+from GUI.widgets.instrument_config_manager import get_config_manager
+from GUI.theme import Theme
 
 
 class InstrumentsPage(QtWidgets.QWidget):
@@ -14,12 +16,24 @@ class InstrumentsPage(QtWidgets.QWidget):
     - Adapter autoload widget on the left
     - Instrument autoload widget on the right
     - Dynamic instrument list synchronization
+    - Automatic configuration persistence
     """
     
-    def __init__(self, parent=None):
+    # Signal emitted when configuration changes (for auto-save)
+    config_changed = QtCore.Signal()
+    
+    def __init__(self, parent=None, auto_load=True):
         super().__init__(parent)
+        self.config_manager = get_config_manager()
+        self._auto_save_enabled = True
+        self._loading_config = False  # Prevent save during load
+        
         self.init_ui()
         self.connect_signals()
+        
+        # Load saved configuration if auto_load is enabled
+        if auto_load:
+            QtCore.QTimer.singleShot(100, self.load_saved_config)
     
     def init_ui(self):
         """Initialize the user interface components."""
@@ -38,13 +52,7 @@ class InstrumentsPage(QtWidgets.QWidget):
         
         # Add title for adapter manager
         adapter_title = QtWidgets.QLabel("Adapter Manager")
-        adapter_title.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                font-weight: bold;
-                margin-bottom: 5px;
-            }
-        """)
+        adapter_title.setStyleSheet(Theme.section_title_style())
         left_layout.addWidget(adapter_title)
         
         # Create adapter manager
@@ -58,13 +66,7 @@ class InstrumentsPage(QtWidgets.QWidget):
         
         # Add title for instrument selection
         instrument_title = QtWidgets.QLabel("Instrument Selection")
-        instrument_title.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                font-weight: bold;
-                margin-bottom: 5px;
-            }
-        """)
+        instrument_title.setStyleSheet(Theme.section_title_style())
         right_layout.addWidget(instrument_title)
         
         # Create instrument autoload widget
@@ -89,6 +91,58 @@ class InstrumentsPage(QtWidgets.QWidget):
         # Connect instrument selection changes to update adapter dropdown
         if hasattr(self.instrument_selector, 'tree'):
             self.instrument_selector.tree.itemChanged.connect(self.update_adapter_instrument_list)
+            # Also connect for auto-save
+            self.instrument_selector.tree.itemChanged.connect(self._schedule_auto_save)
+        
+        # Connect adapter table changes for auto-save
+        self.adapter_manager.table.itemChanged.connect(self._schedule_auto_save)
+        
+        # Override the refresh method to prevent interference during refresh
+        if hasattr(self.instrument_selector, 'refresh_classes'):
+            original_refresh = self.instrument_selector.refresh_classes
+            
+            def safe_refresh():
+                # Temporarily disconnect the signal during refresh
+                if hasattr(self.instrument_selector, 'tree'):
+                    try:
+                        self.instrument_selector.tree.itemChanged.disconnect(self.update_adapter_instrument_list)
+                        self.instrument_selector.tree.itemChanged.disconnect(self._schedule_auto_save)
+                    except RuntimeError:
+                        pass  # Signal wasn't connected
+                
+                # Perform the refresh
+                original_refresh()
+                
+                # Reconnect the signal after refresh and update once
+                if hasattr(self.instrument_selector, 'tree'):
+                    self.instrument_selector.tree.itemChanged.connect(self.update_adapter_instrument_list)
+                    self.instrument_selector.tree.itemChanged.connect(self._schedule_auto_save)
+                
+                # Update adapter list once after refresh is complete
+                self.update_adapter_instrument_list()
+            
+            self.instrument_selector.refresh_classes = safe_refresh
+    
+    def _schedule_auto_save(self):
+        """Schedule an auto-save operation (debounced)."""
+        if not self._auto_save_enabled or self._loading_config:
+            return
+        
+        # Use a timer to debounce rapid changes
+        if not hasattr(self, '_save_timer'):
+            self._save_timer = QtCore.QTimer(self)
+            self._save_timer.setSingleShot(True)
+            self._save_timer.timeout.connect(self._do_auto_save)
+        
+        # Reset timer - save will happen 500ms after last change
+        self._save_timer.start(500)
+    
+    def _do_auto_save(self):
+        """Perform the actual auto-save."""
+        if self._loading_config:
+            return
+        self.save_config()
+        self.config_changed.emit()
         
     def update_adapter_instrument_list(self):
         """Update the instrument dropdown list in adapter manager based on selected instruments."""
@@ -97,15 +151,18 @@ class InstrumentsPage(QtWidgets.QWidget):
         
         # Flatten the instrument names from the nested dictionary
         instrument_names = []
-        self._extract_instrument_names(selected_instruments, instrument_names)
+        instrument_classes = []
+        self._extract_instrument_names_and_classes(selected_instruments, instrument_names, instrument_classes)
         
         # Only use selected instruments (no default instruments)
         # If no instruments are selected, provide an empty list or a placeholder
         if not instrument_names:
             instrument_names = ["No instruments selected"]
+            instrument_classes = []
         
-        # Update the adapter manager's instrument list
+        # Update the adapter manager's instrument list and classes
         self.adapter_manager.instrument_names = instrument_names
+        self.adapter_manager.instrument_classes = instrument_classes  # Pass the actual classes for autopair
         
         # Update all existing dropdown boxes in the adapter table
         for row in range(self.adapter_manager.table.rowCount()):
@@ -120,12 +177,12 @@ class InstrumentsPage(QtWidgets.QWidget):
                 if index >= 0:
                     combo.setCurrentIndex(index)
     
-    def _extract_instrument_names(self, instruments_dict, names_list):
-        """Recursively extract instrument names from nested dictionary."""
+    def _extract_instrument_names_and_classes(self, instruments_dict, names_list, classes_list):
+        """Recursively extract instrument names and classes from nested dictionary."""
         for key, value in instruments_dict.items():
             if isinstance(value, dict):
                 # It's a nested dictionary (folder)
-                self._extract_instrument_names(value, names_list)
+                self._extract_instrument_names_and_classes(value, names_list, classes_list)
             else:
                 # It's an instrument class - try to get the .name property
                 try:
@@ -134,9 +191,13 @@ class InstrumentsPage(QtWidgets.QWidget):
                     else:
                         # Fallback to class name if no .name property
                         names_list.append(key)
+                    
+                    # Add the actual class to the classes list for autopair functionality
+                    classes_list.append(value)
                 except Exception:
                     # If any error occurs, fallback to class name
                     names_list.append(key)
+                    classes_list.append(value)
     
     def get_data(self) -> dict:
         """Get data from both widgets.
@@ -190,17 +251,102 @@ class InstrumentsPage(QtWidgets.QWidget):
                     adapter_info.get('nickname', '')
                 )
 
+    def serialize(self) -> dict:
+        """Serialize the entire instruments page data to a dictionary."""
+        return {
+            'adapter_manager': self.adapter_manager.serialize(),
+            'instrument_selector': self.instrument_selector.serialize(),
+            'splitter_sizes': self.splitter.sizes()
+        }
+    
+    def deserialize(self, data: dict):
+        """Deserialize and restore instruments page data from a dictionary."""
+        # Restore instrument selector first (right panel)
+        if 'instrument_selector' in data:
+            self.instrument_selector.deserialize(data['instrument_selector'])
+            # Update adapter instrument list after restoring selections
+            self.update_adapter_instrument_list()
+        
+        # Restore adapter manager (left panel)
+        if 'adapter_manager' in data:
+            self.adapter_manager.deserialize(data['adapter_manager'])
+        
+        # Restore splitter sizes
+        if 'splitter_sizes' in data:
+            self.splitter.setSizes(data['splitter_sizes'])
+    
+    def save_config(self) -> bool:
+        """Save current configuration to persistent storage.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            data = self.serialize()
+            return self.config_manager.save_config(data)
+        except Exception as e:
+            print(f"Error saving instrument config: {e}")
+            return False
+    
+    def load_saved_config(self) -> bool:
+        """Load configuration from persistent storage.
+        
+        Returns:
+            True if configuration was loaded, False if no config exists or error
+        """
+        self._loading_config = True
+        try:
+            data = self.config_manager.load_config()
+            if data:
+                self.deserialize(data)
+                print(f"Loaded instrument configuration from {self.config_manager.config_path}")
+                return True
+            return False
+        except Exception as e:
+            print(f"Error loading instrument config: {e}")
+            return False
+        finally:
+            self._loading_config = False
+    
+    def reset_config(self):
+        """Reset configuration to defaults and delete saved config."""
+        self._loading_config = True
+        try:
+            # Delete saved config
+            self.config_manager.delete_config()
+            
+            # Clear adapter manager
+            self.adapter_manager.table.setRowCount(0)
+            self.adapter_manager.load_adapters()
+            
+            # Reset instrument selector
+            self.instrument_selector.populate_tree()
+            
+            # Reset splitter
+            self.splitter.setSizes([600, 600])
+            
+            print("Instrument configuration reset to defaults")
+        finally:
+            self._loading_config = False
+    
+    def set_auto_save(self, enabled: bool):
+        """Enable or disable auto-save functionality."""
+        self._auto_save_enabled = enabled
+
 
 def main():
     """Test the InstrumentsPage widget."""
+    from GUI.theme import apply_theme
+    
     app = QtWidgets.QApplication(sys.argv)
+    apply_theme(app)
     
     # Create main window
     main_window = QtWidgets.QMainWindow()
     main_window.setWindowTitle("Instruments Page Test")
     main_window.resize(1200, 800)
     
-    # Create instruments page
+    # Create instruments page (with auto-load enabled by default)
     instruments_page = InstrumentsPage()
     main_window.setCentralWidget(instruments_page)
     

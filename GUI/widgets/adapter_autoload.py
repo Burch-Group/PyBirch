@@ -3,11 +3,28 @@ import sys, inspect
 from pathlib import Path
 import os
 import pickle
+from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from pybirch.scan.measurements import Measurement, VisaMeasurement
 from pybirch.scan.movements import Movement, VisaMovement
 from PySide6 import QtCore, QtWidgets, QtGui
 import pyvisa
+
+# Import theme
+try:
+    from GUI.theme import Theme
+except ImportError:
+    try:
+        from theme import Theme
+    except ImportError:
+        Theme = None
+
+# Connection status constants
+class ConnectionStatus:
+    ONLINE = "online"       # Adapter is currently detected and connected
+    OFFLINE = "offline"     # Adapter was previously configured but not currently detected  
+    UNKNOWN = "unknown"     # Connection status not yet checked
+    FAILED = "failed"       # Adapter detected but connection check failed
 
 # uses pyvisa resource manager to automatically detect and load all available adapters (COM and GPIB) as strings
 
@@ -50,7 +67,7 @@ class InstrumentManager(QtWidgets.QWidget):
             self.resources = []
 
         self.placeholder_count = 0
-        self.instrument_names = ["Oscilloscope", "Multimeter", "Power Supply", "Signal Generator", "Custom"]
+        self.instrument_names = ["None"]
         self.instrument_classes = [BaseInstrument]  # Add actual instrument classes here
 
         # UI Layout
@@ -60,24 +77,73 @@ class InstrumentManager(QtWidgets.QWidget):
         self.table = QtWidgets.QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Adapter", "Instrument", "Nickname", "Status", ""])
         
-        # Use ResizeToContents mode for most columns - auto-size to fit their content
-        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        # Apply theme styling to table
+        if Theme:
+            self.table.setStyleSheet(f"""
+                QTableWidget {{
+                    background-color: {Theme.colors.background_primary};
+                    color: {Theme.colors.text_primary};
+                    border: 1px solid {Theme.colors.border_light};
+                    gridline-color: {Theme.colors.border_light};
+                }}
+                QTableWidget::item {{
+                    padding: 4px 8px;
+                }}
+                QTableWidget::item:selected {{
+                    background-color: {Theme.colors.accent_primary};
+                    color: {Theme.colors.text_inverse};
+                }}
+                QHeaderView::section {{
+                    background-color: {Theme.colors.background_secondary};
+                    color: {Theme.colors.text_primary};
+                    border: 1px solid {Theme.colors.border_light};
+                    padding: 6px;
+                    font-weight: bold;
+                }}
+            """)
         
-        # Set the Select column (column 4) to stretch to fill remaining space
-        self.table.horizontalHeader().setSectionResizeMode(4, QtWidgets.QHeaderView.Stretch)
+        # Enable row selection
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         
-        # Set initial minimum column widths based on equal spacing
-        QtCore.QTimer.singleShot(0, self.calculate_minimum_column_widths)
+        # Set fixed row height to prevent combobox from expanding rows
+        self.table.verticalHeader().setDefaultSectionSize(48)
+        self.table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
+        
+        # Set column resize modes
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)  # Adapter
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)  # Instrument - stretch to fit
+        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)  # Nickname
+        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeToContents)  # Status
+        header.setSectionResizeMode(4, QtWidgets.QHeaderView.Fixed)  # Select checkbox
+        header.resizeSection(4, 60)  # Fixed width for checkbox column
+        
+        # Set minimum section sizes
+        header.setMinimumSectionSize(80)
+        
         layout.addWidget(self.table)
 
         # Buttons - Single row
         button_layout = QtWidgets.QHBoxLayout()
         self.refresh_button = QtWidgets.QPushButton("Refresh Adapters")
+        if Theme:
+            self.refresh_button.setStyleSheet(Theme.primary_button_style())
         self.add_placeholder_button = QtWidgets.QPushButton("Add Placeholder")
+        if Theme:
+            self.add_placeholder_button.setStyleSheet(Theme.primary_button_style())
         self.check_button = QtWidgets.QPushButton("Check Connections")
+        if Theme:
+            self.check_button.setStyleSheet(Theme.primary_button_style())
         self.autopair_button = QtWidgets.QPushButton("Autopair")
+        if Theme:
+            self.autopair_button.setStyleSheet(Theme.primary_button_style())
         self.front_panel_button = QtWidgets.QPushButton("Front Panel")
+        if Theme:
+            self.front_panel_button.setStyleSheet(Theme.primary_button_style())
         self.settings_button = QtWidgets.QPushButton("Settings")
+        if Theme:
+            self.settings_button.setStyleSheet(Theme.primary_button_style())
 
         button_layout.addWidget(self.refresh_button)
         button_layout.addWidget(self.add_placeholder_button)
@@ -132,7 +198,6 @@ class InstrumentManager(QtWidgets.QWidget):
                 
                 # Set minimum widths: regular columns get full width, Select gets half
                 regular_min_width = int(base_width)
-                select_min_width = int(base_width * 0.5)
                 
                 # Apply individual minimum widths to columns 0-3 (regular columns)
                 for col in range(5):
@@ -239,16 +304,32 @@ class InstrumentManager(QtWidgets.QWidget):
         menu.exec(self.table.mapToGlobal(position))
 
     def load_adapters(self):
-        """Load adapters from VISA resource manager while preserving placeholder adapters."""
-        # Store existing placeholder adapters before clearing
-        existing_placeholders = []
+        """Load adapters from VISA resource manager while preserving configured adapters.
+        
+        This method:
+        1. Preserves all configured adapters (with instrument assignments)
+        2. Marks adapters as online/offline based on current VISA detection
+        3. Adds newly detected adapters
+        4. Preserves placeholder adapters
+        """
+        # Store ALL existing configured adapters before clearing
+        existing_configs = []
         for row in range(self.table.rowCount()):
             adapter = self.table.item(row, 0).text()
-            if adapter.startswith("placeholder_"):
-                # Store placeholder data: adapter, instrument, nickname
-                instrument_name = self.table.cellWidget(row, 1).currentText()
-                nickname = self.table.item(row, 2).text()
-                existing_placeholders.append((adapter, instrument_name, nickname))
+            instrument_combo = self.table.cellWidget(row, 1)
+            instrument_name = instrument_combo.currentText() if instrument_combo else "None"
+            nickname = self.table.item(row, 2).text() if self.table.item(row, 2) else ""
+            status = self.table.item(row, 3).text() if self.table.item(row, 3) else ""
+            
+            # Store configuration for adapters that have an instrument assigned
+            # (not just "None" or empty) or are placeholders
+            if instrument_name not in ["None", "No instruments selected", ""] or adapter.startswith("placeholder_"):
+                existing_configs.append({
+                    'adapter': adapter,
+                    'instrument': instrument_name,
+                    'nickname': nickname,
+                    'was_configured': True
+                })
         
         # Clear table and reload VISA resources
         self.table.setRowCount(0)
@@ -256,23 +337,64 @@ class InstrumentManager(QtWidgets.QWidget):
             self.resources = list(self.rm.list_resources())
         except Exception:
             self.resources = []
-
-        # Add VISA resources
-        for res in self.resources:
-            self.add_row(res)
         
-        # Re-add preserved placeholder adapters
-        for adapter, instrument_name, nickname in existing_placeholders:
-            self.add_row(adapter, instrument_name, nickname)
+        # Track which configured adapters are now online
+        online_adapters = set(self.resources)
+        added_adapters = set()
+        
+        # First, add all currently detected VISA resources
+        for res in self.resources:
+            # Check if this adapter was previously configured
+            config = next((c for c in existing_configs if c['adapter'] == res), None)
+            if config:
+                self.add_row(res, config['instrument'], config['nickname'], 
+                           status=ConnectionStatus.ONLINE)
+            else:
+                self.add_row(res, status=ConnectionStatus.ONLINE)
+            added_adapters.add(res)
+        
+        # Then add configured adapters that are now offline (but not placeholders)
+        for config in existing_configs:
+            adapter = config['adapter']
+            if adapter not in added_adapters and not adapter.startswith("placeholder_"):
+                # This adapter was configured but is now offline
+                self.add_row(adapter, config['instrument'], config['nickname'],
+                           status=ConnectionStatus.OFFLINE)
+                added_adapters.add(adapter)
+        
+        # Finally, add placeholder adapters
+        for config in existing_configs:
+            adapter = config['adapter']
+            if adapter.startswith("placeholder_") and adapter not in added_adapters:
+                self.add_row(adapter, config['instrument'], config['nickname'])
+                added_adapters.add(adapter)
 
-    def add_row(self, adapter_name, instrument_name=None, nickname=""):
-        """Add a new row for the given adapter."""
+    def add_row(self, adapter_name, instrument_name=None, nickname="", status=None):
+        """Add a new row for the given adapter.
+        
+        Args:
+            adapter_name: The adapter/resource string
+            instrument_name: Optional instrument name to pre-select
+            nickname: Optional user-defined nickname
+            status: Connection status (online/offline/unknown)
+        """
         row = self.table.rowCount()
         self.table.insertRow(row)
 
-        # Adapter name
+        # Adapter name - style based on status
         item_adapter = QtWidgets.QTableWidgetItem(adapter_name)
         item_adapter.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+        
+        # Apply visual styling based on connection status
+        if status == ConnectionStatus.OFFLINE:
+            # Gray out offline adapters and add indicator
+            item_adapter.setForeground(QtGui.QColor("#888888"))
+            item_adapter.setToolTip(f"⚠️ Offline - This adapter is not currently detected.\n"
+                                   f"Configuration will be preserved until reconnected.")
+        elif status == ConnectionStatus.ONLINE:
+            item_adapter.setForeground(QtGui.QColor("#00AA00") if Theme is None else QtGui.QColor(Theme.colors.status_success))
+            item_adapter.setToolTip("✓ Online - Adapter is currently connected")
+        
         self.table.setItem(row, 0, item_adapter)
 
         # Instrument name dropdown
@@ -282,26 +404,98 @@ class InstrumentManager(QtWidgets.QWidget):
             index = combo.findText(instrument_name)
             if index >= 0:
                 combo.setCurrentIndex(index)
+            elif instrument_name not in ["None", "No instruments selected", ""]:
+                # Instrument was configured but driver not currently loaded - add as placeholder
+                combo.addItem(f"⚠️ {instrument_name} (driver not loaded)")
+                combo.setCurrentIndex(combo.count() - 1)
+        
         self.table.setCellWidget(row, 1, combo)
+        
+        # Set the row height to match the combobox height
+        self.table.setRowHeight(row, 48)
 
         # Nickname (editable)
         item_nickname = QtWidgets.QTableWidgetItem(nickname)
         item_nickname.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsEditable)
         self.table.setItem(row, 2, item_nickname)
 
-        # Status icon (blank initially)
+        # Status column - show connection status with icon
         item_status = QtWidgets.QTableWidgetItem()
         item_status.setTextAlignment(QtCore.Qt.AlignCenter)
+        item_status.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+        
+        # Set initial status based on provided status
+        if status == ConnectionStatus.ONLINE:
+            self._set_status_icon(item_status, "online", "Online")
+        elif status == ConnectionStatus.OFFLINE:
+            self._set_status_icon(item_status, "offline", "Offline")
+        # Otherwise leave blank for unknown status
+        
         self.table.setItem(row, 3, item_status)
 
-        # Selection checkbox
+        # Selection checkbox - single centered checkbox
         checkbox = QtWidgets.QCheckBox()
+        checkbox.setStyleSheet("""
+            QCheckBox {
+                background: transparent;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 2px solid #999;
+                border-radius: 3px;
+                background-color: white;
+            }
+            QCheckBox::indicator:hover {
+                border: 2px solid #0078d4;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #0078d4;
+                border: 2px solid #0078d4;
+                image: url(none);
+            }
+        """)
+        
         checkbox_widget = QtWidgets.QWidget()
+        checkbox_widget.setStyleSheet("background: transparent;")
         layout = QtWidgets.QHBoxLayout(checkbox_widget)
         layout.addWidget(checkbox)
         layout.setAlignment(QtCore.Qt.AlignCenter)
         layout.setContentsMargins(0, 0, 0, 0)
         self.table.setCellWidget(row, 4, checkbox_widget)
+    
+    def _set_status_icon(self, item: QtWidgets.QTableWidgetItem, status: str, text: str = ""):
+        """Set the status icon and text for a table item.
+        
+        Args:
+            item: The QTableWidgetItem to update
+            status: Status type ('online', 'offline', 'failed', 'unknown')
+            text: Optional text to display alongside icon
+        """
+        # Create colored circle icon
+        icon = QtGui.QPixmap(16, 16)
+        icon.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(icon)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        
+        if status == "online":
+            painter.setBrush(QtGui.QBrush(QtGui.QColor("#00AA00")))  # Green
+            painter.setPen(QtGui.QPen(QtGui.QColor("#008800"), 1))
+        elif status == "offline":
+            painter.setBrush(QtGui.QBrush(QtGui.QColor("#888888")))  # Gray
+            painter.setPen(QtGui.QPen(QtGui.QColor("#666666"), 1))
+        elif status == "failed":
+            painter.setBrush(QtGui.QBrush(QtGui.QColor("#DD0000")))  # Red
+            painter.setPen(QtGui.QPen(QtGui.QColor("#AA0000"), 1))
+        else:  # unknown
+            painter.setBrush(QtGui.QBrush(QtGui.QColor("#FFAA00")))  # Orange/Yellow
+            painter.setPen(QtGui.QPen(QtGui.QColor("#CC8800"), 1))
+        
+        painter.drawEllipse(2, 2, 12, 12)
+        painter.end()
+        
+        item.setIcon(QtGui.QIcon(icon))
+        item.setText(text)
 
     def add_placeholder(self):
         """Add a simulated placeholder adapter."""
@@ -310,62 +504,136 @@ class InstrumentManager(QtWidgets.QWidget):
         self.add_row(placeholder_name)
 
     def get_selected_rows(self):
-        """Return list of row indices that are checked."""
+        """Return list of row indices that are selected in the table."""
         selected_rows = []
-        for i in range(self.table.rowCount()):
-            widget = self.table.cellWidget(i, 4)  # Updated to column 4 (Select)
-            if widget and widget.findChild(QtWidgets.QCheckBox).isChecked():
-                selected_rows.append(i)
+        
+        # Check if we should use table selection or checkbox selection
+        table_selection = self.table.selectionModel().selectedRows()
+        
+        if table_selection:
+            # Use table row selection
+            for selection in table_selection:
+                selected_rows.append(selection.row())
+        else:
+            # Fall back to checkbox selection if no rows are selected
+            for i in range(self.table.rowCount()):
+                widget = self.table.cellWidget(i, 4)  # Updated to column 4 (Select)
+                if widget and widget.findChild(QtWidgets.QCheckBox).isChecked():
+                    selected_rows.append(i)
+        
         return selected_rows
 
     def merge_selected(self):
-        """Merge a placeholder with a real adapter."""
+        """Merge an offline adapter with an online adapter (replaces the old placeholder merge).
+        
+        This allows users to:
+        1. Merge an offline configured adapter with a newly detected online adapter
+        2. Transfer instrument assignment and nickname from offline to online
+        """
         selected_rows = self.get_selected_rows()
         if len(selected_rows) != 2:
             QtWidgets.QMessageBox.warning(self, "Merge Error",
-                                          "Please select exactly TWO rows (one placeholder and one real adapter).")
+                                          "Please select exactly TWO rows to merge.\n\n"
+                                          "Typical use: Select an OFFLINE adapter (gray) and an ONLINE adapter\n"
+                                          "to transfer the configuration to the new adapter.")
             return
 
-        # Identify placeholder and real adapter
+        # Get status of each row to identify source (offline/placeholder) and target (online)
         adapters = [self.table.item(i, 0).text() for i in selected_rows]
-        placeholders = [a for a in adapters if a.startswith("placeholder_")]
-        real_adapters = [a for a in adapters if not a.startswith("placeholder_")]
+        statuses = [self.table.item(i, 3).text() for i in selected_rows]
+        
+        # Determine source and target rows
+        source_row = None
+        target_row = None
+        
+        # Check for placeholder first (legacy support)
+        placeholders = [(i, a) for i, a in zip(selected_rows, adapters) if a.startswith("placeholder_")]
+        real_adapters = [(i, a) for i, a in zip(selected_rows, adapters) if not a.startswith("placeholder_")]
+        
+        if placeholders and real_adapters:
+            # Legacy placeholder merge
+            source_row = placeholders[0][0]
+            target_row = real_adapters[0][0]
+        else:
+            # Try to identify offline -> online merge
+            offline_rows = [(i, a) for i, (a, s) in zip(selected_rows, zip(adapters, statuses)) 
+                           if s == "Offline" or self.table.item(i, 0).foreground().color().name() == "#888888"]
+            online_rows = [(i, a) for i, (a, s) in zip(selected_rows, zip(adapters, statuses))
+                          if s == "Online" or (s != "Offline" and not adapters[selected_rows.index(i)].startswith("placeholder_"))]
+            
+            if offline_rows and online_rows:
+                source_row = offline_rows[0][0]
+                target_row = online_rows[0][0]
+            else:
+                # Just use first as source, second as target
+                source_row = selected_rows[0]
+                target_row = selected_rows[1]
+        
+        # Get source data
+        source_instrument = self.table.cellWidget(source_row, 1).currentText()
+        source_nickname = self.table.item(source_row, 2).text()
+        target_adapter = self.table.item(target_row, 0).text()
 
-        if len(placeholders) != 1 or len(real_adapters) != 1:
-            QtWidgets.QMessageBox.warning(self, "Merge Error",
-                                          "You must select one placeholder and one real adapter.")
-            return
+        # Transfer source data to target row
+        target_combo = self.table.cellWidget(target_row, 1)
+        if target_combo:
+            index = target_combo.findText(source_instrument)
+            if index >= 0:
+                target_combo.setCurrentIndex(index)
+            elif source_instrument and not source_instrument.startswith("⚠️"):
+                # Add the instrument if not found
+                target_combo.addItem(source_instrument)
+                target_combo.setCurrentIndex(target_combo.count() - 1)
+        
+        self.table.item(target_row, 2).setText(source_nickname)
 
-        # Get data from placeholder to transfer to real adapter
-        placeholder_row = selected_rows[adapters.index(placeholders[0])]
-        real_row = selected_rows[adapters.index(real_adapters[0])]
-
-        # Get placeholder data
-        placeholder_instrument = self.table.cellWidget(placeholder_row, 1).currentText()
-        placeholder_nickname = self.table.item(placeholder_row, 2).text()
-
-        # Transfer placeholder data to real adapter row, keep real adapter string
-        self.table.cellWidget(real_row, 1).setCurrentText(placeholder_instrument)
-        self.table.item(real_row, 2).setText(placeholder_nickname)
-
-        # Remove the placeholder row
-        self.table.removeRow(placeholder_row)
+        # Remove the source row
+        self.table.removeRow(source_row)
 
         QtWidgets.QMessageBox.information(self, "Merge Complete",
-                                          f"Merged placeholder data to adapter {real_adapters[0]}.")
+                                          f"Configuration transferred to adapter {target_adapter}.")
 
     def check_connections(self):
-        """Check connection to each adapter and display green tick or red cross."""
+        """Check connection to each adapter and display status."""
         for row in range(self.table.rowCount()):
-            adapter = self.table.item(row, 0).text()
-            status_item = self.table.item(row, 3)  # Updated to column 3 (Status)
-            instrument = BaseInstrument(adapter)
-            connected = instrument.check_connection()
+            self.check_connection_for_row(row)
 
-            icon = QtGui.QPixmap(16, 16)
-            icon.fill(QtCore.Qt.transparent)
-            painter = QtGui.QPainter(icon)
-            painter.setBrush(QtGui.QBrush(QtCore.Qt.green if connected else QtCore.Qt.red))
+    def check_connection_for_row(self, row):
+        """Check connection for a specific row."""
+        adapter = self.table.item(row, 0).text()
+        status_item = self.table.item(row, 3)
+        adapter_item = self.table.item(row, 0)
+        
+        # Skip placeholders
+        if adapter.startswith("placeholder_"):
+            self._set_status_icon(status_item, "unknown", "Simulated")
+            return
+        
+        # Check if adapter is in current VISA resources
+        try:
+            current_resources = list(self.rm.list_resources())
+        except Exception:
+            current_resources = []
+        
+        if adapter not in current_resources:
+            # Adapter not currently detected
+            self._set_status_icon(status_item, "offline", "Offline")
+            adapter_item.setForeground(QtGui.QColor("#888888"))
+            adapter_item.setToolTip(f"⚠️ Offline - Adapter not currently detected")
+            return
+        
+        # Adapter is detected - try to check actual connection
+        instrument = BaseInstrument(adapter)
+        connected = instrument.check_connection()
+        
+        if connected:
+            self._set_status_icon(status_item, "online", "Connected")
+            adapter_item.setForeground(QtGui.QColor("#00AA00") if Theme is None else QtGui.QColor(Theme.colors.status_success))
+            adapter_item.setToolTip("✓ Online and connected")
+        else:
+            self._set_status_icon(status_item, "failed", "Failed")
+            adapter_item.setForeground(QtGui.QColor("#DD0000"))
+            adapter_item.setToolTip("✗ Adapter detected but connection check failed")
             painter.setPen(QtCore.Qt.black)
             painter.drawEllipse(0, 0, 15, 15)
             painter.end()
@@ -475,24 +743,6 @@ class InstrumentManager(QtWidgets.QWidget):
                                           f"Opening settings for {instrument_type} on {adapter}\n"
                                           "(Settings UI not yet implemented)")
 
-    def check_connection_for_row(self, row):
-        """Check connection for a specific row."""
-        adapter = self.table.item(row, 0).text()
-        status_item = self.table.item(row, 3)  # Updated to column 3 (Status)
-        instrument = BaseInstrument(adapter)
-        connected = instrument.check_connection()
-
-        icon = QtGui.QPixmap(16, 16)
-        icon.fill(QtCore.Qt.transparent)
-        painter = QtGui.QPainter(icon)
-        painter.setBrush(QtGui.QBrush(QtCore.Qt.green if connected else QtCore.Qt.red))
-        painter.setPen(QtCore.Qt.black)
-        painter.drawEllipse(0, 0, 15, 15)
-        painter.end()
-
-        status_item.setIcon(QtGui.QIcon(icon))
-        status_item.setText("Connected" if connected else "Failed")
-
     def remove_row(self, row):
         """Remove a specific row."""
         adapter = self.table.item(row, 0).text()
@@ -518,7 +768,148 @@ class InstrumentManager(QtWidgets.QWidget):
             # Remove rows in reverse order to maintain indices
             for row in reversed(sorted(selected_rows)):
                 self.table.removeRow(row)
+
+    def serialize(self) -> dict:
+        """Serialize the adapter manager data to a dictionary."""
+        adapters = []
+        for row in range(self.table.rowCount()):
+            adapter_item = self.table.item(row, 0)
+            instrument_combo = self.table.cellWidget(row, 1)
+            nickname_item = self.table.item(row, 2)
+            status_item = self.table.item(row, 3)
+            checkbox_widget = self.table.cellWidget(row, 4)
+            
+            if adapter_item and instrument_combo:
+                checkbox = checkbox_widget.findChild(QtWidgets.QCheckBox) if checkbox_widget else None
+                adapters.append({
+                    'adapter': adapter_item.text(),
+                    'instrument': instrument_combo.currentText(),
+                    'nickname': nickname_item.text() if nickname_item else "",
+                    'status': status_item.text() if status_item else "",
+                    'selected': checkbox.isChecked() if checkbox else False
+                })
         
+        return {
+            'adapters': adapters,
+            'placeholder_count': self.placeholder_count,
+            'instrument_names': self.instrument_names
+        }
+    
+    def deserialize(self, data: dict):
+        """Deserialize and restore adapter manager data from a dictionary."""
+        # Clear existing table
+        self.table.setRowCount(0)
+        
+        # Restore placeholder count and instrument names
+        self.placeholder_count = data.get('placeholder_count', 0)
+        self.instrument_names = data.get('instrument_names', ["None"])
+        
+        # Restore adapter rows
+        for adapter_data in data.get('adapters', []):
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            
+            # Adapter name
+            adapter_item = QtWidgets.QTableWidgetItem(adapter_data.get('adapter', ''))
+            adapter_item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+            self.table.setItem(row, 0, adapter_item)
+            
+            # Instrument dropdown
+            combo = QtWidgets.QComboBox()
+            combo.addItems(self.instrument_names)
+            instrument_name = adapter_data.get('instrument', '')
+            index = combo.findText(instrument_name)
+            
+            # If instrument not found in current list, add it as a placeholder
+            if index < 0 and instrument_name and instrument_name not in self.instrument_names:
+                # Add the missing instrument as a placeholder to preserve the configuration
+                self.instrument_names.append(instrument_name)
+                combo.addItem(instrument_name)
+                index = combo.findText(instrument_name)
+            
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            
+            # Set fixed height to match table row height
+            combo.setMaximumHeight(28)
+            combo.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+            
+            self.table.setCellWidget(row, 1, combo)
+            
+            # Set the row height to match the combobox height
+            self.table.setRowHeight(row, 32)
+            
+            # Nickname
+            nickname_item = QtWidgets.QTableWidgetItem(adapter_data.get('nickname', ''))
+            nickname_item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsEditable)
+            self.table.setItem(row, 2, nickname_item)
+            
+            # Status
+            status_item = QtWidgets.QTableWidgetItem(adapter_data.get('status', ''))
+            status_item.setTextAlignment(QtCore.Qt.AlignCenter)
+            status_item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+            self.table.setItem(row, 3, status_item)
+            
+            # Selection checkbox
+            checkbox = QtWidgets.QCheckBox()
+            checkbox.setChecked(adapter_data.get('selected', False))
+            checkbox_widget = QtWidgets.QWidget()
+            layout = QtWidgets.QHBoxLayout(checkbox_widget)
+            layout.addWidget(checkbox)
+            layout.setAlignment(QtCore.Qt.AlignCenter)
+            layout.setContentsMargins(0, 0, 0, 0)
+            self.table.setCellWidget(row, 4, checkbox_widget)
+    
+    def get_configured_instruments(self):
+        """Get list of configured instruments with their adapters and nicknames.
+        
+        Returns:
+            List of dicts with keys: 'name', 'adapter', 'nickname', 'class', 'instance'
+        """
+        configured_instruments = []
+        
+        for row in range(self.table.rowCount()):
+            # Get adapter name
+            adapter_item = self.table.item(row, 0)
+            if not adapter_item:
+                continue
+            adapter = adapter_item.text()
+            
+            # Get instrument name from combobox
+            combo = self.table.cellWidget(row, 1)
+            if not combo or not isinstance(combo, QtWidgets.QComboBox):
+                continue
+            instrument_name = combo.currentText()
+            
+            # Skip if no instrument selected
+            if instrument_name == "None" or not instrument_name:
+                continue
+            
+            # Get nickname
+            nickname_item = self.table.item(row, 2)
+            nickname = nickname_item.text() if nickname_item else ""
+            
+            # Get instrument class
+            instrument_class = None
+            instrument_instance = None
+            if combo.currentIndex() < len(self.instrument_classes):
+                instrument_class = self.instrument_classes[combo.currentIndex()]
+                # Try to instantiate it with the adapter
+                try:
+                    instrument_instance = instrument_class(adapter)
+                except Exception:
+                    # If instantiation fails, just store the class
+                    pass
+            
+            configured_instruments.append({
+                'name': instrument_name,
+                'adapter': adapter,
+                'nickname': nickname,
+                'class': instrument_class,
+                'instance': instrument_instance
+            })
+        
+        return configured_instruments
 
 
 if __name__ == "__main__":

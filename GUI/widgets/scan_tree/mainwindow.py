@@ -23,12 +23,14 @@ from widgets.available_instrument_widget import AvailableInstrumentWidget
 from pybirch.scan.movements import Movement, VisaMovement
 from pybirch.scan.measurements import Measurement, VisaMeasurement
 
-from typing import Sequence
+from typing import Sequence, Optional, List
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, parent: QWidget = None): #type: ignore
+    def __init__(self, parent: QWidget = None, available_instruments: Optional[List] = None): #type: ignore
         super().__init__(parent)
+        # Store configured instruments from adapter manager if provided
+        self._configured_instruments = available_instruments if available_instruments else None
         self.resize(573, 468)
 
         self.view = QTreeWidget()
@@ -268,7 +270,16 @@ class MainWindow(QMainWindow):
                 
                 # Create and store InstrumentTreeItem object for persistent data
                 from .treeitem import InstrumentTreeItem
-                instrument_tree_item = InstrumentTreeItem(instrument_object=selected_instrument)
+                from pybirch.scan.movements import MovementItem
+                from pybirch.scan.measurements import MeasurementItem
+                
+                # Wrap the raw instrument in the appropriate wrapper class
+                if isinstance(selected_instrument, (Movement, VisaMovement)):
+                    instrument_object = MovementItem(selected_instrument, settings={})
+                else:
+                    instrument_object = MeasurementItem(selected_instrument, settings={})
+                
+                instrument_tree_item = InstrumentTreeItem(instrument_object=instrument_object)
                 child_item.setData(0, Qt.ItemDataRole.UserRole + 1, instrument_tree_item)
                 
                 # Expand the parent item
@@ -310,8 +321,21 @@ class MainWindow(QMainWindow):
                 
                 # Create and store InstrumentTreeItem object for persistent data
                 from .treeitem import InstrumentTreeItem
-                instrument_tree_item = InstrumentTreeItem(instrument_object=selected_instrument)
+                from pybirch.scan.movements import MovementItem
+                from pybirch.scan.measurements import MeasurementItem
+                
+                # Wrap the raw instrument in the appropriate wrapper class
+                if isinstance(selected_instrument, (Movement, VisaMovement)):
+                    instrument_object = MovementItem(selected_instrument, settings={})
+                else:
+                    instrument_object = MeasurementItem(selected_instrument, settings={})
+                
+                instrument_tree_item = InstrumentTreeItem(instrument_object=instrument_object)
                 new_item.setData(0, Qt.ItemDataRole.UserRole + 1, instrument_tree_item)
+                
+                # Expand the parent item if it's not the root
+                if parent != self.view.invisibleRootItem():
+                    parent.setExpanded(True)
                 
                 # Select the new item
                 self.view.setCurrentItem(new_item)
@@ -345,6 +369,10 @@ class MainWindow(QMainWindow):
         # Clone the copied item
         new_item = self.copied_item.clone()
         parent.addChild(new_item)
+        
+        # Expand the parent item if it's not the root
+        if parent != self.view.invisibleRootItem():
+            parent.setExpanded(True)
         
         # If this was a cut operation, remove the original item
         if self.cut_item and self.cut_item == self.copied_item:
@@ -537,8 +565,56 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.calculate_minimum_column_widths)
 
     def get_available_instruments(self) -> Sequence[Movement | VisaMovement | Measurement | VisaMeasurement]:
-        # Placeholder for actual instrument retrieval logic
+        """
+        Get list of available instruments.
+        If configured instruments were provided (from adapter manager), use those.
+        Otherwise, return default placeholder list.
+        """
+        # Use configured instruments if available
+        if self._configured_instruments:
+            # Convert configured instruments dict to Movement/Measurement objects
+            instrument_objects = []
+            for inst_config in self._configured_instruments:
+                # inst_config has: 'name', 'adapter', 'nickname', 'class', 'instance'
+                # Use nickname if available, otherwise use name
+                display_name = inst_config.get('nickname') or inst_config['name']
+                
+                if inst_config['instance']:
+                    # Use the pre-instantiated instrument, but set nickname
+                    inst = inst_config['instance']
+                    inst.nickname = display_name
+                    instrument_objects.append(inst)
+                elif inst_config['class']:
+                    # Try to instantiate with the adapter
+                    try:
+                        inst = inst_config['class'](inst_config['adapter'])
+                        inst.nickname = display_name
+                        instrument_objects.append(inst)
+                    except Exception:
+                        # Fall back to just creating a generic instrument with the name
+                        # Try to determine if it's a movement or measurement
+                        if 'movement' in inst_config['name'].lower() or 'stage' in inst_config['name'].lower():
+                            inst = Movement(inst_config['name'])
+                            inst.nickname = display_name
+                            instrument_objects.append(inst)
+                        else:
+                            inst = Measurement(inst_config['name'])
+                            inst.nickname = display_name
+                            instrument_objects.append(inst)
+                else:
+                    # Create generic instrument based on name
+                    if 'movement' in inst_config['name'].lower() or 'stage' in inst_config['name'].lower():
+                        inst = Movement(inst_config['name'])
+                        inst.nickname = display_name
+                        instrument_objects.append(inst)
+                    else:
+                        inst = Measurement(inst_config['name'])
+                        inst.nickname = display_name
+                        instrument_objects.append(inst)
+            
+            return instrument_objects
         
+        # Default placeholder instruments if none configured
         instrument_objects = [
             Measurement('Keithley 2400'),
             Measurement('Agilent 34401A'),
@@ -550,4 +626,161 @@ class MainWindow(QMainWindow):
 
         return instrument_objects
     
-
+    def save_tree_state(self) -> list:
+        """
+        Save the current tree structure to a serializable list.
+        Returns a list of dicts, each representing a top-level item and its children.
+        """
+        state = []
+        
+        def serialize_item(item) -> dict:
+            """Serialize a single tree item and its children."""
+            if item is None:
+                return {}
+            item_data = {
+                'name': item.text(0),
+                'type': item.text(1),
+                'adapter': item.text(2) if item.columnCount() > 2 else '',
+                'semaphore': item.text(3) if item.columnCount() > 3 else '',
+                'check_state': item.checkState(0).value,
+                'children': []
+            }
+            
+            # Store instrument object data from UserRole
+            instrument_obj = item.data(0, Qt.ItemDataRole.UserRole)
+            if instrument_obj:
+                item_data['instrument_class'] = type(instrument_obj).__name__
+                item_data['instrument_name'] = getattr(instrument_obj, 'name', item.text(0))
+                item_data['instrument_adapter'] = getattr(instrument_obj, 'adapter', '')
+                item_data['instrument_nickname'] = getattr(instrument_obj, 'nickname', item.text(0))
+            
+            # Store movement settings from InstrumentTreeItem (UserRole + 1)
+            instrument_tree_item = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            print(f"[DEBUG] serialize_item {item.text(0)}: instrument_tree_item={instrument_tree_item}")
+            if instrument_tree_item:
+                print(f"[DEBUG]   movement_entries attr exists: {hasattr(instrument_tree_item, 'movement_entries')}")
+                print(f"[DEBUG]   movement_entries value: {getattr(instrument_tree_item, 'movement_entries', None)}")
+                if hasattr(instrument_tree_item, 'movement_entries') and instrument_tree_item.movement_entries:
+                    item_data['movement_entries'] = instrument_tree_item.movement_entries
+                    print(f"[DEBUG]   Saved movement_entries: {item_data['movement_entries']}")
+                if hasattr(instrument_tree_item, 'movement_positions') and instrument_tree_item.movement_positions:
+                    # Convert to list for JSON serialization
+                    positions = instrument_tree_item.movement_positions
+                    item_data['movement_positions'] = list(positions) if hasattr(positions, '__iter__') else positions
+            
+            # Serialize children
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child:
+                    item_data['children'].append(serialize_item(child))
+            
+            return item_data
+        
+        # Serialize all top-level items
+        for i in range(self.view.topLevelItemCount()):
+            top_item = self.view.topLevelItem(i)
+            if top_item:
+                state.append(serialize_item(top_item))
+        
+        return state
+    
+    def load_tree_state(self, state: list):
+        """
+        Load tree structure from a previously saved state.
+        
+        Args:
+            state: List of dicts representing tree items
+        """
+        if not state:
+            return
+        
+        # Clear existing items
+        self.view.clear()
+        
+        def deserialize_item(item_data: dict, parent=None) -> QTreeWidgetItem:
+            """Deserialize a single tree item and its children."""
+            if parent is None:
+                item = QTreeWidgetItem(self.view)
+            else:
+                item = QTreeWidgetItem(parent)
+            
+            # Set basic text fields
+            item.setText(0, item_data.get('name', ''))
+            item.setText(1, item_data.get('type', ''))
+            if item_data.get('adapter'):
+                item.setText(2, item_data.get('adapter', ''))
+            if item_data.get('semaphore'):
+                item.setText(3, item_data.get('semaphore', ''))
+            
+            # Set check state
+            check_state_value = item_data.get('check_state', 0)
+            from PySide6.QtCore import Qt
+            if check_state_value == 2:
+                item.setCheckState(0, Qt.CheckState.Checked)
+            elif check_state_value == 1:
+                item.setCheckState(0, Qt.CheckState.PartiallyChecked)
+            else:
+                item.setCheckState(0, Qt.CheckState.Unchecked)
+            
+            # Make item expandable
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            
+            # Recreate the instrument object if data was saved
+            # Use the 'type' column (base class) to determine movement vs measurement
+            base_type = item_data.get('type', '')
+            instrument_name = item_data.get('instrument_name', item_data.get('name', ''))
+            instrument_adapter = item_data.get('instrument_adapter', item_data.get('adapter', ''))
+            instrument_nickname = item_data.get('instrument_nickname', item_data.get('name', ''))
+            
+            # Create the appropriate instrument object based on base type
+            instrument_obj = None
+            if base_type in ('Movement', 'VisaMovement'):
+                instrument_obj = Movement(instrument_name)
+            elif base_type in ('Measurement', 'VisaMeasurement'):
+                instrument_obj = Measurement(instrument_name)
+            
+            if instrument_obj:
+                instrument_obj.adapter = instrument_adapter
+                instrument_obj.nickname = instrument_nickname
+                # Store in UserRole so get_movement_instruments_from_tree can find it
+                item.setData(0, Qt.ItemDataRole.UserRole, instrument_obj)
+                
+                # Also create InstrumentTreeItem with movement settings if available
+                from .treeitem import InstrumentTreeItem
+                from pybirch.scan.movements import MovementItem
+                from pybirch.scan.measurements import MeasurementItem
+                
+                # Wrap in appropriate Item wrapper
+                wrapped_instrument = None
+                if base_type in ('Movement', 'VisaMovement'):
+                    wrapped_instrument = MovementItem(instrument_obj, settings={})  # type: ignore
+                else:
+                    wrapped_instrument = MeasurementItem(instrument_obj, settings={})  # type: ignore
+                
+                instrument_tree_item = InstrumentTreeItem(
+                    parent=None,
+                    instrument_object=wrapped_instrument
+                )
+                
+                # Restore movement settings if saved
+                print(f"[DEBUG] deserialize_item {item_data.get('name')}: movement_entries in data: {'movement_entries' in item_data}")
+                if 'movement_entries' in item_data:
+                    instrument_tree_item.movement_entries = item_data['movement_entries']
+                    print(f"[DEBUG]   Restored movement_entries: {item_data['movement_entries']}")
+                if 'movement_positions' in item_data:
+                    instrument_tree_item.movement_positions = item_data['movement_positions']
+                
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, instrument_tree_item)
+            
+            # Deserialize children
+            for child_data in item_data.get('children', []):
+                deserialize_item(child_data, item)
+            
+            return item
+        
+        # Deserialize all items
+        for item_data in state:
+            deserialize_item(item_data)
+        
+        # Expand all items
+        self.view.expandAll()

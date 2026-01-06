@@ -1,6 +1,15 @@
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QLineEdit
 from PySide6.QtCore import Qt
 
+# Import theme
+try:
+    from GUI.theme import Theme
+except ImportError:
+    try:
+        from theme import Theme
+    except ImportError:
+        Theme = None
+
 
 class SingleEntryWidget(QWidget):
     """

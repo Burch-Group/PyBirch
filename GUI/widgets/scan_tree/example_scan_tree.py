@@ -30,8 +30,7 @@ def create_example_scan():
     # Create the scan
     scan = Scan(
         scan_settings=scan_settings,
-        owner="example_user",
-        sample_ID="SAMPLE_001"
+        owner="example_user"
     )
     
     # Set up the scan tree

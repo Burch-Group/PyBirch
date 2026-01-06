@@ -12,7 +12,13 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 from PySide6.QtCore import Qt, QModelIndex, Signal, QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, 
-                               QScrollArea, QFrame, QTreeWidgetItem)
+                               QScrollArea, QFrame, QTreeWidgetItem, QStackedWidget)
+
+# Import theme
+try:
+    from GUI.theme import Theme, apply_theme
+except ImportError:
+    from theme import Theme, apply_theme
 
 
 class ScanTreeFrame(QFrame):
@@ -37,6 +43,12 @@ from pybirch.scan.scan import Scan, get_empty_scan
 from pybirch.scan.movements import Movement, VisaMovement
 from pybirch.scan.measurements import Measurement, VisaMeasurement
 
+# Import scan info page
+try:
+    from windows.scan_info_page import ScanInfoPage
+except ImportError:
+    from GUI.windows.scan_info_page import ScanInfoPage
+
 
 class ScanPage(QWidget):
     """
@@ -49,17 +61,42 @@ class ScanPage(QWidget):
     # Signal emitted when movement instruments are selected/deselected
     movement_instruments_changed = Signal(list)
     
-    def __init__(self, scan: Optional[Scan] = None, parent: Optional[QWidget] = None):
+    # Signal emitted when scan info is changed (name, job type, etc.)
+    scan_info_changed = Signal()
+    
+    def __init__(self, scan: Optional[Scan] = None, parent: Optional[QWidget] = None, 
+                 available_instruments: Optional[List] = None):
+        """
+        Initialize scan page.
+        
+        Args:
+            scan: The scan object to display/edit
+            parent: Parent widget
+            available_instruments: Optional list of configured instruments from adapter manager.
+                                 Each item is a dict with keys: 'name', 'adapter', 'nickname', 'class', 'instance'
+        """
         super().__init__(parent)
         
         # Use provided scan or create empty one
         self.scan = scan if scan is not None else get_empty_scan()
         
+        # Store configured instruments for passing to scan tree
+        self.available_instruments = available_instruments
+        
         # Track movement instruments currently displayed
         self.current_movement_instruments: List[str] = []
         
+        # Flag to prevent multiple simultaneous updates
+        self._updating_movement_positions = False
+        
+        # Flag to prevent saving during tree loading
+        self._loading_tree = False
+        
         self.init_ui()
         self.connect_signals()
+        
+        # Load tree state from scan if available
+        self.load_tree_from_scan()
         
     def init_ui(self):
         """Initialize the user interface"""
@@ -68,23 +105,32 @@ class ScanPage(QWidget):
         main_layout.setContentsMargins(20, 20, 20, 20)  # 20pt margins on all sides
         main_layout.setSpacing(0)
         
-        # Create scan title bar
-        self.title_bar = ScanTitleBar(self.scan)
+        # Create scan title bar with scan name if available
+        initial_title = self.scan.scan_settings.scan_name if self.scan.scan_settings.scan_name else "Scan"
+        self.title_bar = ScanTitleBar(self.scan, title=initial_title)
         main_layout.addWidget(self.title_bar)
         
+        # Create stacked widget to switch between scan tree and scan info
+        self.stacked_widget = QStackedWidget()
+        main_layout.addWidget(self.stacked_widget)
+        
+        # Page 0: Scan tree and movement positions splitter
+        self.scan_tree_page = QWidget()
+        scan_tree_page_layout = QVBoxLayout(self.scan_tree_page)
+        scan_tree_page_layout.setContentsMargins(0, 0, 0, 0)
+        
         # Create horizontal splitter for scan tree and movement positions
-        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter = QSplitter()
+        self.splitter.setOrientation(Qt.Orientation.Horizontal)
         
         # Set 20pt spacing between the two widgets in the splitter
-
         self.splitter.setHandleWidth(20)  # Set the handle width to 20pt for spacing
         
-        main_layout.addWidget(self.splitter)
+        scan_tree_page_layout.addWidget(self.splitter)
 
         
-        
-        # Create scan tree widget (left side)
-        self.scan_tree = ScanTreeMainWindow()
+        # Create scan tree widget (left side) with configured instruments
+        self.scan_tree = ScanTreeMainWindow(available_instruments=self.available_instruments)
         self.scan_tree.setWindowTitle("")  # Remove window title since it's embedded
         
         # Remove the menu bar and status bar for embedded use
@@ -135,17 +181,41 @@ class ScanPage(QWidget):
         # Store movement position widgets
         self.movement_widgets: dict[str, MovementPositionsWidget] = {}
         
+        # Add scan tree page to stacked widget
+        self.stacked_widget.addWidget(self.scan_tree_page)
+        
+        # Page 1: Scan info page
+        self.scan_info_page = ScanInfoPage(self.scan, parent=self)
+        self.stacked_widget.addWidget(self.scan_info_page)
+        
+        # Start with scan tree page visible
+        self.stacked_widget.setCurrentIndex(0)
+        
     def connect_signals(self):
         """Connect signals between components"""
+        # Connect title bar info button to show scan info page
+        self.title_bar.info_clicked.connect(self.show_scan_info_page)
+        
+        # Connect title bar preset loaded signal
+        self.title_bar.scan_preset_loaded.connect(self.on_scan_preset_loaded)
+        
+        # Connect title bar save state requested signal to save tree before preset operations
+        self.title_bar.save_state_requested.connect(self.save_tree_to_scan)
+        
+        # Connect scan info page signals
+        self.scan_info_page.cancelled.connect(self.show_scan_tree_page)
+        self.scan_info_page.done.connect(self.on_scan_info_done)
+        
         # Connect scan tree selection changes to update movement positions
         if self.scan_tree.view.selectionModel():
             self.scan_tree.view.selectionModel().selectionChanged.connect(
                 self.on_scan_tree_selection_changed
             )
             
-        # Connect tree widget changes to update movement positions
+        # Connect tree widget changes to update movement positions and save tree state
         # This is the key signal for checkbox changes
         self.scan_tree.view.itemChanged.connect(self.on_item_changed)
+        self.scan_tree.view.itemChanged.connect(self.save_tree_to_scan)
         
         # Connect to QTreeWidget's itemSelectionChanged signal
         self.scan_tree.view.itemSelectionChanged.connect(self.update_movement_positions)
@@ -158,6 +228,7 @@ class ScanPage(QWidget):
                 # Delay the update slightly to ensure the item is fully added
                 from PySide6.QtCore import QTimer
                 QTimer.singleShot(100, self.update_movement_positions)
+                QTimer.singleShot(100, self.save_tree_to_scan)
             self.scan_tree.insert_child = patched_insert_child
             
         if hasattr(self.scan_tree, 'insert_row'):
@@ -166,6 +237,7 @@ class ScanPage(QWidget):
                 original_insert_row()
                 from PySide6.QtCore import QTimer
                 QTimer.singleShot(100, self.update_movement_positions)
+                QTimer.singleShot(100, self.save_tree_to_scan)
             self.scan_tree.insert_row = patched_insert_row
             
     def on_item_changed(self, item, column):
@@ -178,69 +250,179 @@ class ScanPage(QWidget):
         # For now, update all movement positions when selection changes
         # In the future, this could be more selective
         self.update_movement_positions()
+    
+    def show_scan_info_page(self):
+        """Switch to the scan info page"""
+        # Load current scan data into the info page
+        self.scan_info_page.load_from_scan(self.scan)
+        # Switch to scan info page (index 1)
+        self.stacked_widget.setCurrentIndex(1)
+    
+    def show_scan_tree_page(self):
+        """Switch back to the scan tree page"""
+        # Switch to scan tree page (index 0)
+        self.stacked_widget.setCurrentIndex(0)
+    
+    def on_scan_info_done(self):
+        """Handle when user clicks done on the scan info page"""
+        # The scan info page's on_done method already saves to scan.scan_settings
+        # Update the title bar with the new scan name
+        scan_name = self.scan.scan_settings.scan_name
+        self.title_bar.set_title(scan_name if scan_name else "Scan")
+        # Emit signal to notify that scan info has changed
+        self.scan_info_changed.emit()
+        # Switch back to the scan tree page
+        self.show_scan_tree_page()
+    
+    def on_scan_preset_loaded(self, scan):
+        """Handle when a scan preset is loaded from the title bar"""
+        # Update the scan reference
+        self.scan = scan
+        
+        # Update title bar with new scan name
+        scan_name = self.scan.scan_settings.scan_name if self.scan.scan_settings else "Scan"
+        self.title_bar.set_title(scan_name if scan_name else "Scan")
+        self.title_bar.scan = scan
+        
+        # Update scan info page
+        self.scan_info_page.scan = scan
+        self.scan_info_page.load_from_scan(scan)
+        
+        # Load tree state from the new scan
+        self.load_tree_from_scan()
+        
+        # Emit signal to notify that scan info has changed
+        self.scan_info_changed.emit()
+    
+    def load_tree_from_scan(self):
+        """Load tree state from the scan object if available."""
+        if hasattr(self.scan, 'tree_state') and self.scan.tree_state:
+            # Set loading flag to prevent save operations during load
+            self._loading_tree = True
+            
+            # Clear existing movement widgets before loading
+            for unique_id in list(self.movement_widgets.keys()):
+                widget = self.movement_widgets.pop(unique_id)
+                self.scroll_layout.removeWidget(widget)
+                widget.deleteLater()
+            
+            self.scan_tree.load_tree_state(self.scan.tree_state)
+            
+            # Clear loading flag
+            self._loading_tree = False
+            
+            # Update movement positions after loading tree
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(100, self.update_movement_positions)
+    
+    def save_tree_to_scan(self):
+        """Save the current tree state to the scan object."""
+        # Skip saving during tree loading to prevent overwriting restored data
+        if self._loading_tree:
+            return
+            
+        # First, save all current widget settings to their respective tree items
+        self.save_all_widget_settings()
+        # Then save the tree state
+        self.scan.tree_state = self.scan_tree.save_tree_state()
+        print(f"[DEBUG] save_tree_to_scan: Saved tree_state with {len(self.scan.tree_state)} items")
+        for item in self.scan.tree_state:
+            print(f"[DEBUG]   Item: {item.get('name')}, movement_entries: {item.get('movement_entries')}")
+    
+    def save_all_widget_settings(self):
+        """Save settings from all movement widgets to their respective tree items."""
+        print(f"[DEBUG] save_all_widget_settings: {len(self.movement_widgets)} widgets to save")
+        for unique_id, widget in self.movement_widgets.items():
+            tree_item = getattr(widget, 'tree_item', None)
+            if tree_item:
+                print(f"[DEBUG]   Saving widget {unique_id}")
+                self.save_movement_settings_to_tree_item(tree_item, widget)
         
     def update_movement_positions(self):
         """Update the movement positions widgets based on scan tree content"""
-        # Get all movement instruments from the scan tree (CHECKED AND PARTIALLY CHECKED ITEMS)
-        movement_instruments = self.get_movement_instruments_from_tree()
+        # Prevent re-entrant calls
+        if self._updating_movement_positions:
+            return
         
-
-        
-        # Get current unique IDs being displayed
-        current_unique_ids = set(self.movement_widgets.keys())
-        new_unique_ids = {unique_id for _, unique_id, _, _ in movement_instruments}
-        
-        # Remove widgets for instruments that are no longer checked/partially checked
-        ids_to_remove = current_unique_ids - new_unique_ids
-        
-        for unique_id in ids_to_remove:
-            # Save current settings to the tree item before removing widget
-            widget = self.movement_widgets[unique_id]
-            tree_item = getattr(widget, 'tree_item', None)
-            if tree_item:
-                self.save_movement_settings_to_tree_item(tree_item, widget)
+        # Skip updates during tree loading - will be called after load completes
+        if self._loading_tree:
+            return
             
-            # Remove the widget
-            widget = self.movement_widgets.pop(unique_id)
-            self.scroll_layout.removeWidget(widget)
-            widget.deleteLater()
-                
-        # Add widgets for newly checked movement instruments (in tree order)
-        ids_to_add = new_unique_ids - current_unique_ids
+        self._updating_movement_positions = True
         
-        for instrument_name, unique_id, tree_item, instrument_obj in movement_instruments:
-            if unique_id in ids_to_add:
-                # Use the instrument object nickname to ensure we get the correct name
-                display_name = instrument_obj.nickname if instrument_obj else instrument_name
-                widget = MovementPositionsWidget(display_name)
-                # Store references for saving settings (add as dynamic attributes)
-                setattr(widget, 'tree_item', tree_item)
-                setattr(widget, 'unique_id', unique_id)
-                setattr(widget, 'instrument_object', instrument_obj)
+        try:
+            # Get all movement instruments from the scan tree (CHECKED AND PARTIALLY CHECKED ITEMS)
+            movement_instruments = self.get_movement_instruments_from_tree()
+            
+            # Get current unique IDs being displayed
+            current_unique_ids = set(self.movement_widgets.keys())
+            new_unique_ids = {unique_id for _, unique_id, _, _ in movement_instruments}
+            
+            # Remove widgets for instruments that are no longer checked/partially checked
+            ids_to_remove = current_unique_ids - new_unique_ids
+            
+            for unique_id in ids_to_remove:
+                # Save current settings to the tree item before removing widget
+                widget = self.movement_widgets[unique_id]
+                tree_item = getattr(widget, 'tree_item', None)
+                if tree_item:
+                    self.save_movement_settings_to_tree_item(tree_item, widget)
                 
-                # Ensure the TreeItem has the necessary attributes
-                instrument_tree_item = tree_item.data(0, Qt.ItemDataRole.UserRole + 1)
-                if instrument_tree_item:
-                    if not hasattr(instrument_tree_item, 'movement_positions'):
-                        instrument_tree_item.movement_positions = []
-                    if not hasattr(instrument_tree_item, 'movement_entries'):
-                        instrument_tree_item.movement_entries = {}
-                
-                # Restore saved settings from tree item (this will initialize defaults if none exist)
-                self.restore_movement_settings_from_tree_item(tree_item, widget)
-                
-                # Connect widget changes to save settings back to tree item
-                self.connect_widget_changes_to_tree_item(widget, tree_item)
-                
-                self.movement_widgets[unique_id] = widget
-                # Insert before the stretch (maintains tree order)
-                self.scroll_layout.insertWidget(
-                    self.scroll_layout.count() - 1, widget
-                )
-                
-        # Update the current instruments list (convert back to simple list for compatibility)
-        self.current_movement_instruments = [name for name, _, _, _ in movement_instruments]
-        self.movement_instruments_changed.emit(self.current_movement_instruments)
+                # Remove the widget
+                widget = self.movement_widgets.pop(unique_id)
+                self.scroll_layout.removeWidget(widget)
+                widget.deleteLater()
+                    
+            # Add widgets for newly checked movement instruments (in tree order)
+            ids_to_add = new_unique_ids - current_unique_ids
+            
+            for instrument_name, unique_id, tree_item, instrument_obj in movement_instruments:
+                if unique_id in ids_to_add:
+                    # Use the instrument object nickname to ensure we get the correct name
+                    display_name = instrument_obj.nickname if instrument_obj else instrument_name
+                    widget = MovementPositionsWidget(display_name)
+                    # Store references for saving settings (add as dynamic attributes)
+                    setattr(widget, 'tree_item', tree_item)
+                    setattr(widget, 'unique_id', unique_id)
+                    setattr(widget, 'instrument_object', instrument_obj)
+                    
+                    # Ensure the TreeItem has the necessary attributes
+                    instrument_tree_item = tree_item.data(0, Qt.ItemDataRole.UserRole + 1)
+                    if not instrument_tree_item:
+                        # Create new InstrumentTreeItem if it doesn't exist
+                        from widgets.scan_tree.treeitem import InstrumentTreeItem
+                        from pybirch.scan.movements import MovementItem
+                        from pybirch.scan.measurements import MeasurementItem
+                        
+                        # Wrap raw instrument in appropriate Item wrapper
+                        if isinstance(instrument_obj, (Movement, VisaMovement)):
+                            wrapped_instrument = MovementItem(instrument_obj, settings={})
+                        else:
+                            wrapped_instrument = MeasurementItem(instrument_obj, settings={})
+                        
+                        instrument_tree_item = InstrumentTreeItem(
+                            parent=None,
+                            instrument_object=wrapped_instrument
+                        )
+                        tree_item.setData(0, Qt.ItemDataRole.UserRole + 1, instrument_tree_item)
+                    
+                    # Restore saved settings from tree item (this will initialize defaults if none exist)
+                    self.restore_movement_settings_from_tree_item(tree_item, widget)
+                    
+                    # Connect widget changes to save settings back to tree item
+                    self.connect_widget_changes_to_tree_item(widget, tree_item)
+                    
+                    self.movement_widgets[unique_id] = widget
+                    # Insert before the stretch (maintains tree order)
+                    self.scroll_layout.insertWidget(
+                        self.scroll_layout.count() - 1, widget
+                    )
+                    
+            # Update the current instruments list (convert back to simple list for compatibility)
+            self.current_movement_instruments = [name for name, _, _, _ in movement_instruments]
+            self.movement_instruments_changed.emit(self.current_movement_instruments)
+        finally:
+            self._updating_movement_positions = False
         
     def get_movement_instruments_from_tree(self) -> List[tuple]:
         """Extract movement instrument info from the scan tree (QTreeWidget) - CHECKED AND PARTIALLY CHECKED ITEMS
@@ -315,56 +497,77 @@ class ScanPage(QWidget):
             # Get the InstrumentTreeItem object from the QTreeWidgetItem
             instrument_tree_item = tree_item.data(0, Qt.ItemDataRole.UserRole + 1)
             
+            # Save current widget state
+            positions = widget.get_positions()
+            entries = widget.get_entries()
+            print(f"[DEBUG] save_movement_settings_to_tree_item: entries={entries}")
+            
             if instrument_tree_item:
-                # Ensure the attributes exist
-                if not hasattr(instrument_tree_item, 'movement_positions'):
-                    instrument_tree_item.movement_positions = []
-                if not hasattr(instrument_tree_item, 'movement_entries'):
-                    instrument_tree_item.movement_entries = {}
-                    
-                # Save current widget state
-                positions = widget.get_positions()
-                entries = widget.get_entries()
-                
                 instrument_tree_item.movement_positions = positions
                 instrument_tree_item.movement_entries = entries
+                print(f"[DEBUG]   Saved to existing instrument_tree_item")
             else:
                 # Try to create one if it doesn't exist
                 instrument_obj = tree_item.data(0, Qt.ItemDataRole.UserRole)
                 if instrument_obj:
                     from widgets.scan_tree.treeitem import InstrumentTreeItem
-                    instrument_tree_item = InstrumentTreeItem(instrument_object=instrument_obj)
+                    from pybirch.scan.movements import MovementItem
+                    from pybirch.scan.measurements import MeasurementItem
+                    
+                    # Wrap raw instrument in appropriate Item wrapper
+                    if isinstance(instrument_obj, (Movement, VisaMovement)):
+                        wrapped_instrument = MovementItem(instrument_obj, settings={})
+                    else:
+                        wrapped_instrument = MeasurementItem(instrument_obj, settings={})
+                    
+                    instrument_tree_item = InstrumentTreeItem(
+                        parent=None,
+                        instrument_object=wrapped_instrument
+                    )
+                    # Save the settings
+                    positions = widget.get_positions()
+                    entries = widget.get_entries()
+                    instrument_tree_item.movement_positions = positions
+                    instrument_tree_item.movement_entries = entries
+                    
                     tree_item.setData(0, Qt.ItemDataRole.UserRole + 1, instrument_tree_item)
-                    # Now save the settings
-                    self.save_movement_settings_to_tree_item(tree_item, widget)
         except Exception as e:
-            pass  # Silent fail
+            print(f"Error saving movement settings: {e}")  # Debug
             
     def restore_movement_settings_from_tree_item(self, tree_item, widget):
         """Restore movement position settings from the InstrumentTreeItem"""
         try:
             # Get the InstrumentTreeItem object from the QTreeWidgetItem
             instrument_tree_item = tree_item.data(0, Qt.ItemDataRole.UserRole + 1)
+            print(f"[DEBUG] restore_movement_settings: instrument_tree_item={instrument_tree_item}")
             
             if instrument_tree_item:
-                # Initialize attributes if they don't exist
-                if not hasattr(instrument_tree_item, 'movement_positions'):
-                    instrument_tree_item.movement_positions = []
-                if not hasattr(instrument_tree_item, 'movement_entries'):
-                    instrument_tree_item.movement_entries = {}
-                
                 # Restore settings if they exist
-                if instrument_tree_item.movement_entries:
+                print(f"[DEBUG]   movement_entries: {getattr(instrument_tree_item, 'movement_entries', None)}")
+                if hasattr(instrument_tree_item, 'movement_entries') and instrument_tree_item.movement_entries:
+                    print(f"[DEBUG]   Calling widget.set_entries with: {instrument_tree_item.movement_entries}")
                     widget.set_entries(instrument_tree_item.movement_entries)
             else:
                 # Try to create one if it doesn't exist
                 instrument_obj = tree_item.data(0, Qt.ItemDataRole.UserRole)
                 if instrument_obj:
                     from widgets.scan_tree.treeitem import InstrumentTreeItem
-                    instrument_tree_item = InstrumentTreeItem(instrument_object=instrument_obj)
+                    from pybirch.scan.movements import MovementItem
+                    from pybirch.scan.measurements import MeasurementItem
+                    
+                    # Wrap raw instrument in appropriate Item wrapper
+                    if isinstance(instrument_obj, (Movement, VisaMovement)):
+                        wrapped_instrument = MovementItem(instrument_obj, settings={})
+                    else:
+                        wrapped_instrument = MeasurementItem(instrument_obj, settings={})
+                    
+                    instrument_tree_item = InstrumentTreeItem(
+                        parent=None,
+                        instrument_object=wrapped_instrument
+                    )
                     tree_item.setData(0, Qt.ItemDataRole.UserRole + 1, instrument_tree_item)
         except Exception as e:
-            pass  # Silent fail
+            print(f"Error restoring movement settings: {e}")  # Debug
             
 
             
@@ -499,6 +702,7 @@ def main():
     from PySide6.QtWidgets import QApplication, QMainWindow
     
     app = QApplication(sys.argv)
+    apply_theme(app)
     
     # Create main window
     main_window = QMainWindow()

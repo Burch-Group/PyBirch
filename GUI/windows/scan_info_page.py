@@ -10,23 +10,32 @@ from typing import Optional
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QFrame)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFrame, QPushButton)
 
 # Import the required widgets
-from widgets.scan_title_bar import ScanTitleBar
 from widgets.single_entry_widget import SingleEntryWidget
 from widgets.user_fields.mainwindow import UserFieldMainWindow
 from pybirch.scan.scan import Scan, get_empty_scan
 
+# Import theme
+try:
+    from GUI.theme import Theme, apply_theme
+except ImportError:
+    from theme import Theme, apply_theme
+
 
 class ScanInfoPage(QWidget):
     """
-    Scan Info page widget that combines:
-    - ScanTitleBar at the top
+    Scan Info page widget that contains:
     - SingleEntryWidget for "Job Type"
     - User Fields box for custom user fields
+    - Cancel and Done buttons at the bottom
     """
+    
+    # Signals for cancel and done actions
+    cancelled = Signal()
+    done = Signal()
     
     def __init__(self, scan: Optional[Scan] = None, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -35,27 +44,22 @@ class ScanInfoPage(QWidget):
         self.scan = scan if scan is not None else get_empty_scan()
         
         self.init_ui()
+        self.connect_signals()
         
     def init_ui(self):
         """Initialize the user interface"""
         # Main vertical layout
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
         
-        # Create scan title bar
-        self.title_bar = ScanTitleBar(self.scan, title="Scan Info")
-        main_layout.addWidget(self.title_bar)
-        
-        # Create content area with margins
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(15, 15, 15, 15)
-        content_layout.setSpacing(15)
+        # Create Scan Name single entry widget
+        self.scan_name_widget = SingleEntryWidget("Scan Name", "")
+        main_layout.addWidget(self.scan_name_widget)
         
         # Create Job Type single entry widget
         self.job_type_widget = SingleEntryWidget("Job Type", "")
-        content_layout.addWidget(self.job_type_widget)
+        main_layout.addWidget(self.job_type_widget)
         
         # Create User Fields group box
         user_fields_group = QGroupBox("User Fields")
@@ -63,14 +67,11 @@ class ScanInfoPage(QWidget):
         user_fields_layout.setContentsMargins(10, 15, 10, 10)
         
         # Create user fields widget (embedded, no window decorations)
-        # Add the user_fields directory to path for treemodel import
+        # Pass None as parent to prevent it from appearing in the layout
+        self.user_fields_widget = UserFieldMainWindow(parent=None)
         
-        self.user_fields_widget = UserFieldMainWindow(parent=self)
-        
-        # Remove window decorations for embedded use
-        self.user_fields_widget.menuBar().hide()
-        self.user_fields_widget.statusBar().hide()
-        self.user_fields_widget.setWindowFlags(Qt.WindowType.Widget)
+        # Hide the QMainWindow container completely - we only use its view
+        self.user_fields_widget.hide()
         
         # Enable drag and drop for user fields tree view
         self.user_fields_widget.view.setDragEnabled(True)
@@ -81,19 +82,73 @@ class ScanInfoPage(QWidget):
         # Add the central widget (tree view) directly to the layout
         user_fields_layout.addWidget(self.user_fields_widget.view)
         
-        content_layout.addWidget(user_fields_group)
+        main_layout.addWidget(user_fields_group, 1)  # Give it stretch factor
         
-        # Add content widget to main layout
-        main_layout.addWidget(content_widget)
+        # Create button row at the bottom
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        self.cancel_button = QPushButton("Cancel")
+        if Theme:
+            self.cancel_button.setStyleSheet(Theme.danger_button_style())
+        button_layout.addWidget(self.cancel_button)
+        
+        self.done_button = QPushButton("Done")
+        if Theme:
+            self.done_button.setStyleSheet(Theme.primary_button_style())
+        button_layout.addWidget(self.done_button)
+        
+        main_layout.addLayout(button_layout)
+        
+    def connect_signals(self):
+        """Connect button signals"""
+        self.cancel_button.clicked.connect(self.on_cancel)
+        self.done_button.clicked.connect(self.on_done)
+        
+    def on_cancel(self):
+        """Handle cancel button click"""
+        self.cancelled.emit()
+        
+    def on_done(self):
+        """Handle done button click - save data to scan settings"""
+        # Save data to scan settings
+        data = self.get_data()
+        self.scan.scan_settings.scan_name = data['scan_name']
+        self.scan.scan_settings.job_type = data['job_type']
+        self.scan.scan_settings.user_fields = data['user_fields']
+        
+        self.done.emit()
+        
+    def load_from_scan(self, scan: Optional[Scan] = None):
+        """Load data from the scan settings
+        
+        Args:
+            scan: Optional scan object. If provided, updates the internal scan reference.
+                  If None, uses the existing internal scan.
+        """
+        if scan is not None:
+            self.scan = scan
+            
+        data = {
+            'scan_name': getattr(self.scan.scan_settings, 'scan_name', ''),
+            'job_type': getattr(self.scan.scan_settings, 'job_type', ''),
+            'user_fields': getattr(self.scan.scan_settings, 'user_fields', {})
+        }
+        self.set_data(data)
         
     def set_data(self, data: dict) -> None:
         """Set all data on the page from a dictionary
         
         Args:
             data: Dictionary containing:
+                - 'scan_name': String value for scan name
                 - 'job_type': String value for job type
                 - 'user_fields': Dictionary for user fields
         """
+        # Set scan name
+        if 'scan_name' in data:
+            self.scan_name_widget.set_value(str(data['scan_name']))
+        
         # Set job type
         if 'job_type' in data:
             self.job_type_widget.set_value(str(data['job_type']))
@@ -107,16 +162,19 @@ class ScanInfoPage(QWidget):
         
         Returns:
             Dictionary containing:
+                - 'scan_name': String value from scan name widget
                 - 'job_type': String value from job type widget
                 - 'user_fields': Dictionary from user fields widget
         """
         return {
+            'scan_name': self.scan_name_widget.get_value(),
             'job_type': self.job_type_widget.get_value(),
             'user_fields': self.user_fields_widget.to_dict()
         }
     
     def clear_data(self) -> None:
         """Clear all data on the page"""
+        self.scan_name_widget.set_value("")
         self.job_type_widget.set_value("")
         self.user_fields_widget.clear_all()
 
@@ -126,6 +184,7 @@ def main():
     from PySide6.QtWidgets import QApplication, QMainWindow
     
     app = QApplication(sys.argv)
+    apply_theme(app)
     
     # Create main window
     main_window = QMainWindow()

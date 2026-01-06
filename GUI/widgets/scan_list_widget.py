@@ -6,6 +6,15 @@ from pybirch.scan.scan import Scan, get_empty_scan
 from pybirch.queue.queue import Queue
 import pickle
 
+# Import theme
+try:
+    from GUI.theme import Theme
+except ImportError:
+    try:
+        from theme import Theme
+    except ImportError:
+        Theme = None
+
 
 class ScanTableWidget(QtWidgets.QWidget):
     """
@@ -39,19 +48,46 @@ class ScanTableWidget(QtWidgets.QWidget):
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows) # type: ignore
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers) # type: ignore
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection) # type: ignore
+        
+        # Enable context menu
+        self.table.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_context_menu)
+        
         layout.addWidget(self.table)
 
         # increase row height for better readability
         self.table.verticalHeader().setDefaultSectionSize(45)
         self.table.verticalHeader().setVisible(False)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: none;
-            }
-            QTableWidget::item {
-                padding: 4px 8px;
-            }
-        """)
+        if Theme:
+            self.table.setStyleSheet(f"""
+                QTableWidget {{
+                    border: none;
+                    background-color: {Theme.colors.background_primary};
+                    color: {Theme.colors.text_primary};
+                }}
+                QTableWidget::item {{
+                    padding: 4px 8px;
+                }}
+                QTableWidget::item:selected {{
+                    background-color: {Theme.colors.accent_primary};
+                    color: white;
+                }}
+                QHeaderView::section {{
+                    background-color: {Theme.colors.background_secondary};
+                    color: {Theme.colors.text_primary};
+                    border: none;
+                    padding: 4px 8px;
+                }}
+            """)
+        else:
+            self.table.setStyleSheet("""
+                QTableWidget {
+                    border: none;
+                }
+                QTableWidget::item {
+                    padding: 4px 8px;
+                }
+            """)
 
         # Increase font size for better readability
         font = QtGui.QFont()
@@ -110,6 +146,104 @@ class ScanTableWidget(QtWidgets.QWidget):
         self.clear_button.clicked.connect(self.clear_scans)
         self.save_button.clicked.connect(self.save_queue)
         self.load_button.clicked.connect(self.load_queue)
+
+    def show_context_menu(self, position):
+        """Show context menu at the given position."""
+        menu = QtWidgets.QMenu(self)
+        
+        # Get item at position
+        item = self.table.itemAt(position)
+        
+        # Add scan action (always available)
+        add_action = menu.addAction("Add Scan")
+        add_action.triggered.connect(self.add_scan)
+        
+        if item is not None:
+            row = item.row()
+            
+            menu.addSeparator()
+            
+            # Duplicate scan
+            duplicate_action = menu.addAction("Duplicate Scan")
+            duplicate_action.triggered.connect(lambda: self.duplicate_scan(row))
+            
+            # Rename scan
+            rename_action = menu.addAction("Rename Scan")
+            rename_action.triggered.connect(lambda: self.rename_scan(row))
+            
+            menu.addSeparator()
+            
+            # Move up
+            move_up_action = menu.addAction("Move Up")
+            move_up_action.triggered.connect(lambda: self.move_scan_up(row))
+            move_up_action.setEnabled(row > 0)
+            
+            # Move down
+            move_down_action = menu.addAction("Move Down")
+            move_down_action.triggered.connect(lambda: self.move_scan_down(row))
+            move_down_action.setEnabled(row < len(self.queue.scans) - 1)
+            
+            menu.addSeparator()
+            
+            # Remove scan
+            remove_action = menu.addAction("Remove Scan")
+            remove_action.triggered.connect(lambda: self.remove_scan_at(row))
+        
+        if self.queue.scans:
+            menu.addSeparator()
+            
+            # Clear all
+            clear_action = menu.addAction("Clear All Scans")
+            clear_action.triggered.connect(self.clear_scans)
+        
+        menu.exec(self.table.mapToGlobal(position))
+
+    def duplicate_scan(self, row):
+        """Duplicate the scan at the given row."""
+        if 0 <= row < len(self.queue.scans):
+            import copy
+            original_scan = self.queue.scans[row]
+            duplicated_scan = copy.deepcopy(original_scan)
+            duplicated_scan.scan_settings.scan_name = f"{original_scan.scan_settings.scan_name} (copy)"
+            self.queue.scans.insert(row + 1, duplicated_scan)
+            self.refresh_table()
+            # Select the new scan
+            self.table.selectRow(row + 1)
+
+    def rename_scan(self, row):
+        """Rename the scan at the given row."""
+        if 0 <= row < len(self.queue.scans):
+            scan = self.queue.scans[row]
+            current_name = scan.scan_settings.scan_name
+            new_name, ok = QtWidgets.QInputDialog.getText(
+                self, "Rename Scan", "Enter new scan name:",
+                QtWidgets.QLineEdit.Normal, current_name
+            )
+            if ok and new_name:
+                scan.scan_settings.scan_name = new_name
+                self.refresh_table()
+
+    def move_scan_up(self, row):
+        """Move the scan at the given row up by one position."""
+        if row > 0:
+            self.queue.scans[row], self.queue.scans[row - 1] = \
+                self.queue.scans[row - 1], self.queue.scans[row]
+            self.refresh_table()
+            self.table.selectRow(row - 1)
+
+    def move_scan_down(self, row):
+        """Move the scan at the given row down by one position."""
+        if row < len(self.queue.scans) - 1:
+            self.queue.scans[row], self.queue.scans[row + 1] = \
+                self.queue.scans[row + 1], self.queue.scans[row]
+            self.refresh_table()
+            self.table.selectRow(row + 1)
+
+    def remove_scan_at(self, row):
+        """Remove the scan at the given row."""
+        if 0 <= row < len(self.queue.scans):
+            self.queue.dequeue(row)
+            self.refresh_table()
 
     def refresh_table(self):
         """Refresh the table to display the current list of scans."""

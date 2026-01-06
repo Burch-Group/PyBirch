@@ -1,5 +1,19 @@
 # type: ignore
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from PySide6 import QtCore, QtWidgets, QtGui
+from pybirch.scan.measurements import Measurement, VisaMeasurement, MeasurementItem
+from pybirch.scan.movements import Movement, VisaMovement, MovementItem
+
+# Import theme
+try:
+    from GUI.theme import Theme
+except ImportError:
+    try:
+        from theme import Theme
+    except ImportError:
+        Theme = None
 
 #import measurement and movement classes for type hinting
 
@@ -30,12 +44,39 @@ class AvailableInstrumentWidget(QtWidgets.QDialog):
         self.table = QtWidgets.QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Instrument", "Adapter", "Status", "Select"])
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        if Theme:
+            self.table.setStyleSheet(f"""
+                QTableWidget {{
+                    background-color: {Theme.colors.background_primary};
+                    color: {Theme.colors.text_primary};
+                    border: 1px solid {Theme.colors.border_light};
+                    gridline-color: {Theme.colors.border_light};
+                }}
+                QTableWidget::item {{
+                    padding: 4px 8px;
+                }}
+                QTableWidget::item:selected {{
+                    background-color: {Theme.colors.accent_primary};
+                    color: {Theme.colors.text_inverse};
+                }}
+                QHeaderView::section {{
+                    background-color: {Theme.colors.background_secondary};
+                    color: {Theme.colors.text_primary};
+                    border: 1px solid {Theme.colors.border_light};
+                    padding: 6px;
+                    font-weight: bold;
+                }}
+            """)
         layout.addWidget(self.table)
 
         # Buttons
         button_layout = QtWidgets.QHBoxLayout()
         self.cancel_button = QtWidgets.QPushButton("Cancel")
+        if Theme:
+            self.cancel_button.setStyleSheet(Theme.danger_button_style())
         self.continue_button = QtWidgets.QPushButton("Continue")
+        if Theme:
+            self.continue_button.setStyleSheet(Theme.primary_button_style())
         button_layout.addStretch(1)
         button_layout.addWidget(self.cancel_button)
         button_layout.addWidget(self.continue_button)
@@ -60,8 +101,9 @@ class AvailableInstrumentWidget(QtWidgets.QDialog):
             row = self.table.rowCount()
             self.table.insertRow(row)
 
-            # Instrument name
-            item_name = QtWidgets.QTableWidgetItem(inst.name)
+            # Instrument name (use nickname if available)
+            display_name = inst.nickname if hasattr(inst, 'nickname') and inst.nickname else inst.name
+            item_name = QtWidgets.QTableWidgetItem(display_name)
             item_name.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
             self.table.setItem(row, 0, item_name)
 
@@ -117,7 +159,13 @@ class AvailableInstrumentWidget(QtWidgets.QDialog):
         dialog = AvailableInstrumentWidget(instrument_data, parent)
         result = dialog.exec()
         if result == QtWidgets.QDialog.Accepted:
-            return dialog.selected_instrument
+            # return a MovementItem or MeasurementItem object with the selected instrument
+            if dialog.selected_instrument.__base_class__() == Measurement:
+                print("Selected measurement instrument:", dialog.selected_instrument.name)
+                return MeasurementItem(dialog.selected_instrument)
+            elif dialog.selected_instrument.__base_class__() == Movement:
+                print("Selected movement instrument:", dialog.selected_instrument.name)
+                return MovementItem(dialog.selected_instrument)
         return None
 
 
@@ -127,7 +175,11 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication([])
 
     # Example data from the InstrumentManager
-    
+    sample_data = [
+        type("Instrument", (), {"name": "Instrument A", "adapter": "Adapter 1", "status": True})(),
+        type("Instrument", (), {"name": "Instrument B", "adapter": "Adapter 2", "status": False})(),
+        type("Instrument", (), {"name": "Instrument C", "adapter": "Adapter 3", "status": True})()
+    ]
 
     selected = AvailableInstrumentWidget.select_instrument(sample_data)
     if selected:
