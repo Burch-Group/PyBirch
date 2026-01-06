@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block title %}Issues - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="issues-page">
+    <div class="page-header">
+        <div class="header-title-row">
+            <h1>🐛 Issue Tracker</h1>
+            <a href="{{ url_for('main.issue_new') }}" class="btn btn-primary">+ Report Issue</a>
+        </div>
+    </div>
+    
+    <div class="issue-stats">
+        <div class="stat-card stat-open">
+            <div class="stat-value">{{ stats.open }}</div>
+            <div class="stat-label">Open</div>
+        </div>
+        <div class="stat-card stat-progress">
+            <div class="stat-value">{{ stats.in_progress }}</div>
+            <div class="stat-label">In Progress</div>
+        </div>
+        <div class="stat-card stat-resolved">
+            <div class="stat-value">{{ stats.resolved }}</div>
+            <div class="stat-label">Resolved</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.total }}</div>
+            <div class="stat-label">Total</div>
+        </div>
+    </div>
+    
+    <div class="filter-bar">
+        <form method="GET" class="filter-form">
+            <select name="status" class="filter-select" onchange="this.form.submit()">
+                <option value="">All Statuses</option>
+                <option value="open" {% if status == 'open' %}selected{% endif %}>Open</option>
+                <option value="in_progress" {% if status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                <option value="resolved" {% if status == 'resolved' %}selected{% endif %}>Resolved</option>
+                <option value="closed" {% if status == 'closed' %}selected{% endif %}>Closed</option>
+                <option value="wont_fix" {% if status == 'wont_fix' %}selected{% endif %}>Won't Fix</option>
+            </select>
+            <select name="category" class="filter-select" onchange="this.form.submit()">
+                <option value="">All Categories</option>
+                <option value="bug" {% if category == 'bug' %}selected{% endif %}>🐛 Bug</option>
+                <option value="feature" {% if category == 'feature' %}selected{% endif %}>Feature Request</option>
+                <option value="enhancement" {% if category == 'enhancement' %}selected{% endif %}>Enhancement</option>
+                <option value="question" {% if category == 'question' %}selected{% endif %}>Question</option>
+            </select>
+        </form>
+        <span class="result-count">{{ total }} issue{% if total != 1 %}s{% endif %}</span>
+    </div>
+    
+    {% if issues %}
+    <div class="issues-list">
+        {% for issue in issues %}
+        <a href="{{ url_for('main.issue_detail', issue_id=issue.id) }}" class="issue-card">
+            <div class="issue-header">
+                <span class="issue-id">#{{ issue.id }}</span>
+                <span class="issue-title">{{ issue.title }}</span>
+                <span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span>
+            </div>
+            <div class="issue-meta">
+                <span class="category-badge category-{{ issue.category }}">
+                    {% if issue.category == 'bug' %}🐛{% elif issue.category == 'feature' %}✨{% elif issue.category == 'enhancement' %}📈{% else %}❓{% endif %}
+                    {{ issue.category }}
+                </span>
+                <span class="status-badge status-{{ issue.status }}">{{ issue.status|replace('_', ' ') }}</span>
+                <span class="issue-date">{{ issue.created_at[:10] if issue.created_at else '' }}</span>
+                {% if issue.reporter_name %}
+                <span class="issue-reporter">by {{ issue.reporter_name }}</span>
+                {% endif %}
+                {% if issue.assignee_name %}
+                <span class="issue-assignee">→ {{ issue.assignee_name }}</span>
+                {% endif %}
+            </div>
+            {% if issue.description %}
+            <div class="issue-preview">{{ issue.description[:150] }}{% if issue.description|length > 150 %}...{% endif %}</div>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+    
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="?page={{ page - 1 }}&status={{ status }}&category={{ category }}" class="btn btn-secondary">← Previous</a>
+        {% endif %}
+        <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+        {% if page < total_pages %}
+        <a href="?page={{ page + 1 }}&status={{ status }}&category={{ category }}" class="btn btn-secondary">Next →</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="empty-state">
+        <p>No issues found.</p>
+        <a href="{{ url_for('main.issue_new') }}" class="btn btn-primary">Report First Issue</a>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.issues-page {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.issue-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.issue-stats .stat-card {
+    text-align: center;
+    padding: 1rem;
+}
+
+.stat-open { border-left: 3px solid #ef4444; }
+.stat-progress { border-left: 3px solid #f59e0b; }
+.stat-resolved { border-left: 3px solid #10b981; }
+
+.filter-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    background: var(--color-bg-primary);
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+}
+
+.issues-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.issue-card {
+    display: block;
+    background: var(--color-bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    box-shadow: var(--shadow);
+    text-decoration: none;
+    color: var(--color-text-primary);
+    transition: box-shadow 0.15s, transform 0.15s;
+    border-left: 3px solid transparent;
+}
+
+.issue-card:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateX(4px);
+}
+
+.issue-card[href*="status=open"] { border-left-color: #ef4444; }
+
+.issue-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.issue-id {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+}
+
+.issue-title {
+    flex: 1;
+    font-weight: 600;
+}
+
+.priority-badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.priority-low { background: #e5e7eb; color: #374151; }
+.priority-medium { background: #fef3c7; color: #92400e; }
+.priority-high { background: #fee2e2; color: #991b1b; }
+.priority-critical { background: #991b1b; color: white; }
+
+.issue-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+}
+
+.category-badge {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    background: var(--color-bg-tertiary);
+}
+
+.issue-preview {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+}
+
+.status-open { background: #fee2e2; color: #991b1b; }
+.status-in_progress { background: #fef3c7; color: #92400e; }
+.status-resolved { background: #d1fae5; color: #065f46; }
+.status-closed { background: #e5e7eb; color: #374151; }
+.status-wont_fix { background: #f3e8ff; color: #6b21a8; }
+
+@media (max-width: 768px) {
+    .issue-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+</style>
+{% endblock %}

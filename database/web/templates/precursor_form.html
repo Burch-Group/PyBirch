@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Precursor - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.precursors') }}">Precursors</a> / {{ action }}
+        </div>
+    </div>
+    
+    <h1>{{ action }} Precursor</h1>
+    
+    {% if template %}
+    <div class="template-notice">
+        <span class="template-badge">📋 Using Template</span>
+        <strong>{{ template.name }}</strong>
+        {% if template.lab_name or (template.template_data and template.template_data.lab_name) %}
+         - {{ template.lab_name or template.template_data.lab_name }}
+        {% endif %}
+        <p class="template-hint">Fields have been pre-filled from the template. You can modify them as needed.</p>
+    </div>
+    {% endif %}
+    
+    <form method="POST" class="entity-form">
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="name">Name *</label>
+                <input type="text" id="name" name="name" required
+                       value="{{ precursor.name if precursor else '' }}"
+                       placeholder="e.g., Gold(III) chloride">
+            </div>
+            
+            <div class="form-group">
+                <label for="chemical_formula">Chemical Formula</label>
+                <input type="text" id="chemical_formula" name="chemical_formula"
+                       value="{{ precursor.chemical_formula if precursor else '' }}"
+                       placeholder="e.g., AuCl3">
+            </div>
+            
+            <div class="form-group">
+                <label for="cas_number">CAS Number</label>
+                <input type="text" id="cas_number" name="cas_number"
+                       value="{{ precursor.cas_number if precursor else '' }}"
+                       placeholder="e.g., 13453-07-1">
+            </div>
+            
+            <div class="form-group">
+                <label for="supplier">Supplier</label>
+                <input type="text" id="supplier" name="supplier"
+                       value="{{ precursor.supplier if precursor else '' }}"
+                       placeholder="e.g., Sigma-Aldrich">
+            </div>
+            
+            <div class="form-group">
+                <label for="lot_number">Lot Number</label>
+                <input type="text" id="lot_number" name="lot_number"
+                       value="{{ precursor.lot_number if precursor else '' }}">
+            </div>
+            
+            <div class="form-group">
+                <label for="purity">Purity (%)</label>
+                <input type="number" id="purity" name="purity" step="0.01" min="0" max="100"
+                       value="{{ precursor.purity if precursor else '' }}"
+                       placeholder="e.g., 99.9">
+            </div>
+            
+            <div class="form-group">
+                <label for="state">State</label>
+                <select id="state" name="state">
+                    <option value="">Select state...</option>
+                    <option value="solid" {% if precursor and precursor.state == 'solid' %}selected{% endif %}>Solid</option>
+                    <option value="liquid" {% if precursor and precursor.state == 'liquid' %}selected{% endif %}>Liquid</option>
+                    <option value="gas" {% if precursor and precursor.state == 'gas' %}selected{% endif %}>Gas</option>
+                    <option value="solution" {% if precursor and precursor.state == 'solution' %}selected{% endif %}>Solution</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="status">Status</label>
+                <select id="status" name="status">
+                    <option value="new" {% if precursor and precursor.status == 'new' %}selected{% endif %}>New</option>
+                    <option value="in_use" {% if precursor and precursor.status == 'in_use' %}selected{% endif %}>In Use</option>
+                    <option value="low" {% if precursor and precursor.status == 'low' %}selected{% endif %}>Low</option>
+                    <option value="empty" {% if precursor and precursor.status == 'empty' %}selected{% endif %}>Empty</option>
+                    <option value="expired" {% if precursor and precursor.status == 'expired' %}selected{% endif %}>Expired</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-group form-group-full">
+            <label for="storage_conditions">Storage Conditions</label>
+            <textarea id="storage_conditions" name="storage_conditions" rows="3"
+                      placeholder="e.g., Store in a cool, dry place. Keep away from light.">{{ precursor.storage_conditions if precursor else '' }}</textarea>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.precursors') }}" class="btn btn-link">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ action }} Precursor</button>
+        </div>
+    </form>
+</div>
+
+<style>
+.template-notice {
+    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+    border: 1px solid #81c784;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.template-badge {
+    background: #4caf50;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+}
+.template-notice strong { color: #2e7d32; }
+.template-hint {
+    margin: 0.5rem 0 0 0;
+    font-size: 0.9rem;
+    color: #558b2f;
+}
+</style>
+{% endblock %}

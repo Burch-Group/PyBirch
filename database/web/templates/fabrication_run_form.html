@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Fabrication Run - {{ sample.sample_id }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.samples') }}">Samples</a> / 
+            <a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}">{{ sample.sample_id }}</a> / 
+            {{ action }} Fabrication Run
+        </div>
+    </div>
+
+    <div class="form-container">
+        <h1>{{ action }} Fabrication Run</h1>
+        <p class="form-subtitle">For sample: <strong>{{ sample.sample_id }}</strong> {% if sample.name %}- {{ sample.name }}{% endif %}</p>
+        
+        <form method="POST" class="entity-form">
+            <div class="form-section">
+                <h2>⚗️ Run Details</h2>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="procedure_id">Procedure *</label>
+                        <select id="procedure_id" name="procedure_id" required>
+                            <option value="">Select a procedure...</option>
+                            {% for proc in procedures %}
+                            <option value="{{ proc.id }}" {% if run and run.procedure_id == proc.id %}selected{% endif %}>
+                                {{ proc.name }} {% if proc.procedure_type %}({{ proc.procedure_type }}){% endif %} v{{ proc.version }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="run_number">Run Number</label>
+                        <input type="number" id="run_number" name="run_number" min="1"
+                               value="{{ run.run_number if run and run.run_number else '' }}"
+                               placeholder="Order in fabrication sequence">
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="status">Status *</label>
+                        <select id="status" name="status" required>
+                            <option value="pending" {% if not run or run.status == 'pending' %}selected{% endif %}>Pending</option>
+                            <option value="in_progress" {% if run and run.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                            <option value="completed" {% if run and run.status == 'completed' %}selected{% endif %}>Completed</option>
+                            <option value="failed" {% if run and run.status == 'failed' %}selected{% endif %}>Failed</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="operator">Operator</label>
+                        <input type="text" id="operator" name="operator" 
+                               value="{{ run.operator if run else g.current_user.username if g.current_user else '' }}"
+                               placeholder="Person performing this run">
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="started_at">Started At</label>
+                        <input type="datetime-local" id="started_at" name="started_at"
+                               value="{{ run.started_at[:16] if run and run.started_at else now }}">
+                    </div>
+                    
+                    {% if run %}
+                    <div class="form-group">
+                        <label for="completed_at">Completed At</label>
+                        <input type="datetime-local" id="completed_at" name="completed_at"
+                               value="{{ run.completed_at[:16] if run.completed_at else '' }}">
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="form-section">
+                <h2>📝 Notes & Results</h2>
+                
+                <div class="form-group">
+                    <label for="notes">Notes</label>
+                    <textarea id="notes" name="notes" rows="4" 
+                              placeholder="Any observations or notes about this run...">{{ run.notes if run else '' }}</textarea>
+                </div>
+                
+                {% if run %}
+                <div class="form-group">
+                    <label for="results">Results</label>
+                    <textarea id="results" name="results" rows="4" 
+                              placeholder="Outcome and results of this fabrication run...">{{ run.results if run else '' }}</textarea>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="form-actions">
+                <a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">{{ action }} Fabrication Run</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.form-subtitle {
+    color: var(--color-text-secondary);
+    margin-bottom: 1.5rem;
+}
+</style>
+{% endblock %}

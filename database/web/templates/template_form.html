@@ -1,0 +1,530 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Template - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.templates') }}">Templates</a> / {{ action }}
+        </div>
+    </div>
+    
+    <h1>{{ action }} Template</h1>
+    
+    <form method="POST" class="entity-form">
+        <!-- Basic Information -->
+        <div class="form-section">
+            <h2>Basic Information</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="name">Template Name *</label>
+                    <input type="text" id="name" name="name" required
+                           value="{{ template.name if template else '' }}"
+                           placeholder="e.g., Gold Thin Film Sample">
+                </div>
+                
+                <div class="form-group">
+                    <label for="entity_type">Entity Type *</label>
+                    <select id="entity_type" name="entity_type" required onchange="updateTemplateFields()">
+                        <option value="">Select type...</option>
+                        {% for type_key, type_info in entity_types.items() %}
+                        <option value="{{ type_key }}" 
+                                {% if template and template.entity_type == type_key %}selected{% endif %}>
+                            {{ type_info.icon }} {{ type_info.label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="project_id">Project</label>
+                    <select id="project_id" name="project_id">
+                        <option value="">No Project</option>
+                        {% for project in projects %}
+                        <option value="{{ project.id }}" 
+                                {% if template and template.project_id == project.id %}selected{% endif %}>
+                            {{ project.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="lab_id">Lab</label>
+                    <select id="lab_id" name="lab_id">
+                        <option value="">No Lab</option>
+                        {% for lab in labs %}
+                        <option value="{{ lab.id }}" 
+                                {% if template and template.lab_id == lab.id %}selected{% endif %}>
+                            {{ lab.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="status">Status</label>
+                    <select id="status" name="status">
+                        <option value="active" {% if template and template.status == 'active' %}selected{% elif not template %}selected{% endif %}>Active</option>
+                        <option value="draft" {% if template and template.status == 'draft' %}selected{% endif %}>Draft</option>
+                        <option value="archived" {% if template and template.status == 'archived' %}selected{% endif %}>Archived</option>
+                    </select>
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" rows="2"
+                              placeholder="Brief description of when to use this template...">{{ template.description if template else '' }}</textarea>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Template Data Fields -->
+        <div class="form-section">
+            <h2>Template Data</h2>
+            <p class="section-description">Configure the default values that will be pre-filled when using this template</p>
+            
+            <!-- Sample Fields -->
+            <div id="sample-fields" class="entity-fields" style="display: none;">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="data_sample_status">Sample Status</label>
+                        <select id="data_sample_status" name="data_sample_status">
+                            <option value="">Default (active)</option>
+                            <option value="active" {% if template and template.template_data and template.template_data.sample_status == 'active' %}selected{% endif %}>Active</option>
+                            <option value="consumed" {% if template and template.template_data and template.template_data.sample_status == 'consumed' %}selected{% endif %}>Consumed</option>
+                            <option value="archived" {% if template and template.template_data and template.template_data.sample_status == 'archived' %}selected{% endif %}>Archived</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="data_material">Material</label>
+                        <input type="text" id="data_material" name="data_material"
+                               value="{{ template.template_data.material if template and template.template_data else '' }}"
+                               placeholder="e.g., Au, Si, GaAs">
+                    </div>
+                    <div class="form-group">
+                        <label for="data_sample_type">Sample Type</label>
+                        <select id="data_sample_type" name="data_sample_type">
+                            <option value="">Select type...</option>
+                            <option value="thin_film" {% if template and template.template_data and template.template_data.sample_type == 'thin_film' %}selected{% endif %}>Thin Film</option>
+                            <option value="bulk" {% if template and template.template_data and template.template_data.sample_type == 'bulk' %}selected{% endif %}>Bulk</option>
+                            <option value="nanoparticle" {% if template and template.template_data and template.template_data.sample_type == 'nanoparticle' %}selected{% endif %}>Nanoparticle</option>
+                            <option value="powder" {% if template and template.template_data and template.template_data.sample_type == 'powder' %}selected{% endif %}>Powder</option>
+                            <option value="solution" {% if template and template.template_data and template.template_data.sample_type == 'solution' %}selected{% endif %}>Solution</option>
+                            <option value="other" {% if template and template.template_data and template.template_data.sample_type == 'other' %}selected{% endif %}>Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="data_substrate">Substrate</label>
+                        <input type="text" id="data_substrate" name="data_substrate"
+                               value="{{ template.template_data.substrate if template and template.template_data else '' }}"
+                               placeholder="e.g., Si/SiO2, Glass">
+                    </div>
+                    <div class="form-group">
+                        <label for="data_storage_location">Storage Location</label>
+                        <input type="text" id="data_storage_location" name="data_storage_location"
+                               value="{{ template.template_data.storage_location if template and template.template_data else '' }}"
+                               placeholder="e.g., Lab 101, Cabinet A">
+                    </div>
+                    <div class="form-group">
+                        <label for="data_parent_sample_id">Parent Sample</label>
+                        <select id="data_parent_sample_id" name="data_parent_sample_id">
+                            <option value="">No parent sample</option>
+                            {% for sample in samples %}
+                            <option value="{{ sample.id }}" {% if template and template.template_data and template.template_data.parent_sample_id == sample.id %}selected{% endif %}>
+                                {{ sample.sample_id }}{% if sample.name %} - {{ sample.name }}{% endif %}{% if sample.material %} ({{ sample.material }}){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Linked Precursors for Sample -->
+                <div class="linked-section">
+                    <h3>Linked Precursors</h3>
+                    <p class="section-description">Select precursors that will be automatically linked when creating a sample from this template</p>
+                    <div class="linked-items-container" id="sample-precursors-container">
+                        {% if template and template.template_data and template.template_data.linked_precursor_ids %}
+                            {% for precursor_id in template.template_data.linked_precursor_ids %}
+                            <div class="linked-item">
+                                <select name="data_linked_precursor_ids">
+                                    <option value="">Select precursor...</option>
+                                    {% for precursor in precursors %}
+                                    <option value="{{ precursor.id }}" {% if precursor.id == precursor_id %}selected{% endif %}>
+                                        {{ precursor.name }}{% if precursor.chemical_formula %} ({{ precursor.chemical_formula }}){% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+                            </div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="addLinkedPrecursor('sample-precursors-container')">+ Add Precursor</button>
+                </div>
+            </div>
+            
+            <!-- Equipment Fields -->
+            <div id="equipment-fields" class="entity-fields" style="display: none;">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="data_equipment_status">Equipment Status</label>
+                        <select id="data_equipment_status" name="data_equipment_status">
+                            <option value="">Default (available)</option>
+                            <option value="available" {% if template and template.template_data and template.template_data.equipment_status == 'available' %}selected{% endif %}>Available</option>
+                            <option value="in_use" {% if template and template.template_data and template.template_data.equipment_status == 'in_use' %}selected{% endif %}>In Use</option>
+                            <option value="maintenance" {% if template and template.template_data and template.template_data.equipment_status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                            <option value="retired" {% if template and template.template_data and template.template_data.equipment_status == 'retired' %}selected{% endif %}>Retired</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="data_equipment_type">Equipment Type</label>
+                        <select id="data_equipment_type" name="data_equipment_type">
+                            <option value="">Select type...</option>
+                            <option value="movement" {% if template and template.template_data and template.template_data.equipment_type == 'movement' %}selected{% endif %}>Movement</option>
+                            <option value="measurement" {% if template and template.template_data and template.template_data.equipment_type == 'measurement' %}selected{% endif %}>Measurement</option>
+                            <option value="fabrication" {% if template and template.template_data and template.template_data.equipment_type == 'fabrication' %}selected{% endif %}>Fabrication</option>
+                            <option value="other" {% if template and template.template_data and template.template_data.equipment_type == 'other' %}selected{% endif %}>Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="data_manufacturer">Manufacturer</label>
+                        <input type="text" id="data_manufacturer" name="data_manufacturer"
+                               value="{{ template.template_data.manufacturer if template and template.template_data else '' }}"
+                               placeholder="e.g., Keithley, Newport">
+                    </div>
+                    <div class="form-group">
+                        <label for="data_model">Model</label>
+                        <input type="text" id="data_model" name="data_model"
+                               value="{{ template.template_data.model if template and template.template_data else '' }}"
+                               placeholder="e.g., 2400, SMU">
+                    </div>
+                    <div class="form-group">
+                        <label for="data_pybirch_class">PyBirch Class</label>
+                        <input type="text" id="data_pybirch_class" name="data_pybirch_class"
+                               value="{{ template.template_data.pybirch_class if template and template.template_data else '' }}"
+                               placeholder="e.g., Keithley2400">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Precursor Fields -->
+            <div id="precursor-fields" class="entity-fields" style="display: none;">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="data_precursor_status">Precursor Status</label>
+                        <select id="data_precursor_status" name="data_precursor_status">
+                            <option value="">Default (new)</option>
+                            <option value="new" {% if template and template.template_data and template.template_data.precursor_status == 'new' %}selected{% endif %}>New</option>
+                            <option value="in_use" {% if template and template.template_data and template.template_data.precursor_status == 'in_use' %}selected{% endif %}>In Use</option>
+                            <option value="low" {% if template and template.template_data and template.template_data.precursor_status == 'low' %}selected{% endif %}>Low</option>
+                            <option value="empty" {% if template and template.template_data and template.template_data.precursor_status == 'empty' %}selected{% endif %}>Empty</option>
+                            <option value="expired" {% if template and template.template_data and template.template_data.precursor_status == 'expired' %}selected{% endif %}>Expired</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="data_chemical_formula">Chemical Formula</label>
+                        <input type="text" id="data_chemical_formula" name="data_chemical_formula"
+                               value="{{ template.template_data.chemical_formula if template and template.template_data else '' }}"
+                               placeholder="e.g., AuCl3, HAuCl4">
+                    </div>
+                    <div class="form-group">
+                        <label for="data_supplier">Supplier</label>
+                        <input type="text" id="data_supplier" name="data_supplier"
+                               value="{{ template.template_data.supplier if template and template.template_data else '' }}"
+                               placeholder="e.g., Sigma-Aldrich">
+                    </div>
+                    <div class="form-group">
+                        <label for="data_purity">Purity (%)</label>
+                        <input type="number" id="data_purity" name="data_purity" step="0.01" min="0" max="100"
+                               value="{{ template.template_data.purity if template and template.template_data else '' }}"
+                               placeholder="e.g., 99.99">
+                    </div>
+                    <div class="form-group">
+                        <label for="data_state">State</label>
+                        <select id="data_state" name="data_state">
+                            <option value="">Select state...</option>
+                            <option value="solid" {% if template and template.template_data and template.template_data.state == 'solid' %}selected{% endif %}>Solid</option>
+                            <option value="liquid" {% if template and template.template_data and template.template_data.state == 'liquid' %}selected{% endif %}>Liquid</option>
+                            <option value="gas" {% if template and template.template_data and template.template_data.state == 'gas' %}selected{% endif %}>Gas</option>
+                            <option value="solution" {% if template and template.template_data and template.template_data.state == 'solution' %}selected{% endif %}>Solution</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Procedure Fields -->
+            <div id="procedure-fields" class="entity-fields" style="display: none;">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="data_procedure_active">Procedure Active?</label>
+                        <select id="data_procedure_active" name="data_procedure_active">
+                            <option value="">Default (active)</option>
+                            <option value="true" {% if template and template.template_data and template.template_data.procedure_active == 'true' %}selected{% endif %}>Active</option>
+                            <option value="false" {% if template and template.template_data and template.template_data.procedure_active == 'false' %}selected{% endif %}>Inactive</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="data_procedure_type">Procedure Type</label>
+                        <select id="data_procedure_type" name="data_procedure_type">
+                            <option value="">Select type...</option>
+                            <option value="deposition" {% if template and template.template_data and template.template_data.procedure_type == 'deposition' %}selected{% endif %}>Deposition</option>
+                            <option value="annealing" {% if template and template.template_data and template.template_data.procedure_type == 'annealing' %}selected{% endif %}>Annealing</option>
+                            <option value="etching" {% if template and template.template_data and template.template_data.procedure_type == 'etching' %}selected{% endif %}>Etching</option>
+                            <option value="cleaning" {% if template and template.template_data and template.template_data.procedure_type == 'cleaning' %}selected{% endif %}>Cleaning</option>
+                            <option value="characterization" {% if template and template.template_data and template.template_data.procedure_type == 'characterization' %}selected{% endif %}>Characterization</option>
+                            <option value="other" {% if template and template.template_data and template.template_data.procedure_type == 'other' %}selected{% endif %}>Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="data_estimated_duration_minutes">Est. Duration (minutes)</label>
+                        <input type="number" id="data_estimated_duration_minutes" name="data_estimated_duration_minutes"
+                               value="{{ template.template_data.estimated_duration_minutes if template and template.template_data else '' }}"
+                               placeholder="e.g., 60" min="0">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="data_safety_requirements">Safety Requirements</label>
+                        <textarea id="data_safety_requirements" name="data_safety_requirements" rows="2"
+                                  placeholder="PPE requirements, hazards...">{{ template.template_data.safety_requirements if template and template.template_data else '' }}</textarea>
+                    </div>
+                </div>
+                
+                <!-- Linked Precursors for Procedure -->
+                <div class="linked-section">
+                    <h3>Linked Precursors</h3>
+                    <p class="section-description">Select precursors that will be automatically linked when creating a procedure from this template</p>
+                    <div class="linked-items-container" id="procedure-precursors-container">
+                        {% if template and template.template_data and template.template_data.linked_precursor_ids %}
+                            {% for precursor_id in template.template_data.linked_precursor_ids %}
+                            <div class="linked-item">
+                                <select name="data_linked_precursor_ids">
+                                    <option value="">Select precursor...</option>
+                                    {% for precursor in precursors %}
+                                    <option value="{{ precursor.id }}" {% if precursor.id == precursor_id %}selected{% endif %}>
+                                        {{ precursor.name }}{% if precursor.chemical_formula %} ({{ precursor.chemical_formula }}){% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+                            </div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="addLinkedPrecursor('procedure-precursors-container')">+ Add Precursor</button>
+                </div>
+                
+                <!-- Linked Equipment for Procedure -->
+                <div class="linked-section">
+                    <h3>Linked Equipment</h3>
+                    <p class="section-description">Select equipment that will be automatically linked when creating a procedure from this template</p>
+                    <div class="linked-items-container" id="procedure-equipment-container">
+                        {% if template and template.template_data and template.template_data.linked_equipment_ids %}
+                            {% for equipment_id in template.template_data.linked_equipment_ids %}
+                            <div class="linked-item">
+                                <select name="data_linked_equipment_ids">
+                                    <option value="">Select equipment...</option>
+                                    {% for equip in equipment %}
+                                    <option value="{{ equip.id }}" {% if equip.id == equipment_id %}selected{% endif %}>
+                                        {{ equip.name }}{% if equip.model %} ({{ equip.model }}){% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+                            </div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="addLinkedEquipment()">+ Add Equipment</button>
+                </div>
+            </div>
+            
+            <div id="no-type-selected" class="no-type-message">
+                <p>Select an entity type above to configure template fields</p>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.templates') }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ action }} Template</button>
+        </div>
+    </form>
+</div>
+
+<script>
+function updateTemplateFields() {
+    const entityType = document.getElementById('entity_type').value;
+    
+    // Hide all entity-specific field sections
+    document.querySelectorAll('.entity-fields').forEach(el => {
+        el.style.display = 'none';
+    });
+    
+    // Show the selected entity type fields
+    if (entityType) {
+        const fieldsDiv = document.getElementById(entityType + '-fields');
+        if (fieldsDiv) {
+            fieldsDiv.style.display = 'block';
+        }
+        document.getElementById('no-type-selected').style.display = 'none';
+    } else {
+        document.getElementById('no-type-selected').style.display = 'block';
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    updateTemplateFields();
+});
+
+// Precursors data for dynamic dropdowns
+const precursorsData = [
+    {% for precursor in precursors %}
+    {id: {{ precursor.id }}, name: "{{ precursor.name }}", formula: "{{ precursor.chemical_formula or '' }}"},
+    {% endfor %}
+];
+
+// Equipment data for dynamic dropdowns
+const equipmentData = [
+    {% for equip in equipment %}
+    {id: {{ equip.id }}, name: "{{ equip.name }}", model: "{{ equip.model or '' }}"},
+    {% endfor %}
+];
+
+function addLinkedPrecursor(containerId) {
+    const container = document.getElementById(containerId);
+    const div = document.createElement('div');
+    div.className = 'linked-item';
+    
+    let options = '<option value="">Select precursor...</option>';
+    precursorsData.forEach(p => {
+        const display = p.formula ? `${p.name} (${p.formula})` : p.name;
+        options += `<option value="${p.id}">${display}</option>`;
+    });
+    
+    div.innerHTML = `
+        <select name="data_linked_precursor_ids">${options}</select>
+        <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+    `;
+    container.appendChild(div);
+}
+
+function addLinkedEquipment() {
+    const container = document.getElementById('procedure-equipment-container');
+    const div = document.createElement('div');
+    div.className = 'linked-item';
+    
+    let options = '<option value="">Select equipment...</option>';
+    equipmentData.forEach(e => {
+        const display = e.model ? `${e.name} (${e.model})` : e.name;
+        options += `<option value="${e.id}">${display}</option>`;
+    });
+    
+    div.innerHTML = `
+        <select name="data_linked_equipment_ids">${options}</select>
+        <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+    `;
+    container.appendChild(div);
+}
+</script>
+
+<style>
+.form-section {
+    background: #ffffff;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.form-section h2 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+}
+
+.section-description {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+    margin: 0 0 1rem 0;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+}
+
+.form-group.full-width {
+    grid-column: 1 / -1;
+}
+
+.entity-fields {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+}
+
+.linked-section {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--color-border);
+}
+
+.linked-section h3 {
+    margin: 0 0 0.25rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.linked-items-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.linked-item {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.linked-item select {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+}
+
+.no-type-message {
+    text-align: center;
+    padding: 2rem;
+    color: var(--color-text-muted);
+    background: var(--color-bg-tertiary);
+    border-radius: var(--border-radius);
+    margin-top: 1rem;
+}
+
+.no-type-message p {
+    margin: 0;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85rem;
+}
+
+.btn-danger {
+    background: var(--color-error);
+    color: white;
+    border: none;
+    cursor: pointer;
+}
+</style>
+{% endblock %}

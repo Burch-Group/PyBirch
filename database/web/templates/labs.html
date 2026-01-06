@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Labs - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Labs</h1>
+        <a href="{{ url_for('main.lab_new') }}" class="btn btn-primary">+ New Lab</a>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search labs..." 
+                   value="{{ search }}" class="filter-input">
+            <button type="submit" class="btn btn-secondary">Search</button>
+            {% if search %}
+                <a href="{{ url_for('main.labs') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} lab(s) found</p>
+    
+    {% if labs %}
+        <div class="card-grid">
+            {% for lab in labs %}
+            <div class="card lab-card">
+                <div class="card-header">
+                    <h3><a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}">{{ lab.name }}</a></h3>
+                    {% if lab.code %}
+                    <span class="badge">{{ lab.code }}</span>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    {% if lab.university %}
+                    <p class="lab-university"><strong>{{ lab.university }}</strong></p>
+                    {% endif %}
+                    {% if lab.department %}
+                    <p class="lab-department">{{ lab.department }}</p>
+                    {% endif %}
+                    {% if lab.description %}
+                    <p class="lab-description">{{ lab.description[:150] }}{% if lab.description|length > 150 %}...{% endif %}</p>
+                    {% endif %}
+                </div>
+                <div class="card-footer">
+                    <a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}" class="btn btn-sm">View</a>
+                    <a href="{{ url_for('main.lab_edit', lab_id=lab.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="{{ url_for('main.labs', page=page-1, search=search) }}" class="btn btn-sm">← Previous</a>
+            {% endif %}
+            <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}
+                <a href="{{ url_for('main.labs', page=page+1, search=search) }}" class="btn btn-sm">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>No labs found.</p>
+            <a href="{{ url_for('main.lab_new') }}" class="btn btn-primary">Create your first lab</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Samples - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Samples</h1>
+        <a href="{{ url_for('main.sample_new') }}" class="btn btn-primary">+ New Sample</a>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search samples..." 
+                   value="{{ search }}" class="filter-input">
+            <select name="status" class="filter-select">
+                <option value="">All Status</option>
+                <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
+                <option value="consumed" {% if status == 'consumed' %}selected{% endif %}>Consumed</option>
+                <option value="archived" {% if status == 'archived' %}selected{% endif %}>Archived</option>
+            </select>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search or status %}
+                <a href="{{ url_for('main.samples') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} sample(s) found</p>
+    
+    {% if samples %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Sample ID</th>
+                    <th>Name</th>
+                    <th>Material</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sample in samples %}
+                <tr>
+                    <td><a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}">{{ sample.sample_id }}</a></td>
+                    <td>{{ sample.name or '-' }}</td>
+                    <td>{{ sample.material or '-' }}</td>
+                    <td>{{ sample.sample_type or '-' }}</td>
+                    <td><span class="status-badge status-{{ sample.status }}">{{ sample.status }}</span></td>
+                    <td>{{ sample.created_at[:10] if sample.created_at else '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.sample_edit', sample_id=sample.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="{{ url_for('main.samples', page=page-1, search=search, status=status) }}" class="btn btn-sm">← Previous</a>
+            {% endif %}
+            <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}
+                <a href="{{ url_for('main.samples', page=page+1, search=search, status=status) }}" class="btn btn-sm">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>No samples found.</p>
+            <a href="{{ url_for('main.sample_new') }}" class="btn btn-primary">Create your first sample</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

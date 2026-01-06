@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Projects - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Projects</h1>
+        <a href="{{ url_for('main.project_new') }}" class="btn btn-primary">+ New Project</a>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search projects..." 
+                   value="{{ search }}" class="filter-input">
+            <select name="status" class="filter-select">
+                <option value="">All Status</option>
+                <option value="planning" {% if status == 'planning' %}selected{% endif %}>Planning</option>
+                <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
+                <option value="paused" {% if status == 'paused' %}selected{% endif %}>Paused</option>
+                <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
+                <option value="archived" {% if status == 'archived' %}selected{% endif %}>Archived</option>
+            </select>
+            <select name="lab_id" class="filter-select">
+                <option value="">All Labs</option>
+                {% for lab in labs %}
+                <option value="{{ lab.id }}" {% if lab_id == lab.id %}selected{% endif %}>{{ lab.name }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search or status or lab_id %}
+                <a href="{{ url_for('main.projects') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} project(s) found</p>
+    
+    {% if projects %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Code</th>
+                    <th>Lab</th>
+                    <th>Status</th>
+                    <th>Start Date</th>
+                    <th>Funding</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for project in projects %}
+                <tr>
+                    <td><a href="{{ url_for('main.project_detail', project_id=project.id) }}">{{ project.name }}</a></td>
+                    <td>{{ project.code or '-' }}</td>
+                    <td>
+                        {% if project.lab_id %}
+                        <a href="{{ url_for('main.lab_detail', lab_id=project.lab_id) }}">{{ project.lab_name or 'Lab #' ~ project.lab_id }}</a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td><span class="status-badge status-{{ project.status }}">{{ project.status }}</span></td>
+                    <td>{{ project.start_date or '-' }}</td>
+                    <td>{{ project.funding_source or '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('main.project_detail', project_id=project.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.project_edit', project_id=project.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="{{ url_for('main.projects', page=page-1, search=search, status=status, lab_id=lab_id) }}" class="btn btn-sm">← Previous</a>
+            {% endif %}
+            <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}
+                <a href="{{ url_for('main.projects', page=page+1, search=search, status=status, lab_id=lab_id) }}" class="btn btn-sm">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>No projects found.</p>
+            <a href="{{ url_for('main.project_new') }}" class="btn btn-primary">Create your first project</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

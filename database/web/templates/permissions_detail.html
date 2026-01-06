@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+
+{% block title %}Permissions: {{ permissions.entity_name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="permissions-detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.permissions') }}">Permissions</a> / 
+            {{ entity_type|title }}s / 
+            {{ permissions.entity_name }}
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <h1>🔐 {{ permissions.entity_name }}</h1>
+        <div class="detail-actions">
+            <span class="badge badge-lg">{{ entity_type|title }}</span>
+            {% if entity_type == 'lab' %}
+            <a href="{{ url_for('main.lab_detail', lab_id=entity_id) }}" class="btn btn-secondary">View Lab</a>
+            <a href="{{ url_for('main.lab_member_add', lab_id=entity_id) }}" class="btn btn-primary">+ Add Member</a>
+            {% elif entity_type == 'project' %}
+            <a href="{{ url_for('main.project_detail', project_id=entity_id) }}" class="btn btn-secondary">View Project</a>
+            <a href="{{ url_for('main.project_member_add', project_id=entity_id) }}" class="btn btn-primary">+ Add Member</a>
+            <a href="{{ url_for('main.guest_add', entity_type='project', entity_id=entity_id) }}" class="btn btn-primary">+ Add Guest</a>
+            {% elif entity_type == 'sample' %}
+            <a href="{{ url_for('main.sample_detail', sample_id=entity_id) }}" class="btn btn-secondary">View Sample</a>
+            <a href="{{ url_for('main.guest_add', entity_type='sample', entity_id=entity_id) }}" class="btn btn-primary">+ Add Guest</a>
+            {% elif entity_type == 'scan' %}
+            <a href="{{ url_for('main.scan_detail', scan_id=entity_id) }}" class="btn btn-secondary">View Scan</a>
+            <a href="{{ url_for('main.guest_add', entity_type='scan', entity_id=entity_id) }}" class="btn btn-primary">+ Add Guest</a>
+            {% elif entity_type == 'queue' %}
+            <a href="{{ url_for('main.queue_detail', queue_id=entity_id) }}" class="btn btn-secondary">View Queue</a>
+            <a href="{{ url_for('main.guest_add', entity_type='queue', entity_id=entity_id) }}" class="btn btn-primary">+ Add Guest</a>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="permissions-content">
+        {% if entity_type in ['lab', 'project'] %}
+        <!-- Members Section -->
+        <div class="permissions-section">
+            <div class="section-header">
+                <h2>👥 Members ({{ permissions.members|length }})</h2>
+            </div>
+            
+            {% if permissions.members %}
+            <table class="permissions-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Title</th>
+                        <th>Role</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for member in permissions.members %}
+                    <tr>
+                        <td>
+                            <strong>{{ member.name }}</strong>
+                        </td>
+                        <td>
+                            {% if member.email %}
+                            <a href="mailto:{{ member.email }}">{{ member.email }}</a>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ member.title or '-' }}</td>
+                        <td>
+                            <form action="{{ url_for('main.permissions_update_member_role', entity_type=entity_type, entity_id=entity_id, member_id=member.id) }}" method="POST" class="inline-form">
+                                <select name="role" class="role-select" onchange="this.form.submit()">
+                                    {% if entity_type == 'lab' %}
+                                    <option value="principal_investigator" {% if member.role == 'principal_investigator' %}selected{% endif %}>Principal Investigator</option>
+                                    <option value="administrator" {% if member.role == 'administrator' %}selected{% endif %}>Administrator</option>
+                                    <option value="member" {% if member.role == 'member' %}selected{% endif %}>Member</option>
+                                    <option value="student" {% if member.role == 'student' %}selected{% endif %}>Student</option>
+                                    <option value="visiting" {% if member.role == 'visiting' %}selected{% endif %}>Visiting</option>
+                                    {% elif entity_type == 'project' %}
+                                    <option value="lead" {% if member.role == 'lead' %}selected{% endif %}>Lead</option>
+                                    <option value="collaborator" {% if member.role == 'collaborator' %}selected{% endif %}>Collaborator</option>
+                                    <option value="advisor" {% if member.role == 'advisor' %}selected{% endif %}>Advisor</option>
+                                    <option value="contributor" {% if member.role == 'contributor' %}selected{% endif %}>Contributor</option>
+                                    {% endif %}
+                                </select>
+                            </form>
+                        </td>
+                        <td>
+                            <form action="{{ url_for('main.permissions_remove_member', entity_type=entity_type, entity_id=entity_id, member_id=member.id) }}" method="POST" class="inline-form">
+                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this member?')">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <p>No members assigned yet.</p>
+                {% if entity_type == 'lab' %}
+                <a href="{{ url_for('main.lab_member_add', lab_id=entity_id) }}" class="btn btn-primary">Add First Member</a>
+                {% elif entity_type == 'project' %}
+                <a href="{{ url_for('main.project_member_add', project_id=entity_id) }}" class="btn btn-primary">Add First Member</a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+        
+        {% if entity_type != 'lab' %}
+        <!-- Guests Section -->
+        <div class="permissions-section">
+            <div class="section-header">
+                <h2>🔗 Guest Access ({{ permissions.guests|length }})</h2>
+            </div>
+            
+            {% if permissions.guests %}
+            <table class="permissions-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Affiliation</th>
+                        <th>Access Level</th>
+                        <th>Granted</th>
+                        <th>Expires</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for guest in permissions.guests %}
+                    <tr>
+                        <td><strong>{{ guest.guest_name }}</strong></td>
+                        <td><a href="mailto:{{ guest.guest_email }}">{{ guest.guest_email }}</a></td>
+                        <td>{{ guest.guest_affiliation or '-' }}</td>
+                        <td>
+                            <form action="{{ url_for('main.permissions_update_guest_access', entity_type=entity_type, entity_id=entity_id, guest_id=guest.id) }}" method="POST" class="inline-form">
+                                <select name="access_level" class="access-select" onchange="this.form.submit()">
+                                    <option value="view" {% if guest.access_level == 'view' %}selected{% endif %}>View Only</option>
+                                    <option value="edit" {% if guest.access_level == 'edit' %}selected{% endif %}>Edit</option>
+                                    <option value="full" {% if guest.access_level == 'full' %}selected{% endif %}>Full Access</option>
+                                </select>
+                            </form>
+                        </td>
+                        <td>{{ guest.granted_at[:10] if guest.granted_at else '-' }}</td>
+                        <td>
+                            {% if guest.expires_at %}
+                            <span class="{% if guest.expires_at < now %}text-danger{% endif %}">{{ guest.expires_at[:10] }}</span>
+                            {% else %}
+                            <span class="text-muted">Never</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="copyToken('{{ guest.access_token }}')" title="Copy Access Token">📋</button>
+                                <form action="{{ url_for('main.permissions_revoke_guest', entity_type=entity_type, entity_id=entity_id, guest_id=guest.id) }}" method="POST" class="inline-form">
+                                    <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Revoke access for {{ guest.guest_name }}?')">Revoke</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <p>No guest access granted yet.</p>
+                <a href="{{ url_for('main.guest_add', entity_type=entity_type, entity_id=entity_id) }}" class="btn btn-primary">Grant Guest Access</a>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+        
+        <!-- Access Token Info -->
+        <div class="permissions-section info-section">
+            <h2>ℹ️ About Access Tokens</h2>
+            <p>Each guest receives a unique access token that can be used to access this {{ entity_type }}. The token is generated automatically when access is granted.</p>
+            <ul>
+                <li><strong>View</strong> access allows reading data without making changes</li>
+                <li><strong>Edit</strong> access allows viewing and modifying data</li>
+                <li><strong>Full</strong> access includes all permissions including deletion</li>
+            </ul>
+            <p class="warning-text">⚠️ Be careful when revoking access - this action cannot be undone.</p>
+        </div>
+    </div>
+</div>
+
+<style>
+.permissions-detail-page {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.permissions-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.permissions-section {
+    background: var(--color-bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+}
+
+.permissions-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.permissions-section .section-header h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.permissions-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.permissions-table th,
+.permissions-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.permissions-table th {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    font-weight: 600;
+}
+
+.permissions-table tbody tr:hover {
+    background: var(--color-bg-secondary);
+}
+
+.inline-form {
+    display: inline;
+    margin: 0;
+}
+
+.role-select,
+.access-select {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    background: var(--color-bg-primary);
+    cursor: pointer;
+}
+
+.role-select:hover,
+.access-select:hover {
+    border-color: var(--color-primary);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.text-muted {
+    color: var(--color-text-muted);
+}
+
+.text-danger {
+    color: #dc2626;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--color-text-secondary);
+}
+
+.empty-state p {
+    margin-bottom: 1rem;
+}
+
+.info-section {
+    background: var(--color-bg-tertiary);
+}
+
+.info-section h2 {
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+}
+
+.info-section p {
+    color: var(--color-text-secondary);
+    margin-bottom: 0.75rem;
+}
+
+.info-section ul {
+    margin: 0.5rem 0 1rem 1.5rem;
+    color: var(--color-text-secondary);
+}
+
+.info-section li {
+    margin-bottom: 0.35rem;
+}
+
+.warning-text {
+    color: #b45309;
+    font-weight: 500;
+}
+
+.badge-lg {
+    font-size: 0.85rem;
+    padding: 0.35rem 0.75rem;
+    background: var(--color-bg-tertiary);
+    border-radius: var(--border-radius-sm);
+}
+
+@media (max-width: 768px) {
+    .permissions-table {
+        font-size: 0.85rem;
+    }
+    
+    .permissions-table th,
+    .permissions-table td {
+        padding: 0.5rem;
+    }
+    
+    .action-buttons {
+        flex-direction: column;
+    }
+}
+</style>
+
+<script>
+function copyToken(token) {
+    navigator.clipboard.writeText(token).then(function() {
+        alert('Access token copied to clipboard!');
+    }, function() {
+        prompt('Copy this token:', token);
+    });
+}
+</script>
+{% endblock %}

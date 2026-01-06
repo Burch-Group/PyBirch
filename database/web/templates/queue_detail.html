@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}{{ queue.name or 'Queue' }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.queues') }}">Queues</a> / {{ queue.name or queue.queue_id }}
+        </div>
+        <div class="header-actions">
+            <a href="{{ queue.pybirch_uri }}" class="btn btn-primary">🚀 Open in PyBirch</a>
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <h1>{{ queue.name or queue.queue_id }}</h1>
+        <span class="status-badge status-{{ queue.status }}">{{ queue.status }}</span>
+    </div>
+    
+    <div class="detail-grid">
+        <div class="detail-section">
+            <h2>Queue Information</h2>
+            <dl class="detail-list">
+                <dt>Queue ID</dt>
+                <dd>{{ queue.queue_id or '-' }}</dd>
+                
+                <dt>Execution Mode</dt>
+                <dd>{{ queue.execution_mode or '-' }}</dd>
+                
+                <dt>Progress</dt>
+                <dd>
+                    <div class="progress-bar">
+                        {% set progress = (queue.completed_scans or 0) / (queue.total_scans or 1) * 100 %}
+                        <div class="progress-fill" style="width: {{ progress }}%"></div>
+                    </div>
+                    {{ queue.completed_scans or 0 }} / {{ queue.total_scans or 0 }} scans
+                </dd>
+                
+                <dt>Start Time</dt>
+                <dd>{{ queue.start_time[:19] if queue.start_time else '-' }}</dd>
+                
+                <dt>End Time</dt>
+                <dd>{{ queue.end_time[:19] if queue.end_time else '-' }}</dd>
+                
+                <dt>Created</dt>
+                <dd>{{ queue.created_at[:19] if queue.created_at else '-' }}</dd>
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Sample</h2>
+            {% if queue.sample %}
+                <dl class="detail-list">
+                    <dt>Sample ID</dt>
+                    <dd><a href="{{ url_for('main.sample_detail', sample_id=queue.sample.id) }}">{{ queue.sample.sample_id }}</a></dd>
+                    
+                    <dt>Material</dt>
+                    <dd>{{ queue.sample.material or '-' }}</dd>
+                </dl>
+            {% else %}
+                <p class="empty-state">No sample associated with this queue.</p>
+            {% endif %}
+            
+            <h3>PyBirch URI</h3>
+            <div class="uri-box">
+                <code>{{ queue.pybirch_uri }}</code>
+                <button class="btn btn-sm copy-btn" data-copy="{{ queue.pybirch_uri }}">Copy</button>
+            </div>
+        </div>
+    </div>
+    
+    {% if queue.scans %}
+    <div class="related-section">
+        <h2>Scans in Queue ({{ queue.scans|length }})</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Scan Name</th>
+                    <th>Project</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for scan in queue.scans %}
+                <tr>
+                    <td><a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or 'Unnamed' }}</a></td>
+                    <td>{{ scan.project_name or '-' }}</td>
+                    <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
+                    <td>{{ scan.completed_points or 0 }} / {{ scan.total_points or 0 }}</td>
+                    <td>
+                        <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">🚀</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

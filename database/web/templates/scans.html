@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Scans - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Scans</h1>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search scans..." 
+                   value="{{ search }}" class="filter-input">
+            <select name="status" class="filter-select">
+                <option value="">All Status</option>
+                <option value="queued" {% if status == 'queued' %}selected{% endif %}>Queued</option>
+                <option value="running" {% if status == 'running' %}selected{% endif %}>Running</option>
+                <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
+                <option value="aborted" {% if status == 'aborted' %}selected{% endif %}>Aborted</option>
+                <option value="failed" {% if status == 'failed' %}selected{% endif %}>Failed</option>
+            </select>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search or status %}
+                <a href="{{ url_for('main.scans') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} scan(s) found</p>
+    
+    {% if scans %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Scan Name</th>
+                    <th>Project</th>
+                    <th>Operator</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for scan in scans %}
+                <tr>
+                    <td><a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or 'Unnamed' }}</a></td>
+                    <td>{{ scan.project_name or '-' }}</td>
+                    <td>{{ scan.operator or '-' }}</td>
+                    <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
+                    <td>
+                        {% if scan.total_points %}
+                            {{ scan.completed_points or 0 }} / {{ scan.total_points }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>{{ scan.created_at[:10] if scan.created_at else '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">🚀</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="{{ url_for('main.scans', page=page-1, search=search, status=status) }}" class="btn btn-sm">← Previous</a>
+            {% endif %}
+            <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}
+                <a href="{{ url_for('main.scans', page=page+1, search=search, status=status) }}" class="btn btn-sm">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>No scans found.</p>
+            <p>Run scans in PyBirch to see them here.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

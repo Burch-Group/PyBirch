@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+
+{% block title %}Issue #{{ issue.id }}: {{ issue.title }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="issue-detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.issues') }}">Issues</a> / #{{ issue.id }}
+        </div>
+    </div>
+    
+    <div class="issue-header">
+        <div class="issue-title-row">
+            <span class="issue-id">#{{ issue.id }}</span>
+            <h1>{{ issue.title }}</h1>
+        </div>
+        <div class="issue-badges">
+            <span class="category-badge category-{{ issue.category }}">
+                {% if issue.category == 'bug' %}🐛{% elif issue.category == 'feature' %}✨{% elif issue.category == 'enhancement' %}📈{% else %}❓{% endif %}
+                {{ issue.category }}
+            </span>
+            <span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span>
+            <span class="status-badge status-{{ issue.status }}">{{ issue.status|replace('_', ' ') }}</span>
+        </div>
+    </div>
+    
+    <div class="issue-grid">
+        <div class="issue-main">
+            <div class="issue-section">
+                <h2>Description</h2>
+                {% if issue.description %}
+                <div class="issue-content">{{ issue.description }}</div>
+                {% else %}
+                <p class="empty-message">No description provided.</p>
+                {% endif %}
+            </div>
+            
+            {% if issue.error_message %}
+            <div class="issue-section">
+                <h2>Error Message</h2>
+                <pre class="error-box">{{ issue.error_message }}</pre>
+            </div>
+            {% endif %}
+            
+            {% if issue.steps_to_reproduce %}
+            <div class="issue-section">
+                <h2>Steps to Reproduce</h2>
+                <div class="issue-content">{{ issue.steps_to_reproduce }}</div>
+            </div>
+            {% endif %}
+            
+            {% if issue.resolution %}
+            <div class="issue-section resolution-section">
+                <h2>✅ Resolution</h2>
+                <div class="issue-content">{{ issue.resolution }}</div>
+            </div>
+            {% endif %}
+            
+            {% if current_user %}
+            <div class="issue-section">
+                <h2>Update Status</h2>
+                <form action="{{ url_for('main.issue_update_status', issue_id=issue.id) }}" method="POST" class="status-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="status">Status</label>
+                            <select id="status" name="status">
+                                <option value="open" {% if issue.status == 'open' %}selected{% endif %}>Open</option>
+                                <option value="in_progress" {% if issue.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                                <option value="resolved" {% if issue.status == 'resolved' %}selected{% endif %}>Resolved</option>
+                                <option value="closed" {% if issue.status == 'closed' %}selected{% endif %}>Closed</option>
+                                <option value="wont_fix" {% if issue.status == 'wont_fix' %}selected{% endif %}>Won't Fix</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="assignee_id">Assignee</label>
+                            <select id="assignee_id" name="assignee_id">
+                                <option value="">-- Unassigned --</option>
+                                {% for user in users %}
+                                <option value="{{ user.id }}" {% if issue.assignee_id == user.id %}selected{% endif %}>{{ user.name or user.username }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="resolution">Resolution Notes</label>
+                        <textarea id="resolution" name="resolution" rows="3">{{ issue.resolution or '' }}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Update</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="issue-sidebar">
+            <div class="sidebar-section">
+                <h3>Details</h3>
+                <dl class="detail-list">
+                    <dt>Reported by</dt>
+                    <dd>{{ issue.reporter_name or 'Anonymous' }}</dd>
+                    
+                    <dt>Created</dt>
+                    <dd>{{ issue.created_at[:16]|replace('T', ' ') if issue.created_at else '-' }}</dd>
+                    
+                    <dt>Updated</dt>
+                    <dd>{{ issue.updated_at[:16]|replace('T', ' ') if issue.updated_at else '-' }}</dd>
+                    
+                    {% if issue.resolved_at %}
+                    <dt>Resolved</dt>
+                    <dd>{{ issue.resolved_at[:16]|replace('T', ' ') }}</dd>
+                    {% endif %}
+                    
+                    <dt>Assigned to</dt>
+                    <dd>{{ issue.assignee_name or 'Unassigned' }}</dd>
+                    
+                    {% if issue.related_url %}
+                    <dt>Related URL</dt>
+                    <dd><a href="{{ issue.related_url }}" target="_blank">{{ issue.related_url[:40] }}{% if issue.related_url|length > 40 %}...{% endif %}</a></dd>
+                    {% endif %}
+                    
+                    {% if issue.browser_info %}
+                    <dt>Browser</dt>
+                    <dd>{{ issue.browser_info[:50] }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+            
+            <div class="sidebar-actions">
+                {% if current_user and (current_user.role == 'admin' or issue.reporter_id == current_user.id) %}
+                <a href="{{ url_for('main.issue_edit', issue_id=issue.id) }}" class="btn btn-secondary btn-block">Edit Issue</a>
+                {% endif %}
+                
+                {% if current_user and current_user.role == 'admin' %}
+                <form action="{{ url_for('main.issue_delete', issue_id=issue.id) }}" method="POST" style="margin-top: 0.5rem;">
+                    <button type="submit" class="btn btn-danger btn-block" onclick="return confirm('Delete this issue?')">Delete Issue</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.issue-detail-page {
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.issue-header {
+    margin-bottom: 1.5rem;
+}
+
+.issue-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.issue-title-row .issue-id {
+    color: var(--color-text-muted);
+    font-size: 1.5rem;
+}
+
+.issue-title-row h1 {
+    margin: 0;
+}
+
+.issue-badges {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 1.5rem;
+}
+
+.issue-main {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.issue-section {
+    background: var(--color-bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+}
+
+.issue-section h2 {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.issue-content {
+    white-space: pre-wrap;
+    line-height: 1.6;
+}
+
+.error-box {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    overflow-x: auto;
+    color: #991b1b;
+}
+
+.resolution-section {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+}
+
+.resolution-section h2 {
+    color: #065f46;
+    border-bottom-color: #bbf7d0;
+}
+
+.status-form .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.issue-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.sidebar-section {
+    background: var(--color-bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    box-shadow: var(--shadow);
+}
+
+.sidebar-section h3 {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+    color: var(--color-text-secondary);
+}
+
+.sidebar-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.btn-block {
+    width: 100%;
+    text-align: center;
+}
+
+.priority-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.priority-low { background: #e5e7eb; color: #374151; }
+.priority-medium { background: #fef3c7; color: #92400e; }
+.priority-high { background: #fee2e2; color: #991b1b; }
+.priority-critical { background: #991b1b; color: white; }
+
+.category-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: var(--color-bg-tertiary);
+}
+
+@media (max-width: 768px) {
+    .issue-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .status-form .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}

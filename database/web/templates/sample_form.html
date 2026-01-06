@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Sample - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.samples') }}">Samples</a> / {{ action }}
+        </div>
+    </div>
+    
+    <h1>{{ action }} Sample</h1>
+    
+    {% if template %}
+    <div class="template-notice">
+        <span class="template-badge">📋 Using Template</span>
+        <strong>{{ template.name }}</strong>
+        {% if template.lab_name or (template.template_data and template.template_data.lab_name) %}
+         - {{ template.lab_name or template.template_data.lab_name }}
+        {% endif %}
+        {% if template.project_name or (template.template_data and template.template_data.project_name) %}
+         / {{ template.project_name or template.template_data.project_name }}
+        {% endif %}
+        <p class="template-hint">Fields have been pre-filled from the template. You can modify them as needed.</p>
+    </div>
+    {% endif %}
+    
+    <form method="POST" class="entity-form">
+        <!-- Basic Information Section -->
+        <div class="form-section">
+            <h2>Basic Information</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="sample_id">Sample ID *</label>
+                    <input type="text" id="sample_id" name="sample_id" required
+                           value="{{ sample.sample_id if sample else '' }}"
+                           {% if action == 'Edit' %}readonly{% endif %}>
+                    {% if action != 'Edit' %}
+                    <small>Auto-generated ID (can be modified)</small>
+                    {% endif %}
+                </div>
+                
+                <div class="form-group">
+                    <label for="name">Name</label>
+                    <input type="text" id="name" name="name"
+                           value="{{ sample.name if sample else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="material">Material</label>
+                    <input type="text" id="material" name="material"
+                           value="{{ sample.material if sample else '' }}"
+                           placeholder="e.g., Gold, Silicon, GaAs">
+                </div>
+                
+                <div class="form-group">
+                    <label for="sample_type">Sample Type</label>
+                    <select id="sample_type" name="sample_type">
+                        <option value="">Select type...</option>
+                        <option value="thin_film" {% if sample and sample.sample_type == 'thin_film' %}selected{% endif %}>Thin Film</option>
+                        <option value="bulk" {% if sample and sample.sample_type == 'bulk' %}selected{% endif %}>Bulk</option>
+                        <option value="nanoparticle" {% if sample and sample.sample_type == 'nanoparticle' %}selected{% endif %}>Nanoparticle</option>
+                        <option value="powder" {% if sample and sample.sample_type == 'powder' %}selected{% endif %}>Powder</option>
+                        <option value="solution" {% if sample and sample.sample_type == 'solution' %}selected{% endif %}>Solution</option>
+                        <option value="other" {% if sample and sample.sample_type == 'other' %}selected{% endif %}>Other</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="substrate">Substrate</label>
+                    <input type="text" id="substrate" name="substrate"
+                           value="{{ sample.substrate if sample else '' }}"
+                           placeholder="e.g., Glass, Si wafer">
+                </div>
+                
+                <div class="form-group">
+                    <label for="status">Status</label>
+                    <select id="status" name="status">
+                        <option value="active" {% if sample and sample.status == 'active' %}selected{% endif %}>Active</option>
+                        <option value="consumed" {% if sample and sample.status == 'consumed' %}selected{% endif %}>Consumed</option>
+                        <option value="archived" {% if sample and sample.status == 'archived' %}selected{% endif %}>Archived</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="storage_location">Storage Location</label>
+                    <input type="text" id="storage_location" name="storage_location"
+                           value="{{ sample.storage_location if sample else '' }}"
+                           placeholder="e.g., Lab 101, Cabinet A">
+                </div>
+                
+                <div class="form-group">
+                    <label for="created_by">Created By</label>
+                    <input type="text" id="created_by" name="created_by" readonly
+                           value="{{ sample.created_by if sample else (current_user.username if current_user else '') }}">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Relationships Section -->
+        <div class="form-section">
+            <h2>Relationships</h2>
+            <p class="section-description">Link this sample to a project, parent sample, or specify the precursors used to create it.</p>
+            
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="project_id">
+                        <span class="label-icon">📁</span> Project
+                    </label>
+                    <select id="project_id" name="project_id" class="searchable-select">
+                        <option value="">-- No Project --</option>
+                        {% for project in projects %}
+                        <option value="{{ project.id }}" 
+                                {% if sample and sample.project_id == project.id %}selected{% endif %}>
+                            {{ project.display }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small>Associate this sample with a research project</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="parent_sample_id">
+                        <span class="label-icon">🔗</span> Parent Sample (Derived From)
+                    </label>
+                    <select id="parent_sample_id" name="parent_sample_id" class="searchable-select">
+                        <option value="">-- No Parent Sample --</option>
+                        {% for s in samples_list %}
+                        <option value="{{ s.id }}"
+                                {% if sample and sample.parent_sample_id == s.id %}selected{% endif %}>
+                            {{ s.display }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small>If this sample was derived from another sample (e.g., cut from a larger piece)</small>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Precursors Section -->
+        <div class="form-section">
+            <h2>
+                <span class="label-icon">🧪</span> Precursors Used
+            </h2>
+            <p class="section-description">Specify the chemical precursors or materials used to create this sample.</p>
+            
+            <div id="precursors-container">
+                {% if sample_precursors %}
+                    {% for sp in sample_precursors %}
+                    <div class="precursor-row">
+                        <div class="precursor-fields">
+                            <div class="form-group">
+                                <label>Precursor</label>
+                                <select name="precursor_id[]" class="searchable-select">
+                                    <option value="">Select precursor...</option>
+                                    {% for p in precursors %}
+                                    <option value="{{ p.id }}" {% if p.id == sp.precursor_id %}selected{% endif %}>
+                                        {{ p.display }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Role</label>
+                                <select name="precursor_role[]">
+                                    <option value="">Select role...</option>
+                                    <option value="primary" {% if sp.role == 'primary' %}selected{% endif %}>Primary Material</option>
+                                    <option value="dopant" {% if sp.role == 'dopant' %}selected{% endif %}>Dopant</option>
+                                    <option value="solvent" {% if sp.role == 'solvent' %}selected{% endif %}>Solvent</option>
+                                    <option value="substrate" {% if sp.role == 'substrate' %}selected{% endif %}>Substrate</option>
+                                    <option value="catalyst" {% if sp.role == 'catalyst' %}selected{% endif %}>Catalyst</option>
+                                    <option value="other" {% if sp.role == 'other' %}selected{% endif %}>Other</option>
+                                </select>
+                            </div>
+                            <button type="button" class="btn btn-icon btn-danger remove-precursor" title="Remove">
+                                <span>✕</span>
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+            
+            <button type="button" id="add-precursor" class="btn btn-secondary btn-sm">
+                <span>+</span> Add Precursor
+            </button>
+        </div>
+        
+        <!-- Description Section -->
+        <div class="form-section">
+            <h2>Additional Information</h2>
+            <div class="form-group form-group-full">
+                <label for="description">Description</label>
+                <textarea id="description" name="description" rows="4"
+                          placeholder="Additional notes about the sample...">{{ sample.description if sample else '' }}</textarea>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.samples') }}" class="btn btn-link">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ action }} Sample</button>
+        </div>
+    </form>
+</div>
+
+<!-- Precursor row template for JavaScript -->
+<template id="precursor-row-template">
+    <div class="precursor-row">
+        <div class="precursor-fields">
+            <div class="form-group">
+                <label>Precursor</label>
+                <select name="precursor_id[]" class="searchable-select">
+                    <option value="">Select precursor...</option>
+                    {% for p in precursors %}
+                    <option value="{{ p.id }}">{{ p.display }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Role</label>
+                <select name="precursor_role[]">
+                    <option value="">Select role...</option>
+                    <option value="primary">Primary Material</option>
+                    <option value="dopant">Dopant</option>
+                    <option value="solvent">Solvent</option>
+                    <option value="substrate">Substrate</option>
+                    <option value="catalyst">Catalyst</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <button type="button" class="btn btn-icon btn-danger remove-precursor" title="Remove">
+                <span>✕</span>
+            </button>
+        </div>
+    </div>
+</template>
+
+<style>
+.form-section {
+    background: #ffffff;
+    border: 1px solid var(--border-color, #e9ecef);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.form-section h2 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+    color: var(--text-color, #333);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.section-description {
+    color: var(--text-muted, #666);
+    font-size: 0.9rem;
+    margin: 0 0 1rem 0;
+}
+
+.label-icon {
+    font-size: 1rem;
+}
+
+.precursor-row {
+    background: #ffffff;
+    border: 1px solid var(--border-color, #e9ecef);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.precursor-fields {
+    display: grid;
+    grid-template-columns: 2fr 1fr auto;
+    gap: 0.75rem;
+    align-items: end;
+}
+
+.precursor-fields .form-group {
+    margin-bottom: 0;
+}
+
+.precursor-fields label {
+    font-size: 0.8rem;
+    color: var(--text-muted, #666);
+    margin-bottom: 0.25rem;
+}
+
+.btn-icon {
+    padding: 0.5rem;
+    min-width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-danger {
+    background: #dc3545;
+    color: white;
+    border: none;
+}
+
+.btn-danger:hover {
+    background: #c82333;
+}
+
+.btn-secondary.btn-sm {
+    font-size: 0.9rem;
+    padding: 0.5rem 1rem;
+}
+
+#add-precursor {
+    margin-top: 0.5rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .precursor-fields {
+        grid-template-columns: 1fr;
+    }
+    
+    .precursor-fields .btn-icon {
+        justify-self: end;
+    }
+}
+</style>
+
+<style>
+.template-notice {
+    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+    border: 1px solid #81c784;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.template-badge {
+    background: #4caf50;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+}
+
+.template-notice strong {
+    color: #2e7d32;
+}
+
+.template-hint {
+    margin: 0.5rem 0 0 0;
+    font-size: 0.9rem;
+    color: #558b2f;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const container = document.getElementById('precursors-container');
+    const addBtn = document.getElementById('add-precursor');
+    const template = document.getElementById('precursor-row-template');
+    
+    // Add new precursor row
+    addBtn.addEventListener('click', function() {
+        const clone = template.content.cloneNode(true);
+        container.appendChild(clone);
+        attachRemoveHandler(container.lastElementChild);
+    });
+    
+    // Attach remove handlers to existing rows
+    document.querySelectorAll('.remove-precursor').forEach(attachRemoveHandler);
+    
+    function attachRemoveHandler(element) {
+        const btn = element.classList?.contains('remove-precursor') 
+            ? element 
+            : element.querySelector('.remove-precursor');
+        if (btn) {
+            btn.addEventListener('click', function() {
+                this.closest('.precursor-row').remove();
+            });
+        }
+    }
+});
+</script>
+{% endblock %}

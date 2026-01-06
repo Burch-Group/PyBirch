@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Precursors - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Precursors</h1>
+        <a href="{{ url_for('main.precursor_new') }}" class="btn btn-primary">+ New Precursor</a>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search precursors..." 
+                   value="{{ search }}" class="filter-input">
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search %}
+                <a href="{{ url_for('main.precursors') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} precursor(s) found</p>
+    
+    {% if precursors %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Formula</th>
+                    <th>CAS Number</th>
+                    <th>Supplier</th>
+                    <th>Purity</th>
+                    <th>State</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in precursors %}
+                <tr>
+                    <td><a href="{{ url_for('main.precursor_detail', precursor_id=item.id) }}">{{ item.name }}</a></td>
+                    <td><code>{{ item.chemical_formula or '-' }}</code></td>
+                    <td>{{ item.cas_number or '-' }}</td>
+                    <td>{{ item.supplier or '-' }}</td>
+                    <td>{{ (item.purity | string) + '%' if item.purity else '-' }}</td>
+                    <td>{{ item.state or '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('main.precursor_detail', precursor_id=item.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.precursor_edit', precursor_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="{{ url_for('main.precursors', page=page-1, search=search) }}" class="btn btn-sm">← Previous</a>
+            {% endif %}
+            <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}
+                <a href="{{ url_for('main.precursors', page=page+1, search=search) }}" class="btn btn-sm">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>No precursors found.</p>
+            <a href="{{ url_for('main.precursor_new') }}" class="btn btn-primary">Add your first precursor</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

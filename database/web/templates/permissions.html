@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+
+{% block title %}Permissions Management - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="permissions-page">
+    <div class="page-header">
+        <h1>🔐 Permissions Management</h1>
+        <p class="subtitle">Manage user roles and access permissions for labs, projects, and items</p>
+    </div>
+    
+    <div class="permissions-grid">
+        <!-- Labs -->
+        <div class="permissions-section">
+            <div class="section-header">
+                <h2>🏛️ Labs</h2>
+                <span class="count-badge">{{ entities.labs|length }}</span>
+            </div>
+            <p class="section-description">Manage lab members and their roles (PI, Admin, Member, Student, Visiting)</p>
+            
+            {% if entities.labs %}
+            <div class="entity-list">
+                {% for lab in entities.labs %}
+                <a href="{{ url_for('main.permissions_detail', entity_type='lab', entity_id=lab.id) }}" class="entity-item">
+                    <span class="entity-name">{{ lab.name }}</span>
+                    {% if lab.code %}
+                    <span class="entity-code">{{ lab.code }}</span>
+                    {% endif %}
+                    <span class="entity-arrow">→</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-message">No labs created yet. <a href="{{ url_for('main.lab_new') }}">Create one</a></p>
+            {% endif %}
+        </div>
+        
+        <!-- Projects -->
+        <div class="permissions-section">
+            <div class="section-header">
+                <h2>📁 Projects</h2>
+                <span class="count-badge">{{ entities.projects|length }}</span>
+            </div>
+            <p class="section-description">Manage project members, collaborators, and guest access</p>
+            
+            {% if entities.projects %}
+            <div class="entity-list">
+                {% for project in entities.projects %}
+                <a href="{{ url_for('main.permissions_detail', entity_type='project', entity_id=project.id) }}" class="entity-item">
+                    <span class="entity-name">{{ project.name }}</span>
+                    <span class="status-badge status-{{ project.status }}">{{ project.status }}</span>
+                    <span class="entity-arrow">→</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-message">No projects created yet. <a href="{{ url_for('main.project_new') }}">Create one</a></p>
+            {% endif %}
+        </div>
+        
+        <!-- Samples -->
+        <div class="permissions-section">
+            <div class="section-header">
+                <h2>🧪 Samples</h2>
+                <span class="count-badge">{{ entities.samples|length }}</span>
+            </div>
+            <p class="section-description">Manage guest access to individual samples</p>
+            
+            {% if entities.samples %}
+            <div class="entity-list entity-list-compact">
+                {% for sample in entities.samples[:20] %}
+                <a href="{{ url_for('main.permissions_detail', entity_type='sample', entity_id=sample.id) }}" class="entity-item">
+                    <span class="entity-name">{{ sample.name }}</span>
+                    <span class="entity-arrow">→</span>
+                </a>
+                {% endfor %}
+                {% if entities.samples|length > 20 %}
+                <p class="more-items">... and {{ entities.samples|length - 20 }} more samples</p>
+                {% endif %}
+            </div>
+            {% else %}
+            <p class="empty-message">No samples created yet.</p>
+            {% endif %}
+        </div>
+        
+        <!-- Scans -->
+        <div class="permissions-section">
+            <div class="section-header">
+                <h2>📊 Scans</h2>
+                <span class="count-badge">{{ entities.scans|length }}</span>
+            </div>
+            <p class="section-description">Manage guest access to individual scans</p>
+            
+            {% if entities.scans %}
+            <div class="entity-list entity-list-compact">
+                {% for scan in entities.scans[:20] %}
+                <a href="{{ url_for('main.permissions_detail', entity_type='scan', entity_id=scan.id) }}" class="entity-item">
+                    <span class="entity-name">{{ scan.name }}</span>
+                    <span class="entity-arrow">→</span>
+                </a>
+                {% endfor %}
+                {% if entities.scans|length > 20 %}
+                <p class="more-items">... and {{ entities.scans|length - 20 }} more scans</p>
+                {% endif %}
+            </div>
+            {% else %}
+            <p class="empty-message">No scans recorded yet.</p>
+            {% endif %}
+        </div>
+        
+        <!-- Queues -->
+        <div class="permissions-section">
+            <div class="section-header">
+                <h2>📋 Queues</h2>
+                <span class="count-badge">{{ entities.queues|length }}</span>
+            </div>
+            <p class="section-description">Manage guest access to queues</p>
+            
+            {% if entities.queues %}
+            <div class="entity-list entity-list-compact">
+                {% for queue in entities.queues[:20] %}
+                <a href="{{ url_for('main.permissions_detail', entity_type='queue', entity_id=queue.id) }}" class="entity-item">
+                    <span class="entity-name">{{ queue.name }}</span>
+                    <span class="entity-arrow">→</span>
+                </a>
+                {% endfor %}
+                {% if entities.queues|length > 20 %}
+                <p class="more-items">... and {{ entities.queues|length - 20 }} more queues</p>
+                {% endif %}
+            </div>
+            {% else %}
+            <p class="empty-message">No queues created yet.</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="permissions-help">
+        <h2>📖 Understanding Permissions</h2>
+        <div class="help-grid">
+            <div class="help-card">
+                <h3>Lab Roles</h3>
+                <ul>
+                    <li><span class="role-badge role-principal_investigator">Principal Investigator</span> Full administrative control</li>
+                    <li><span class="role-badge role-administrator">Administrator</span> Can manage members and settings</li>
+                    <li><span class="role-badge role-member">Member</span> Full access to lab resources</li>
+                    <li><span class="role-badge role-student">Student</span> Limited access, supervised</li>
+                    <li><span class="role-badge role-visiting">Visiting</span> Temporary access</li>
+                </ul>
+            </div>
+            <div class="help-card">
+                <h3>Project Roles</h3>
+                <ul>
+                    <li><span class="role-badge role-lead">Lead</span> Project leader with full control</li>
+                    <li><span class="role-badge role-collaborator">Collaborator</span> Active project participant</li>
+                    <li><span class="role-badge role-advisor">Advisor</span> Guidance and oversight</li>
+                    <li><span class="role-badge role-contributor">Contributor</span> Limited contributions</li>
+                </ul>
+            </div>
+            <div class="help-card">
+                <h3>Guest Access Levels</h3>
+                <ul>
+                    <li><span class="access-badge access-view">View</span> Can view data only</li>
+                    <li><span class="access-badge access-edit">Edit</span> Can view and modify data</li>
+                    <li><span class="access-badge access-full">Full</span> Complete access including delete</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.permissions-page {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.permissions-page .subtitle {
+    color: var(--color-text-secondary);
+    margin-bottom: 2rem;
+}
+
+.permissions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.permissions-section {
+    background: var(--color-bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.section-header h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.count-badge {
+    background: var(--color-primary);
+    color: white;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 10px;
+    font-weight: 600;
+}
+
+.section-description {
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.entity-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.entity-list-compact {
+    max-height: 200px;
+}
+
+.entity-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--color-bg-tertiary);
+    border-radius: var(--border-radius-sm);
+    text-decoration: none;
+    color: var(--color-text-primary);
+    transition: background 0.15s, transform 0.15s;
+}
+
+.entity-item:hover {
+    background: var(--color-bg-secondary);
+    transform: translateX(4px);
+}
+
+.entity-name {
+    flex: 1;
+    font-weight: 500;
+}
+
+.entity-code {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    background: var(--color-bg-primary);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+}
+
+.entity-arrow {
+    color: var(--color-text-muted);
+}
+
+.more-items {
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    padding: 0.5rem;
+}
+
+.permissions-help {
+    background: var(--color-bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+}
+
+.permissions-help h2 {
+    margin-bottom: 1rem;
+}
+
+.help-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+.help-card {
+    background: var(--color-bg-tertiary);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+}
+
+.help-card h3 {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+}
+
+.help-card ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.help-card li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+}
+</style>
+{% endblock %}

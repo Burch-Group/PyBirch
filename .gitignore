@@ -207,3 +207,7 @@ wandb/
 
 # PyBirch specific files
 samples/
+
+# Local configuration and presets (user-specific, not to be shared)
+config/default/
+config/presets/

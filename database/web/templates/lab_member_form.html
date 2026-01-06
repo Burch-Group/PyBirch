@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Member - {{ lab.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.labs') }}">Labs</a> / 
+            <a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}">{{ lab.name }}</a> / 
+            {{ action }} Member
+        </div>
+    </div>
+    
+    <h1>{{ action }} Lab Member</h1>
+    
+    <form method="POST" class="entity-form">
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="name">Name *</label>
+                <input type="text" id="name" name="name" required
+                       value="{{ member.name if member else '' }}"
+                       placeholder="Full name">
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email"
+                       value="{{ member.email if member else '' }}"
+                       placeholder="email@university.edu">
+            </div>
+            
+            <div class="form-group">
+                <label for="role">Role *</label>
+                <select id="role" name="role" required>
+                    <option value="member" {% if member and member.role == 'member' %}selected{% endif %}>Member</option>
+                    <option value="student" {% if member and member.role == 'student' %}selected{% endif %}>Student</option>
+                    <option value="administrator" {% if member and member.role == 'administrator' %}selected{% endif %}>Administrator</option>
+                    <option value="principal_investigator" {% if member and member.role == 'principal_investigator' %}selected{% endif %}>Principal Investigator</option>
+                    <option value="visiting" {% if member and member.role == 'visiting' %}selected{% endif %}>Visiting Researcher</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="title">Title</label>
+                <input type="text" id="title" name="title"
+                       value="{{ member.title if member else '' }}"
+                       placeholder="e.g., Professor, PhD Student, Postdoc">
+            </div>
+            
+            <div class="form-group">
+                <label for="orcid">ORCID</label>
+                <input type="text" id="orcid" name="orcid"
+                       value="{{ member.orcid if member else '' }}"
+                       placeholder="0000-0000-0000-0000">
+            </div>
+            
+            <div class="form-group">
+                <label for="phone">Phone</label>
+                <input type="text" id="phone" name="phone"
+                       value="{{ member.phone if member else '' }}"
+                       placeholder="+1 (555) 123-4567">
+            </div>
+            
+            <div class="form-group">
+                <label for="office_location">Office Location</label>
+                <input type="text" id="office_location" name="office_location"
+                       value="{{ member.office_location if member else '' }}"
+                       placeholder="Building, Room">
+            </div>
+        </div>
+        
+        <div class="form-group form-group-full">
+            <label for="notes">Notes</label>
+            <textarea id="notes" name="notes" rows="3"
+                      placeholder="Additional notes about this member">{{ member.notes if member else '' }}</textarea>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}" class="btn btn-link">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ action }} Member</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

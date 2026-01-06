@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}{{ scan.scan_name or 'Scan' }} - PyBirch Database{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.scans') }}">Scans</a> / {{ scan.scan_name or scan.scan_id }}
+        </div>
+        <div class="header-actions">
+            <a href="{{ scan.pybirch_uri }}" class="btn btn-primary">🚀 Open in PyBirch</a>
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <h1>{{ scan.scan_name or 'Unnamed Scan' }}</h1>
+        <span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span>
+    </div>
+    
+    <div class="detail-grid">
+        <div class="detail-section">
+            <h2>Scan Information</h2>
+            <dl class="detail-list">
+                <dt>Scan ID</dt>
+                <dd>{{ scan.scan_id or '-' }}</dd>
+                
+                <dt>Project</dt>
+                <dd>{{ scan.project_name or '-' }}</dd>
+                
+                <dt>Operator</dt>
+                <dd>{{ scan.operator or '-' }}</dd>
+                
+                <dt>Scan Type</dt>
+                <dd>{{ scan.scan_type or '-' }}</dd>
+                
+                <dt>Progress</dt>
+                <dd>{{ scan.completed_points or 0 }} / {{ scan.total_points or 0 }} points</dd>
+                
+                <dt>Start Time</dt>
+                <dd>{{ scan.start_time[:19] if scan.start_time else '-' }}</dd>
+                
+                <dt>End Time</dt>
+                <dd>{{ scan.end_time[:19] if scan.end_time else '-' }}</dd>
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Sample</h2>
+            {% if scan.sample %}
+                <dl class="detail-list">
+                    <dt>Sample ID</dt>
+                    <dd><a href="{{ url_for('main.sample_detail', sample_id=scan.sample.id) }}">{{ scan.sample.sample_id }}</a></dd>
+                    
+                    <dt>Material</dt>
+                    <dd>{{ scan.sample.material or '-' }}</dd>
+                    
+                    <dt>Status</dt>
+                    <dd><span class="status-badge status-{{ scan.sample.status }}">{{ scan.sample.status }}</span></dd>
+                </dl>
+            {% else %}
+                <p class="empty-state">No sample associated with this scan.</p>
+            {% endif %}
+            
+            <h3>PyBirch URI</h3>
+            <div class="uri-box">
+                <code>{{ scan.pybirch_uri }}</code>
+                <button class="btn btn-sm copy-btn" data-copy="{{ scan.pybirch_uri }}">Copy</button>
+            </div>
+        </div>
+    </div>
+    
+    {% if scan.measurement_objects %}
+    <div class="related-section">
+        <h2>Measurements ({{ scan.measurement_objects|length }})</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Unit</th>
+                    <th>Instrument</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mo in scan.measurement_objects %}
+                <tr>
+                    <td>{{ mo.name }}</td>
+                    <td>{{ mo.measurement_type or '-' }}</td>
+                    <td>{{ mo.unit or '-' }}</td>
+                    <td>{{ mo.instrument_name or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    
+    {% if data_points %}
+    <div class="related-section">
+        <h2>Data Visualization</h2>
+        <div class="chart-container">
+            <canvas id="dataChart"></canvas>
+        </div>
+        
+        <h3>Data Points ({{ data_points|length }})</h3>
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Index</th>
+                        <th>Value</th>
+                        <th>Timestamp</th>
+                        <th>Position</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for point in data_points[:100] %}
+                    <tr>
+                        <td>{{ point.point_index }}</td>
+                        <td>{{ point.value }}</td>
+                        <td>{{ point.timestamp[:19] if point.timestamp else '-' }}</td>
+                        <td>{{ point.position | tojson if point.position else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if data_points|length > 100 %}
+        <p class="note">Showing first 100 of {{ data_points|length }} data points.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if data_points %}
+<script>
+    const dataPoints = {{ data_points | tojson }};
+    
+    if (dataPoints.length > 0) {
+        const ctx = document.getElementById('dataChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: dataPoints.map(p => p.point_index),
+                datasets: [{
+                    label: 'Measurement Value',
+                    data: dataPoints.map(p => p.value),
+                    borderColor: '#0078d4',
+                    backgroundColor: 'rgba(0, 120, 212, 0.1)',
+                    fill: true,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Point Index'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Value'
+                        }
+                    }
+                }
+            }
+        });
+    }
+</script>
+{% endif %}
+{% endblock %}

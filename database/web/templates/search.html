@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Search Results - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="search-page">
+    <h1>Search Results</h1>
+    
+    {% if query %}
+        <p class="search-summary">Results for "<strong>{{ query }}</strong>"</p>
+        
+        {% set total_results = results.samples|length + results.scans|length + results.queues|length + results.equipment|length + results.precursors|length %}
+        
+        {% if total_results == 0 %}
+            <div class="empty-state">
+                <p>No results found for "{{ query }}"</p>
+                <p>Try a different search term or browse the categories above.</p>
+            </div>
+        {% else %}
+            <p class="result-count">Found {{ total_results }} result(s)</p>
+            
+            {% if results.samples %}
+            <div class="search-section">
+                <h2>🧪 Samples ({{ results.samples|length }})</h2>
+                <div class="search-results">
+                    {% for sample in results.samples %}
+                    <div class="search-result-card">
+                        <h3><a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}">{{ sample.sample_id }}</a></h3>
+                        <p>{{ sample.name or sample.material or 'No description' }}</p>
+                        <span class="status-badge status-{{ sample.status }}">{{ sample.status }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if results.scans %}
+            <div class="search-section">
+                <h2>📊 Scans ({{ results.scans|length }})</h2>
+                <div class="search-results">
+                    {% for scan in results.scans %}
+                    <div class="search-result-card">
+                        <h3><a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or 'Unnamed Scan' }}</a></h3>
+                        <p>{{ scan.project_name or 'No project' }}</p>
+                        <span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span>
+                        <a href="{{ scan.pybirch_uri }}" class="open-link" title="Open in PyBirch">🚀</a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if results.queues %}
+            <div class="search-section">
+                <h2>📋 Queues ({{ results.queues|length }})</h2>
+                <div class="search-results">
+                    {% for queue in results.queues %}
+                    <div class="search-result-card">
+                        <h3><a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}">{{ queue.name or queue.queue_id }}</a></h3>
+                        <p>{{ queue.total_scans }} scan(s)</p>
+                        <span class="status-badge status-{{ queue.status }}">{{ queue.status }}</span>
+                        <a href="{{ queue.pybirch_uri }}" class="open-link" title="Open in PyBirch">🚀</a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if results.equipment %}
+            <div class="search-section">
+                <h2>🔧 Equipment ({{ results.equipment|length }})</h2>
+                <div class="search-results">
+                    {% for item in results.equipment %}
+                    <div class="search-result-card">
+                        <h3><a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}">{{ item.name }}</a></h3>
+                        <p>{{ item.manufacturer }} {{ item.model }}</p>
+                        <span class="status-badge status-{{ item.status }}">{{ item.status }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if results.precursors %}
+            <div class="search-section">
+                <h2>⚗️ Precursors ({{ results.precursors|length }})</h2>
+                <div class="search-results">
+                    {% for item in results.precursors %}
+                    <div class="search-result-card">
+                        <h3><a href="{{ url_for('main.precursor_detail', precursor_id=item.id) }}">{{ item.name }}</a></h3>
+                        <p>{{ item.chemical_formula or 'No formula' }} | {{ item.supplier or 'Unknown supplier' }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>Enter a search term to find samples, scans, equipment, and more.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

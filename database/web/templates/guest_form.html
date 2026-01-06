@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Grant Guest Access - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            {% if entity_type == 'project' %}
+            <a href="{{ url_for('main.projects') }}">Projects</a> / 
+            <a href="{{ url_for('main.project_detail', project_id=entity_id) }}">{{ entity_name }}</a> / 
+            {% elif entity_type == 'sample' %}
+            <a href="{{ url_for('main.samples') }}">Samples</a> / 
+            <a href="{{ url_for('main.sample_detail', sample_id=entity_id) }}">{{ entity_name }}</a> / 
+            {% elif entity_type == 'scan' %}
+            <a href="{{ url_for('main.scans') }}">Scans</a> / 
+            <a href="{{ url_for('main.scan_detail', scan_id=entity_id) }}">{{ entity_name }}</a> / 
+            {% elif entity_type == 'queue' %}
+            <a href="{{ url_for('main.queues') }}">Queues</a> / 
+            <a href="{{ url_for('main.queue_detail', queue_id=entity_id) }}">{{ entity_name }}</a> / 
+            {% endif %}
+            Grant Access
+        </div>
+    </div>
+    
+    <h1>Grant Guest Access</h1>
+    <p class="subtitle">Grant access to: <strong>{{ entity_name }}</strong> ({{ entity_type|title }})</p>
+    
+    <form method="POST" class="data-form">
+        <div class="form-section">
+            <h2>Guest Information</h2>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="guest_name">Name *</label>
+                    <input type="text" id="guest_name" name="guest_name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="guest_email">Email *</label>
+                    <input type="email" id="guest_email" name="guest_email" required>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="guest_affiliation">Affiliation</label>
+                <input type="text" id="guest_affiliation" name="guest_affiliation" placeholder="e.g., University, Company, Research Institute">
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Access Settings</h2>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="access_level">Access Level *</label>
+                    <select id="access_level" name="access_level" required>
+                        <option value="view">View Only - Can view data but not modify</option>
+                        <option value="edit">Edit - Can view and modify data</option>
+                        <option value="full">Full - Complete access including delete</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="expires_at">Expiration Date</label>
+                    <input type="date" id="expires_at" name="expires_at">
+                    <small class="form-help">Leave blank for no expiration</small>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="notes">Notes</label>
+                <textarea id="notes" name="notes" rows="3" placeholder="Optional notes about this access grant"></textarea>
+            </div>
+        </div>
+        
+        <div class="form-section access-info">
+            <h2>Access Information</h2>
+            <div class="info-box">
+                <p><strong>View Only:</strong> The guest can view the item and its associated data, but cannot make any changes.</p>
+                <p><strong>Edit:</strong> The guest can view and modify the item and its data, but cannot delete anything.</p>
+                <p><strong>Full:</strong> The guest has complete access to the item, including the ability to delete data.</p>
+            </div>
+            <p class="info-note">A unique access token will be generated and sent to the guest's email address.</p>
+        </div>
+        
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Grant Access</button>
+            {% if entity_type == 'project' %}
+            <a href="{{ url_for('main.project_detail', project_id=entity_id) }}" class="btn btn-secondary">Cancel</a>
+            {% elif entity_type == 'sample' %}
+            <a href="{{ url_for('main.sample_detail', sample_id=entity_id) }}" class="btn btn-secondary">Cancel</a>
+            {% elif entity_type == 'scan' %}
+            <a href="{{ url_for('main.scan_detail', scan_id=entity_id) }}" class="btn btn-secondary">Cancel</a>
+            {% elif entity_type == 'queue' %}
+            <a href="{{ url_for('main.queue_detail', queue_id=entity_id) }}" class="btn btn-secondary">Cancel</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+<style>
+.access-info .info-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.access-info .info-box p {
+    margin: 0.5rem 0;
+}
+
+.access-info .info-box p:first-child {
+    margin-top: 0;
+}
+
+.access-info .info-box p:last-child {
+    margin-bottom: 0;
+}
+
+.info-note {
+    font-style: italic;
+    color: var(--text-muted);
+}
+</style>
+{% endblock %}

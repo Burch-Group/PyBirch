@@ -1,0 +1,445 @@
+{% extends "base.html" %}
+
+{% block title %}{{ sample.sample_id }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.samples') }}">Samples</a> / {{ sample.sample_id }}
+        </div>
+        <div class="header-actions">
+            <a href="{{ url_for('main.sample_edit', sample_id=sample.id) }}" class="btn btn-secondary">Edit</a>
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <h1>{{ sample.sample_id }}</h1>
+        <span class="status-badge status-{{ sample.status }}">{{ sample.status }}</span>
+    </div>
+    
+    <!-- QR Code Section -->
+    <div class="qr-code-section">
+        <div class="qr-code-preview">
+            <img src="{{ url_for('main.sample_qrcode_preview', sample_id=sample.id) }}" 
+                 alt="QR Code for {{ sample.sample_id }}" 
+                 class="qr-code-img">
+        </div>
+        <a href="{{ url_for('main.sample_qrcode', sample_id=sample.id) }}" 
+           class="btn btn-secondary btn-small" download>
+            📥 Download QR Code
+        </a>
+    </div>
+    
+    <div class="detail-grid">
+        <div class="detail-section">
+            <h2>Basic Information</h2>
+            <dl class="detail-list">
+                <dt>Name</dt>
+                <dd>{{ sample.name or '-' }}</dd>
+                
+                <dt>Material</dt>
+                <dd>{{ sample.material or '-' }}</dd>
+                
+                <dt>Type</dt>
+                <dd>{{ sample.sample_type or '-' }}</dd>
+                
+                <dt>Substrate</dt>
+                <dd>{{ sample.substrate or '-' }}</dd>
+                
+                <dt>Storage Location</dt>
+                <dd>{{ sample.storage_location or '-' }}</dd>
+                
+                <dt>Created By</dt>
+                <dd>{{ sample.created_by or '-' }}</dd>
+                
+                <dt>Created At</dt>
+                <dd>{{ sample.created_at[:19] if sample.created_at else '-' }}</dd>
+                
+                <dt>Updated At</dt>
+                <dd>{{ sample.updated_at[:19] if sample.updated_at else '-' }}</dd>
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Description</h2>
+            <p class="description">{{ sample.description or 'No description provided.' }}</p>
+            
+            {% if sample.dimensions %}
+            <h3>Dimensions</h3>
+            <pre class="json-display">{{ sample.dimensions | tojson(indent=2) }}</pre>
+            {% endif %}
+            
+            {% if sample.additional_tags %}
+            <h3>Tags</h3>
+            <div class="tag-list">
+                {% for tag in sample.additional_tags %}
+                    <span class="tag">{{ tag }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Relationships Section -->
+    <div class="related-section relationships-section">
+        <h2>📁 Relationships</h2>
+        <div class="relationship-cards">
+            <!-- Project -->
+            <div class="relationship-card">
+                <div class="relationship-label">Project</div>
+                {% if sample.project %}
+                <div class="relationship-value">
+                    <a href="{{ url_for('main.project_detail', project_id=sample.project.id) }}">
+                        {{ sample.project.name }}
+                        {% if sample.project.code %}({{ sample.project.code }}){% endif %}
+                    </a>
+                </div>
+                {% else %}
+                <div class="relationship-value empty">Not assigned to a project</div>
+                {% endif %}
+            </div>
+            
+            <!-- Parent Sample -->
+            <div class="relationship-card">
+                <div class="relationship-label">Derived From (Parent)</div>
+                {% if sample.parent_sample %}
+                <div class="relationship-value">
+                    <a href="{{ url_for('main.sample_detail', sample_id=sample.parent_sample.id) }}">
+                        {{ sample.parent_sample.sample_id }}
+                        {% if sample.parent_sample.name %} - {{ sample.parent_sample.name }}{% endif %}
+                        {% if sample.parent_sample.material %} ({{ sample.parent_sample.material }}){% endif %}
+                    </a>
+                </div>
+                {% else %}
+                <div class="relationship-value empty">Original sample (no parent)</div>
+                {% endif %}
+            </div>
+            
+            <!-- Derived Samples (Children) -->
+            <div class="relationship-card">
+                <div class="relationship-label">Derived Samples</div>
+                {% if sample.derived_samples %}
+                <div class="relationship-list">
+                    {% for child in sample.derived_samples %}
+                    <a href="{{ url_for('main.sample_detail', sample_id=child.id) }}" class="relationship-link">
+                        {{ child.sample_id }}{% if child.name %} - {{ child.name }}{% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="relationship-value empty">No samples derived from this one</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Fabrication Runs Section -->
+    <div class="related-section">
+        <div class="section-header">
+            <h2>⚗️ Fabrication Runs ({{ sample.fabrication_runs|length if sample.fabrication_runs else 0 }})</h2>
+            <a href="{{ url_for('main.fabrication_run_new', sample_id=sample.id) }}" class="btn btn-primary btn-small">+ Add Run</a>
+        </div>
+        {% if sample.fabrication_runs %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Procedure</th>
+                    <th>Status</th>
+                    <th>Operator</th>
+                    <th>Started</th>
+                    <th>Weather</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in sample.fabrication_runs %}
+                <tr>
+                    <td>{{ run.run_number or '-' }}</td>
+                    <td>
+                        {% if run.procedure_id %}
+                        <a href="{{ url_for('main.procedure_detail', procedure_id=run.procedure_id) }}">
+                            {{ run.procedure_name or 'Unknown' }}
+                        </a>
+                        {% if run.procedure_type %}
+                        <span class="badge badge-small">{{ run.procedure_type }}</span>
+                        {% endif %}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td><span class="status-badge status-{{ run.status }}">{{ run.status }}</span></td>
+                    <td>{{ run.operator or '-' }}</td>
+                    <td>{{ run.started_at[:16].replace('T', ' ') if run.started_at else '-' }}</td>
+                    <td>
+                        {% if run.weather_conditions %}
+                        <span class="weather-badge" title="{{ run.weather_conditions.weather_description or '' }}">
+                            {% if run.weather_conditions.temperature_c is defined %}
+                            {{ run.weather_conditions.temperature_c|round(1) }}°C
+                            {% endif %}
+                            {% if run.weather_conditions.humidity_percent is defined %}
+                            / {{ run.weather_conditions.humidity_percent }}%
+                            {% endif %}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="action-buttons">
+                            <a href="{{ url_for('main.fabrication_run_edit', run_id=run.id) }}" class="btn btn-sm btn-secondary" title="Edit">✏️</a>
+                            <form method="POST" action="{{ url_for('main.fabrication_run_delete', run_id=run.id) }}" style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-danger" title="Delete" onclick="return confirm('Delete this fabrication run?')">🗑️</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted">No fabrication runs recorded. <a href="{{ url_for('main.fabrication_run_new', sample_id=sample.id) }}">Add one</a> to track procedures applied to this sample.</p>
+        {% endif %}
+    </div>
+    
+    <!-- Precursors Section -->
+    {% if sample.precursors %}
+    <div class="related-section">
+        <h2>🧪 Precursors Used ({{ sample.precursors|length }})</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Precursor</th>
+                    <th>Chemical Formula</th>
+                    <th>Role</th>
+                    <th>Quantity</th>
+                    <th>Composition %</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for prec in sample.precursors %}
+                <tr>
+                    <td>
+                        <a href="{{ url_for('main.precursor_detail', precursor_id=prec.precursor_id) }}">
+                            {{ prec.precursor_name or 'Unknown' }}
+                        </a>
+                    </td>
+                    <td>{{ prec.chemical_formula or '-' }}</td>
+                    <td>
+                        {% if prec.role %}
+                        <span class="role-badge role-{{ prec.role }}">{{ prec.role }}</span>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if prec.quantity_used %}
+                        {{ prec.quantity_used }} {{ prec.quantity_unit or '' }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>{{ prec.composition_percent ~ '%' if prec.composition_percent else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    
+    {% if sample.scans %}
+    <div class="related-section">
+        <h2>Scans ({{ sample.scans|length }})</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Scan Name</th>
+                    <th>Project</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for scan in sample.scans %}
+                <tr>
+                    <td><a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or 'Unnamed' }}</a></td>
+                    <td>{{ scan.project_name or '-' }}</td>
+                    <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
+                    <td>{{ scan.created_at[:10] if scan.created_at else '-' }}</td>
+                    <td>
+                        <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">🚀 Open</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    
+    {% if sample.queues %}
+    <div class="related-section">
+        <h2>Queues ({{ sample.queues|length }})</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Queue Name</th>
+                    <th>Status</th>
+                    <th>Scans</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for queue in sample.queues %}
+                <tr>
+                    <td><a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}">{{ queue.name or queue.queue_id }}</a></td>
+                    <td><span class="status-badge status-{{ queue.status }}">{{ queue.status }}</span></td>
+                    <td>{{ queue.completed_scans or 0 }} / {{ queue.total_scans or 0 }}</td>
+                    <td>{{ queue.created_at[:10] if queue.created_at else '-' }}</td>
+                    <td>
+                        <a href="{{ queue.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">🚀 Open</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.relationships-section {
+    background: var(--card-bg, #f8f9fa);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.relationship-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.relationship-card {
+    background: var(--bg-color, #fff);
+    border: 1px solid var(--border-color, #e9ecef);
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+.relationship-label {
+    font-size: 0.85rem;
+    color: var(--text-muted, #666);
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.relationship-value {
+    font-size: 1rem;
+}
+
+.relationship-value.empty {
+    color: var(--text-muted, #999);
+    font-style: italic;
+}
+
+.relationship-value a {
+    color: var(--primary-color, #0d6efd);
+    text-decoration: none;
+}
+
+.relationship-value a:hover {
+    text-decoration: underline;
+}
+
+.relationship-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.relationship-link {
+    color: var(--primary-color, #0d6efd);
+    text-decoration: none;
+    padding: 0.25rem 0;
+}
+
+.relationship-link:hover {
+    text-decoration: underline;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.role-badge.role-primary {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.role-badge.role-dopant {
+    background: #cfe2ff;
+    color: #084298;
+}
+
+.role-badge.role-solvent {
+    background: #e2e3e5;
+    color: #41464b;
+}
+
+.role-badge.role-substrate {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.role-badge.role-catalyst {
+    background: #f8d7da;
+    color: #842029;
+}
+
+.role-badge.role-other {
+    background: #e2e3e5;
+    color: #41464b;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.section-header h2 {
+    margin: 0;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.weather-badge {
+    background: #e8f4f8;
+    color: #0c5460;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.badge-small {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.3rem;
+    background: var(--color-bg-tertiary);
+    border-radius: 3px;
+    margin-left: 0.25rem;
+}
+</style>
+{% endblock %}

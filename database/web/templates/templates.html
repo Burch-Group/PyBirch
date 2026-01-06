@@ -1,0 +1,453 @@
+{% extends "base.html" %}
+
+{% block title %}Templates - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <div class="header-content">
+            <h1>Templates</h1>
+            <p class="page-subtitle">Manage templates for quick item creation with pre-filled information</p>
+        </div>
+        <a href="{{ url_for('main.template_new') }}" class="btn btn-primary">+ New Template</a>
+    </div>
+    
+    <!-- Filters -->
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" class="filter-input" placeholder="Search templates..." 
+                   value="{{ search }}">
+            
+            <select name="type" class="filter-select">
+                <option value="">All Types</option>
+                {% for type_key, type_info in entity_types.items() %}
+                <option value="{{ type_key }}" {% if entity_type == type_key %}selected{% endif %}>
+                    {{ type_info.icon }} {{ type_info.label }}
+                </option>
+                {% endfor %}
+            </select>
+            
+            <select name="status" class="filter-select">
+                <option value="">All Status</option>
+                {% for status_key, status_info in status_options.items() %}
+                <option value="{{ status_key }}" {% if status == status_key %}selected{% endif %}>
+                    {{ status_info.label }}
+                </option>
+                {% endfor %}
+            </select>
+            
+            <select name="project_id" class="filter-select">
+                <option value="">All Projects</option>
+                {% for project in projects %}
+                <option value="{{ project.id }}" {% if project_id == project.id %}selected{% endif %}>
+                    {{ project.name }}
+                </option>
+                {% endfor %}
+            </select>
+            
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search or entity_type or project_id or status %}
+            <a href="{{ url_for('main.templates') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    {% if templates %}
+    <div class="templates-grid">
+        {% for template in templates %}
+        <div class="template-card">
+            <div class="template-header">
+                <div class="template-title-row">
+                    <span class="entity-type-badge">{{ template.entity_icon }} {{ template.entity_label }}</span>
+                    <span class="status-badge status-{{ template.status_color }}">{{ template.status_label }}</span>
+                    <div class="template-actions-dropdown">
+                        <button class="btn btn-icon btn-link dropdown-toggle" type="button">⋮</button>
+                        <div class="dropdown-menu">
+                            <a href="{{ url_for('main.template_detail', template_id=template.id) }}" class="dropdown-item">👁️ View Details</a>
+                            <a href="{{ url_for('main.template_edit', template_id=template.id) }}" class="dropdown-item">✏️ Edit</a>
+                            <form method="POST" action="{{ url_for('main.template_delete', template_id=template.id) }}" 
+                                  onsubmit="return confirm('Are you sure you want to delete this template?');" class="dropdown-item-form">
+                                <button type="submit" class="dropdown-item text-danger">🗑️ Delete</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <h2><a href="{{ url_for('main.template_detail', template_id=template.id) }}">{{ template.name }}</a></h2>
+                {% if template.description %}
+                <p class="template-description">{{ template.description }}</p>
+                {% endif %}
+            </div>
+            
+            <div class="template-info">
+                {% if template.project_name %}
+                <a href="{{ url_for('main.project_detail', project_id=template.project_id) }}" class="info-badge info-badge-link">📁 {{ template.project_name }}</a>
+                {% endif %}
+                {% if template.lab_name %}
+                <span class="info-badge">🏛️ {{ template.lab_name }}</span>
+                {% endif %}
+            </div>
+            
+            <div class="template-details">
+                {% if template.template_data %}
+                <dl class="template-data">
+                    {% for key, value in template.template_data.items() if value and key not in ['lab_name', 'project_name', 'steps'] %}
+                    <dt>{{ key.replace('_', ' ').title() }}</dt>
+                    <dd>{{ value if value is string else value }}</dd>
+                    {% endfor %}
+                </dl>
+                {% endif %}
+            </div>
+            
+            <div class="template-qr-preview">
+                <img src="{{ url_for('main.template_qrcode_preview', template_id=template.id) }}" 
+                     alt="QR Code for {{ template.name }}"
+                     class="qr-preview-img"
+                     loading="lazy">
+            </div>
+            
+            <div class="template-actions">
+                <a href="{{ url_for('main.template_qrcode', template_id=template.id) }}" 
+                   class="btn btn-secondary btn-sm">
+                    📥 Download QR
+                </a>
+                {% if template.entity_type == 'sample' %}
+                <a href="{{ url_for('main.sample_new', template_id=template.id) }}" class="btn btn-primary btn-sm">+ Create {{ template.entity_label }}</a>
+                {% elif template.entity_type == 'equipment' %}
+                <a href="{{ url_for('main.equipment_new', template_id=template.id) }}" class="btn btn-primary btn-sm">+ Create {{ template.entity_label }}</a>
+                {% elif template.entity_type == 'precursor' %}
+                <a href="{{ url_for('main.precursor_new', template_id=template.id) }}" class="btn btn-primary btn-sm">+ Create {{ template.entity_label }}</a>
+                {% elif template.entity_type == 'procedure' %}
+                <a href="{{ url_for('main.procedure_new', template_id=template.id) }}" class="btn btn-primary btn-sm">+ Create {{ template.entity_label }}</a>
+                {% endif %}
+            </div>
+            
+            <div class="template-meta">
+                {% if template.created_by %}
+                <span>By {{ template.created_by }}</span>
+                {% endif %}
+                {% if template.created_at %}
+                <span>{{ template.created_at[:10] }}</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% if page > 1 %}
+            <a href="{{ url_for('main.templates', page=page-1, type=entity_type, search=search, project_id=project_id, status=status) }}" class="btn btn-sm">← Previous</a>
+        {% endif %}
+        <span class="page-info">Page {{ page }} of {{ total_pages }} ({{ total }} total)</span>
+        {% if page < total_pages %}
+            <a href="{{ url_for('main.templates', page=page+1, type=entity_type, search=search, project_id=project_id, status=status) }}" class="btn btn-sm">Next →</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+    {% else %}
+    <div class="empty-state">
+        <h2>No Templates Found</h2>
+        {% if search or entity_type or project_id or status %}
+        <p>No templates match your search criteria.</p>
+        <a href="{{ url_for('main.templates') }}" class="btn btn-secondary">Clear Filters</a>
+        {% else %}
+        <p>Templates allow you to pre-fill common information for samples, equipment, precursors, and procedures.</p>
+        <a href="{{ url_for('main.template_new') }}" class="btn btn-primary">Create Your First Template</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+}
+
+.header-content h1 {
+    margin: 0;
+}
+
+.page-subtitle {
+    color: var(--color-text-secondary);
+    margin: 0.5rem 0 0 0;
+    font-size: 0.95rem;
+}
+
+.filters {
+    margin-bottom: 1.5rem;
+}
+
+.filter-form {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.filter-input {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    min-width: 200px;
+}
+
+.filter-select {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background: var(--color-bg-primary);
+}
+
+.templates-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+}
+
+.template-card {
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    transition: box-shadow 0.2s ease;
+}
+
+.template-card:hover {
+    box-shadow: var(--shadow-lg);
+}
+
+.template-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.entity-type-badge {
+    display: inline-block;
+    background: var(--color-bg-tertiary);
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.status-green {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-gray {
+    background: #e9ecef;
+    color: #495057;
+}
+
+.status-orange {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.template-actions-dropdown {
+    position: relative;
+}
+
+.dropdown-toggle {
+    padding: 0.25rem 0.5rem;
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
+.dropdown-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-lg);
+    min-width: 140px;
+    z-index: 100;
+}
+
+.template-actions-dropdown:hover .dropdown-menu,
+.template-actions-dropdown:focus-within .dropdown-menu {
+    display: block;
+}
+
+.dropdown-item {
+    display: block;
+    padding: 0.5rem 1rem;
+    color: var(--color-text-primary);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.dropdown-item:hover {
+    background: var(--color-bg-tertiary);
+}
+
+.dropdown-item-form {
+    margin: 0;
+}
+
+.dropdown-item-form .dropdown-item {
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.text-danger {
+    color: var(--color-error);
+}
+
+.template-header h2 {
+    margin: 0.5rem 0;
+    font-size: 1.15rem;
+}
+
+.template-header h2 a {
+    color: var(--color-text-primary);
+    text-decoration: none;
+}
+
+.template-header h2 a:hover {
+    color: var(--color-primary);
+}
+
+.template-description {
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+    margin: 0.25rem 0 0 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.template-info {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.75rem 0;
+}
+
+.info-badge {
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    background: var(--color-bg-tertiary);
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+}
+
+.info-badge-link {
+    text-decoration: none;
+    transition: background 0.2s ease;
+}
+
+.info-badge-link:hover {
+    background: var(--color-bg-secondary);
+    color: var(--color-primary);
+}
+
+.template-details {
+    margin: 0.5rem 0;
+    max-height: 100px;
+    overflow-y: auto;
+    flex-grow: 1;
+}
+
+.template-data {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.2rem 0.75rem;
+    font-size: 0.8rem;
+}
+
+.template-data dt {
+    color: var(--color-text-secondary);
+}
+
+.template-data dd {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.template-qr-preview {
+    display: flex;
+    justify-content: center;
+    padding: 0.75rem;
+    background: white;
+    border-radius: var(--border-radius);
+    margin: 0.75rem 0;
+}
+
+.qr-preview-img {
+    max-width: 140px;
+    height: auto;
+}
+
+.template-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: auto;
+}
+
+.template-actions .btn {
+    flex: 1;
+    text-align: center;
+    font-size: 0.85rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.template-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-border);
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem;
+    background: var(--color-bg-primary);
+    border-radius: var(--border-radius);
+}
+
+.empty-state h2 {
+    margin-bottom: 0.75rem;
+}
+
+.empty-state p {
+    color: var(--color-text-secondary);
+    margin-bottom: 1rem;
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+</style>
+{% endblock %}

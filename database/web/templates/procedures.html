@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Procedures - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-title-row">
+        <div>
+            <h1>Procedures</h1>
+            <p class="subtitle">Fabrication procedures and workflows</p>
+        </div>
+        <a href="{{ url_for('main.procedure_new') }}" class="btn btn-primary">+ New Procedure</a>
+    </div>
+</div>
+
+<div class="filters">
+    <form method="get" action="{{ url_for('main.procedures') }}">
+        <div class="filter-group">
+            <input type="text" name="search" placeholder="Search procedures..." 
+                   value="{{ search }}" class="search-input">
+            <select name="type" class="filter-select">
+                <option value="">All Types</option>
+                <option value="deposition" {% if procedure_type == 'deposition' %}selected{% endif %}>Deposition</option>
+                <option value="annealing" {% if procedure_type == 'annealing' %}selected{% endif %}>Annealing</option>
+                <option value="etching" {% if procedure_type == 'etching' %}selected{% endif %}>Etching</option>
+                <option value="cleaning" {% if procedure_type == 'cleaning' %}selected{% endif %}>Cleaning</option>
+                <option value="characterization" {% if procedure_type == 'characterization' %}selected{% endif %}>Characterization</option>
+            </select>
+            <button type="submit" class="btn btn-primary">Filter</button>
+        </div>
+    </form>
+</div>
+
+<div class="results-summary">
+    Showing {{ procedures|length }} of {{ total }} procedures
+</div>
+
+{% if procedures %}
+<div class="table-container">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Version</th>
+                <th>Duration</th>
+                <th>Created By</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for procedure in procedures %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('main.procedure_detail', procedure_id=procedure.id) }}">
+                        {{ procedure.name }}
+                    </a>
+                </td>
+                <td>
+                    {% if procedure.procedure_type %}
+                    <span class="badge badge-{{ procedure.procedure_type }}">{{ procedure.procedure_type }}</span>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>v{{ procedure.version }}</td>
+                <td>
+                    {% if procedure.estimated_duration_minutes %}
+                    {{ procedure.estimated_duration_minutes }} min
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>{{ procedure.created_by or '—' }}</td>
+                <td>
+                    <a href="{{ url_for('main.procedure_detail', procedure_id=procedure.id) }}" 
+                       class="btn btn-small">View</a>
+                    <a href="{{ url_for('main.procedure_edit', procedure_id=procedure.id) }}" 
+                       class="btn btn-small btn-secondary">Edit</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ url_for('main.procedures', page=page-1, search=search, type=procedure_type) }}" class="btn btn-small">← Previous</a>
+    {% endif %}
+    <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="{{ url_for('main.procedures', page=page+1, search=search, type=procedure_type) }}" class="btn btn-small">Next →</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+    <p>No procedures found.</p>
+    <p class="text-muted">Procedures define fabrication workflows with steps, equipment, and precursors.</p>
+</div>
+{% endif %}
+{% endblock %}

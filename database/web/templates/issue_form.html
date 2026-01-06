@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+
+{% block title %}{% if issue %}Edit Issue #{{ issue.id }}{% else %}Report Issue{% endif %} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.issues') }}">Issues</a> / 
+            {% if issue %}
+            <a href="{{ url_for('main.issue_detail', issue_id=issue.id) }}">#{{ issue.id }}</a> / Edit
+            {% else %}
+            Report Issue
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="form-container">
+        <h1>{% if issue %}Edit Issue{% else %}Report an Issue{% endif %}</h1>
+        
+        {% if issue %}
+        <form action="{{ url_for('main.issue_edit', issue_id=issue.id) }}" method="POST" class="issue-form">
+        {% else %}
+        <form action="{{ url_for('main.issue_new') }}" method="POST" class="issue-form">
+        {% endif %}
+            
+            {% if not current_user %}
+            <div class="alert alert-info">
+                <strong>Note:</strong> You are not logged in. Issues submitted anonymously cannot be edited later.
+                <a href="{{ url_for('main.login') }}">Log in</a> to track your issues.
+            </div>
+            {% endif %}
+            
+            <div class="form-group">
+                <label for="title">Title <span class="required">*</span></label>
+                <input type="text" id="title" name="title" required maxlength="200"
+                       value="{{ issue.title if issue else '' }}"
+                       placeholder="Brief summary of the issue">
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="category">Category <span class="required">*</span></label>
+                    <select id="category" name="category" required>
+                        <option value="bug" {% if issue and issue.category == 'bug' %}selected{% endif %}>🐛 Bug</option>
+                        <option value="feature" {% if issue and issue.category == 'feature' %}selected{% endif %}>Feature Request</option>
+                        <option value="enhancement" {% if issue and issue.category == 'enhancement' %}selected{% endif %}>Enhancement</option>
+                        <option value="question" {% if issue and issue.category == 'question' %}selected{% endif %}>Question</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="priority">Priority</label>
+                    <select id="priority" name="priority">
+                        <option value="low" {% if issue and issue.priority == 'low' %}selected{% endif %}>Low</option>
+                        <option value="medium" {% if (not issue) or (issue and issue.priority == 'medium') %}selected{% endif %}>Medium</option>
+                        <option value="high" {% if issue and issue.priority == 'high' %}selected{% endif %}>High</option>
+                        <option value="critical" {% if issue and issue.priority == 'critical' %}selected{% endif %}>Critical</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="description">Description <span class="required">*</span></label>
+                <textarea id="description" name="description" rows="5" required
+                          placeholder="Describe the issue in detail...">{{ issue.description if issue else '' }}</textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="error_message">Error Message</label>
+                <textarea id="error_message" name="error_message" rows="4"
+                          placeholder="If there was an error message, paste it here..."
+                          class="mono-input">{{ issue.error_message if issue else '' }}</textarea>
+                <span class="help-text">Copy and paste any error messages you encountered.</span>
+            </div>
+            
+            <div class="form-group">
+                <label for="steps_to_reproduce">Steps to Reproduce</label>
+                <textarea id="steps_to_reproduce" name="steps_to_reproduce" rows="4"
+                          placeholder="1. Go to...&#10;2. Click on...&#10;3. See error">{{ issue.steps_to_reproduce if issue else '' }}</textarea>
+                <span class="help-text">List the steps to reproduce the issue.</span>
+            </div>
+            
+            <div class="form-group">
+                <label for="related_url">Related URL</label>
+                <input type="url" id="related_url" name="related_url"
+                       value="{{ issue.related_url if issue else '' }}"
+                       placeholder="URL where the issue occurred">
+                <span class="help-text">The page URL where you experienced this issue.</span>
+            </div>
+            
+            <div class="form-actions">
+                <a href="{% if issue %}{{ url_for('main.issue_detail', issue_id=issue.id) }}{% else %}{{ url_for('main.issues') }}{% endif %}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">
+                    {% if issue %}Save Changes{% else %}Submit Issue{% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.form-page {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.form-container {
+    background: var(--color-bg-primary);
+    border-radius: var(--border-radius);
+    padding: 2rem;
+    box-shadow: var(--shadow);
+}
+
+.form-container h1 {
+    margin: 0 0 1.5rem;
+}
+
+.issue-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.alert-info {
+    background: #e0f2fe;
+    border: 1px solid #bae6fd;
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    color: #0c4a6e;
+}
+
+.alert-info a {
+    color: #0369a1;
+    font-weight: 500;
+}
+
+.mono-input {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+}
+
+.help-text {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    margin-top: 1rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-border);
+}
+
+.required {
+    color: #dc2626;
+}
+
+@media (max-width: 600px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}

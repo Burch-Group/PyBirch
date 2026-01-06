@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h1>Dashboard</h1>
+    
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-title">Labs</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.labs.total }}</div>
+            </div>
+            <a href="{{ url_for('main.labs') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Projects</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.projects.total }}</div>
+                <div class="stat-detail">{{ stats.projects.active }} active</div>
+            </div>
+            <a href="{{ url_for('main.projects') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Samples</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.samples.total }}</div>
+                <div class="stat-detail">{{ stats.samples.active }} active</div>
+            </div>
+            <a href="{{ url_for('main.samples') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Scans</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.scans.total }}</div>
+                <div class="stat-detail">{{ stats.scans.completed }} completed</div>
+            </div>
+            <a href="{{ url_for('main.scans') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Queues</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.queues.total }}</div>
+                <div class="stat-detail">{{ stats.queues.active }} active</div>
+            </div>
+            <a href="{{ url_for('main.queues') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Equipment</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.equipment.total }}</div>
+                <div class="stat-detail">{{ stats.equipment.available }} available</div>
+            </div>
+            <a href="{{ url_for('main.equipment') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Precursors</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.precursors.total }}</div>
+            </div>
+            <a href="{{ url_for('main.precursors') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Procedures</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.procedures.total }}</div>
+                <div class="stat-detail">{{ stats.procedures.active }} active</div>
+            </div>
+            <a href="{{ url_for('main.procedures') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card {% if stats.issues.open > 0 %}stat-card-warning{% endif %}">
+            <div class="stat-title">🐛 Issues</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.issues.open }}</div>
+                <div class="stat-detail">{{ stats.issues.in_progress }} in progress</div>
+            </div>
+            <a href="{{ url_for('main.issues') }}" class="stat-link">View all →</a>
+        </div>
+    </div>
+    
+    <div class="dashboard-row">
+        <div class="dashboard-section">
+            <h2>Recent Scans</h2>
+            {% if stats.recent_scans %}
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Project</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for scan in stats.recent_scans %}
+                        <tr>
+                            <td><a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or 'Unnamed' }}</a></td>
+                            <td>{{ scan.project_name or '-' }}</td>
+                            <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
+                            <td>{{ scan.created_at[:10] if scan.created_at else '-' }}</td>
+                            <td>
+                                <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">🚀 Open</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="empty-state">No scans recorded yet.</p>
+            {% endif %}
+        </div>
+        
+        <div class="dashboard-section">
+            <h2>Recent Samples</h2>
+            {% if stats.recent_samples %}
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Material</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sample in stats.recent_samples %}
+                        <tr>
+                            <td><a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}">{{ sample.sample_id }}</a></td>
+                            <td>{{ sample.material or '-' }}</td>
+                            <td><span class="status-badge status-{{ sample.status }}">{{ sample.status }}</span></td>
+                            <td>{{ sample.created_at[:10] if sample.created_at else '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="empty-state">No samples recorded yet.</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    {% if stats.open_issues %}
+    <div class="dashboard-section full-width">
+        <h2>🐛 Open Issues</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for issue in stats.open_issues %}
+                <tr>
+                    <td><a href="{{ url_for('main.issue_detail', issue_id=issue.id) }}">{{ issue.title }}</a></td>
+                    <td><span class="badge badge-{{ issue.category }}">{{ issue.category }}</span></td>
+                    <td><span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span></td>
+                    <td><span class="status-badge status-{{ issue.status }}">{{ issue.status.replace('_', ' ') }}</span></td>
+                    <td>{{ issue.created_at[:10] if issue.created_at else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <a href="{{ url_for('main.issues') }}" class="btn btn-link">View all issues →</a>
+    </div>
+    {% endif %}
+    
+    <div class="quick-actions">
+        <h2>Quick Actions</h2>
+        <div class="action-buttons">
+            <a href="{{ url_for('main.lab_new') }}" class="btn btn-primary">+ New Lab</a>
+            <a href="{{ url_for('main.project_new') }}" class="btn btn-primary">+ New Project</a>
+            <a href="{{ url_for('main.sample_new') }}" class="btn btn-secondary">+ New Sample</a>
+            <a href="{{ url_for('main.equipment_new') }}" class="btn btn-secondary">+ New Equipment</a>
+            <a href="{{ url_for('main.precursor_new') }}" class="btn btn-secondary">+ New Precursor</a>
+            <a href="{{ url_for('main.issue_new') }}" class="btn btn-warning">🐛 Report Issue</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

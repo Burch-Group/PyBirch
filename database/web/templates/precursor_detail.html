@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}{{ precursor.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.precursors') }}">Precursors</a> / {{ precursor.name }}
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <h1>{{ precursor.name }}</h1>
+        <div class="detail-actions">
+            {% if precursor.chemical_formula %}
+            <span class="formula-badge">{{ precursor.chemical_formula }}</span>
+            {% endif %}
+            {% if precursor.status %}
+            <span class="status-badge status-{{ precursor.status }}">{{ precursor.status }}</span>
+            {% endif %}
+            <a href="{{ url_for('main.precursor_edit', precursor_id=precursor.id) }}" class="btn btn-secondary">Edit</a>
+        </div>
+    </div>
+    
+    <!-- QR Code Section -->
+    <div class="qr-code-section">
+        <div class="qr-code-preview">
+            <img src="{{ url_for('main.precursor_qrcode_preview', precursor_id=precursor.id) }}" 
+                 alt="QR Code for {{ precursor.name }}" 
+                 class="qr-code-img">
+        </div>
+        <a href="{{ url_for('main.precursor_qrcode', precursor_id=precursor.id) }}" 
+           class="btn btn-secondary btn-small" download>
+            📥 Download QR Code
+        </a>
+    </div>
+    
+    <div class="detail-grid">
+        <div class="detail-section">
+            <h2>Chemical Information</h2>
+            <dl class="detail-list">
+                <dt>Chemical Formula</dt>
+                <dd><code>{{ precursor.chemical_formula or '-' }}</code></dd>
+                
+                <dt>CAS Number</dt>
+                <dd>{{ precursor.cas_number or '-' }}</dd>
+                
+                <dt>Purity</dt>
+                <dd>{{ (precursor.purity | string) + '%' if precursor.purity else '-' }}</dd>
+                
+                <dt>State</dt>
+                <dd>{{ precursor.state or '-' }}</dd>
+                
+                <dt>Concentration</dt>
+                <dd>
+                    {% if precursor.concentration %}
+                        {{ precursor.concentration }} {{ precursor.concentration_unit or '' }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </dd>
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Supply & Storage</h2>
+            <dl class="detail-list">
+                <dt>Supplier</dt>
+                <dd>{{ precursor.supplier or '-' }}</dd>
+                
+                <dt>Lot Number</dt>
+                <dd>{{ precursor.lot_number or '-' }}</dd>
+                
+                <dt>Expiration Date</dt>
+                <dd>{{ precursor.expiration_date or '-' }}</dd>
+                
+                <dt>Storage Conditions</dt>
+                <dd>{{ precursor.storage_conditions or '-' }}</dd>
+                
+                <dt>Added</dt>
+                <dd>{{ precursor.created_at[:10] if precursor.created_at else '-' }}</dd>
+            </dl>
+        </div>
+    </div>
+</div>
+{% endblock %}

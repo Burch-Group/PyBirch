@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Equipment - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Equipment</h1>
+        <a href="{{ url_for('main.equipment_new') }}" class="btn btn-primary">+ New Equipment</a>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search equipment..." 
+                   value="{{ search }}" class="filter-input">
+            <select name="status" class="filter-select">
+                <option value="">All Status</option>
+                <option value="available" {% if status == 'available' %}selected{% endif %}>Available</option>
+                <option value="in_use" {% if status == 'in_use' %}selected{% endif %}>In Use</option>
+                <option value="maintenance" {% if status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                <option value="retired" {% if status == 'retired' %}selected{% endif %}>Retired</option>
+            </select>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search or status %}
+                <a href="{{ url_for('main.equipment') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} equipment item(s) found</p>
+    
+    {% if equipment %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Manufacturer</th>
+                    <th>Model</th>
+                    <th>Status</th>
+                    <th>Location</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in equipment %}
+                <tr>
+                    <td><a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}">{{ item.name }}</a></td>
+                    <td>{{ item.equipment_type or '-' }}</td>
+                    <td>{{ item.manufacturer or '-' }}</td>
+                    <td>{{ item.model or '-' }}</td>
+                    <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
+                    <td>{{ item.location or '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.equipment_edit', equipment_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="{{ url_for('main.equipment', page=page-1, search=search, status=status) }}" class="btn btn-sm">← Previous</a>
+            {% endif %}
+            <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}
+                <a href="{{ url_for('main.equipment', page=page+1, search=search, status=status) }}" class="btn btn-sm">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>No equipment found.</p>
+            <a href="{{ url_for('main.equipment_new') }}" class="btn btn-primary">Add your first equipment</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

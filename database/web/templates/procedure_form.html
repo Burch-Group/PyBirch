@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Procedure - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-nav">
+        <a href="{{ url_for('main.procedures') }}" class="back-link">← Back to Procedures</a>
+    </div>
+    <h1>{{ action }} Procedure</h1>
+</div>
+
+{% if template %}
+<div class="template-notice">
+    <span class="template-badge">📋 Using Template</span>
+    <strong>{{ template.name }}</strong>
+    {% if template.lab_name or (template.template_data and template.template_data.lab_name) %}
+     - {{ template.lab_name or template.template_data.lab_name }}
+    {% endif %}
+    <p class="template-hint">Fields have been pre-filled from the template. You can modify them as needed.</p>
+</div>
+{% endif %}
+
+<form method="POST" class="form-container">
+    <div class="form-grid">
+        <div class="form-group full-width">
+            <label for="name">Procedure Name *</label>
+            <input type="text" id="name" name="name" required
+                   value="{{ procedure.name if procedure else '' }}"
+                   placeholder="e.g., Gold Thin Film Deposition">
+        </div>
+        
+        <div class="form-group">
+            <label for="procedure_type">Type</label>
+            <select id="procedure_type" name="procedure_type">
+                <option value="">Select type...</option>
+                <option value="deposition" {% if procedure and procedure.procedure_type == 'deposition' %}selected{% endif %}>Deposition</option>
+                <option value="annealing" {% if procedure and procedure.procedure_type == 'annealing' %}selected{% endif %}>Annealing</option>
+                <option value="etching" {% if procedure and procedure.procedure_type == 'etching' %}selected{% endif %}>Etching</option>
+                <option value="cleaning" {% if procedure and procedure.procedure_type == 'cleaning' %}selected{% endif %}>Cleaning</option>
+                <option value="characterization" {% if procedure and procedure.procedure_type == 'characterization' %}selected{% endif %}>Characterization</option>
+                <option value="lithography" {% if procedure and procedure.procedure_type == 'lithography' %}selected{% endif %}>Lithography</option>
+                <option value="doping" {% if procedure and procedure.procedure_type == 'doping' %}selected{% endif %}>Doping</option>
+                <option value="oxidation" {% if procedure and procedure.procedure_type == 'oxidation' %}selected{% endif %}>Oxidation</option>
+                <option value="assembly" {% if procedure and procedure.procedure_type == 'assembly' %}selected{% endif %}>Assembly</option>
+                <option value="other" {% if procedure and procedure.procedure_type == 'other' %}selected{% endif %}>Other</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label for="version">Version</label>
+            <input type="text" id="version" name="version"
+                   value="{{ procedure.version if procedure else '1.0' }}"
+                   placeholder="1.0">
+        </div>
+        
+        <div class="form-group">
+            <label for="estimated_duration_minutes">Est. Duration (minutes)</label>
+            <input type="number" id="estimated_duration_minutes" name="estimated_duration_minutes"
+                   value="{{ procedure.estimated_duration_minutes if procedure and procedure.estimated_duration_minutes else '' }}"
+                   placeholder="e.g., 60" min="0">
+        </div>
+        
+        <div class="form-group">
+            <label for="created_by">Created By</label>
+            <input type="text" id="created_by" name="created_by" readonly
+                   value="{{ procedure.created_by if procedure else (current_user.username if current_user else '') }}">
+        </div>
+        
+        <div class="form-group full-width">
+            <label for="description">Description</label>
+            <textarea id="description" name="description" rows="3"
+                      placeholder="Detailed description of the procedure...">{{ procedure.description if procedure else '' }}</textarea>
+        </div>
+        
+        <div class="form-group full-width">
+            <label for="safety_requirements">⚠️ Safety Requirements</label>
+            <textarea id="safety_requirements" name="safety_requirements" rows="3"
+                      placeholder="PPE requirements, hazards, emergency procedures...">{{ procedure.safety_requirements if procedure else '' }}</textarea>
+        </div>
+    </div>
+    
+    <div class="form-section">
+        <h2>Procedure Steps</h2>
+        <p class="form-help">Define the steps in order. Each step can have a name, description, and optional duration.</p>
+        
+        <div id="steps-container">
+            {% if procedure and procedure.steps %}
+                {% for step in procedure.steps %}
+                <div class="step-form-item" data-step-index="{{ loop.index0 }}">
+                    <div class="step-form-header">
+                        <span class="step-form-number">{{ loop.index }}</span>
+                        <button type="button" class="btn btn-small btn-danger remove-step-btn" onclick="removeStep(this)">Remove</button>
+                    </div>
+                    <div class="step-form-fields">
+                        <div class="form-group">
+                            <label>Step Name *</label>
+                            <input type="text" name="step_name[]" required
+                                   value="{{ step.name if step is mapping else step }}"
+                                   placeholder="e.g., Substrate cleaning">
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <input type="text" name="step_description[]"
+                                   value="{{ step.description if step is mapping and step.description else '' }}"
+                                   placeholder="Details about this step">
+                        </div>
+                        <div class="form-group step-duration">
+                            <label>Duration (min)</label>
+                            <input type="number" name="step_duration[]" min="0"
+                                   value="{{ step.duration_minutes if step is mapping and step.duration_minutes else '' }}"
+                                   placeholder="0">
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="step-form-item" data-step-index="0">
+                    <div class="step-form-header">
+                        <span class="step-form-number">1</span>
+                        <button type="button" class="btn btn-small btn-danger remove-step-btn" onclick="removeStep(this)">Remove</button>
+                    </div>
+                    <div class="step-form-fields">
+                        <div class="form-group">
+                            <label>Step Name *</label>
+                            <input type="text" name="step_name[]" placeholder="e.g., Substrate cleaning">
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <input type="text" name="step_description[]" placeholder="Details about this step">
+                        </div>
+                        <div class="form-group step-duration">
+                            <label>Duration (min)</label>
+                            <input type="number" name="step_duration[]" min="0" placeholder="0">
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+        
+        <button type="button" class="btn btn-secondary" onclick="addStep()">+ Add Step</button>
+    </div>
+    
+    <div class="form-actions">
+        <a href="{{ url_for('main.procedures') }}" class="btn btn-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary">{{ action }} Procedure</button>
+    </div>
+</form>
+
+<script>
+let stepCount = document.querySelectorAll('.step-form-item').length;
+
+function addStep() {
+    stepCount++;
+    const container = document.getElementById('steps-container');
+    const stepHtml = `
+        <div class="step-form-item" data-step-index="${stepCount - 1}">
+            <div class="step-form-header">
+                <span class="step-form-number">${stepCount}</span>
+                <button type="button" class="btn btn-small btn-danger remove-step-btn" onclick="removeStep(this)">Remove</button>
+            </div>
+            <div class="step-form-fields">
+                <div class="form-group">
+                    <label>Step Name *</label>
+                    <input type="text" name="step_name[]" placeholder="e.g., Substrate cleaning">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" name="step_description[]" placeholder="Details about this step">
+                </div>
+                <div class="form-group step-duration">
+                    <label>Duration (min)</label>
+                    <input type="number" name="step_duration[]" min="0" placeholder="0">
+                </div>
+            </div>
+        </div>
+    `;
+    container.insertAdjacentHTML('beforeend', stepHtml);
+    renumberSteps();
+}
+
+function removeStep(button) {
+    const stepItem = button.closest('.step-form-item');
+    stepItem.remove();
+    renumberSteps();
+}
+
+function renumberSteps() {
+    const steps = document.querySelectorAll('.step-form-item');
+    steps.forEach((step, index) => {
+        step.querySelector('.step-form-number').textContent = index + 1;
+        step.dataset.stepIndex = index;
+    });
+    stepCount = steps.length;
+}
+</script>
+
+<style>
+.template-notice {
+    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+    border: 1px solid #81c784;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.template-badge {
+    background: #4caf50;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+}
+.template-notice strong { color: #2e7d32; }
+.template-hint {
+    margin: 0.5rem 0 0 0;
+    font-size: 0.9rem;
+    color: #558b2f;
+}
+</style>
+{% endblock %}

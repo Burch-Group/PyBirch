@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Lab - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.labs') }}">Labs</a> / {{ action }}
+        </div>
+    </div>
+    
+    <h1>{{ action }} Lab</h1>
+    
+    <form method="POST" class="entity-form">
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="name">Lab Name *</label>
+                <input type="text" id="name" name="name" required
+                       value="{{ lab.name if lab else '' }}"
+                       placeholder="e.g., Chen Research Group">
+            </div>
+            
+            <div class="form-group">
+                <label for="code">Lab Code</label>
+                <input type="text" id="code" name="code"
+                       value="{{ lab.code if lab else '' }}"
+                       placeholder="e.g., CHEN-LAB">
+            </div>
+            
+            <div class="form-group">
+                <label for="university">University</label>
+                <input type="text" id="university" name="university"
+                       value="{{ lab.university if lab else '' }}"
+                       placeholder="e.g., Stanford University">
+            </div>
+            
+            <div class="form-group">
+                <label for="department">Department</label>
+                <input type="text" id="department" name="department"
+                       value="{{ lab.department if lab else '' }}"
+                       placeholder="e.g., Department of Materials Science">
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email"
+                       value="{{ lab.email if lab else '' }}"
+                       placeholder="lab@university.edu">
+            </div>
+            
+            <div class="form-group">
+                <label for="phone">Phone</label>
+                <input type="text" id="phone" name="phone"
+                       value="{{ lab.phone if lab else '' }}"
+                       placeholder="+1 (555) 123-4567">
+            </div>
+            
+            <div class="form-group">
+                <label for="website">Website</label>
+                <input type="url" id="website" name="website"
+                       value="{{ lab.website if lab else '' }}"
+                       placeholder="https://lab.university.edu">
+            </div>
+        </div>
+        
+        <div class="form-group form-group-full">
+            <label for="address">Address</label>
+            <textarea id="address" name="address" rows="2"
+                      placeholder="Building name, room number, street address">{{ lab.address if lab else '' }}</textarea>
+        </div>
+        
+        <div class="form-group form-group-full">
+            <label for="description">Description</label>
+            <textarea id="description" name="description" rows="4"
+                      placeholder="Brief description of the lab's research focus and capabilities">{{ lab.description if lab else '' }}</textarea>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.labs') }}" class="btn btn-link">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ action }} Lab</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

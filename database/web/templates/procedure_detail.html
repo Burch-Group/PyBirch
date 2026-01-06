@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}{{ procedure.name }} - Procedure - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-nav">
+        <a href="{{ url_for('main.procedures') }}" class="back-link">← Back to Procedures</a>
+    </div>
+    <h1>{{ procedure.name }}</h1>
+    <div class="header-meta">
+        {% if procedure.procedure_type %}
+        <span class="badge badge-{{ procedure.procedure_type }}">{{ procedure.procedure_type }}</span>
+        {% endif %}
+        <span class="badge">v{{ procedure.version }}</span>
+        {% if procedure.is_active %}
+        <span class="badge badge-success">Active</span>
+        {% else %}
+        <span class="badge badge-inactive">Inactive</span>
+        {% endif %}
+        <a href="{{ url_for('main.procedure_edit', procedure_id=procedure.id) }}" class="btn btn-small">Edit</a>
+        <a href="{{ url_for('main.fabrication_run_from_procedure', procedure_id=procedure.id) }}" class="btn btn-primary btn-small">▶️ Start Run</a>
+    </div>
+</div>
+
+<!-- QR Code Section -->
+<div class="qr-code-section">
+    <div class="qr-code-preview">
+        <img src="{{ url_for('main.procedure_qrcode_preview', procedure_id=procedure.id) }}" 
+             alt="QR Code for {{ procedure.name }}" 
+             class="qr-code-img">
+    </div>
+    <a href="{{ url_for('main.procedure_qrcode', procedure_id=procedure.id) }}" 
+       class="btn btn-secondary btn-small" download>
+        📥 Download QR Code
+    </a>
+</div>
+
+<div class="detail-grid">
+    <div class="detail-main">
+        <div class="card">
+            <h2>Description</h2>
+            {% if procedure.description %}
+            <p>{{ procedure.description }}</p>
+            {% else %}
+            <p class="text-muted">No description provided.</p>
+            {% endif %}
+        </div>
+
+        {% if procedure.steps %}
+        <div class="card">
+            <h2>Procedure Steps</h2>
+            <div class="steps-list">
+                {% for step in procedure.steps %}
+                <div class="step-item">
+                    <div class="step-number">{{ loop.index }}</div>
+                    <div class="step-content">
+                        {% if step is mapping %}
+                        <div class="step-name">{{ step.get('name', 'Step ' ~ loop.index) }}</div>
+                        {% if step.get('description') %}
+                        <div class="step-description">{{ step.description }}</div>
+                        {% endif %}
+                        {% if step.get('duration_minutes') %}
+                        <div class="step-duration">Duration: {{ step.duration_minutes }} min</div>
+                        {% endif %}
+                        {% if step.get('parameters') %}
+                        <div class="step-params">
+                            <strong>Parameters:</strong>
+                            <ul>
+                            {% for key, value in step.parameters.items() %}
+                                <li>{{ key }}: {{ value }}</li>
+                            {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                        {% else %}
+                        <div class="step-name">{{ step }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if procedure.safety_requirements %}
+        <div class="card card-warning">
+            <h2>⚠️ Safety Requirements</h2>
+            <p>{{ procedure.safety_requirements }}</p>
+        </div>
+        {% endif %}
+        
+        <!-- Samples that used this procedure -->
+        <div class="card">
+            <h2>Samples Using This Procedure</h2>
+            {% if procedure.fabrication_runs %}
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Sample</th>
+                            <th>Run #</th>
+                            <th>Status</th>
+                            <th>Operator</th>
+                            <th>Started</th>
+                            <th>Weather</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for run in procedure.fabrication_runs %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('main.sample_detail', sample_id=run.sample_id) }}">
+                                    {{ run.sample_name or run.sample_sample_id or 'Sample #' ~ run.sample_id }}
+                                </a>
+                            </td>
+                            <td>{{ run.run_number or '—' }}</td>
+                            <td><span class="badge badge-{{ run.status }}">{{ run.status }}</span></td>
+                            <td>{{ run.operator or '—' }}</td>
+                            <td>{{ run.started_at[:10] if run.started_at else '—' }}</td>
+                            <td>
+                                {% if run.weather_conditions %}
+                                <span class="weather-badge" title="{{ run.weather_conditions.weather_description or '' }}">
+                                    {% if run.weather_conditions.temperature_c is defined %}
+                                    {{ run.weather_conditions.temperature_c|round(1) }}°C
+                                    {% endif %}
+                                    {% if run.weather_conditions.humidity_percent is defined %}
+                                    / {{ run.weather_conditions.humidity_percent }}%
+                                    {% endif %}
+                                </span>
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">No samples have used this procedure yet.</p>
+            <p class="text-muted">Fabrication runs link procedures to samples when the procedure is performed.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="detail-sidebar">
+        <div class="card">
+            <h3>Details</h3>
+            <dl class="detail-list">
+                <dt>Type</dt>
+                <dd>{{ procedure.procedure_type or '—' }}</dd>
+                
+                <dt>Version</dt>
+                <dd>{{ procedure.version }}</dd>
+                
+                <dt>Est. Duration</dt>
+                <dd>
+                    {% if procedure.estimated_duration_minutes %}
+                    {{ procedure.estimated_duration_minutes }} minutes
+                    {% else %}
+                    —
+                    {% endif %}
+                </dd>
+                
+                <dt>Created By</dt>
+                <dd>{{ procedure.created_by or '—' }}</dd>
+                
+                <dt>Created</dt>
+                <dd>{{ procedure.created_at[:10] if procedure.created_at else '—' }}</dd>
+                
+                <dt>Executions</dt>
+                <dd>{{ procedure.fabrication_runs|length if procedure.fabrication_runs else 0 }} runs</dd>
+            </dl>
+        </div>
+
+        {% if procedure.parameters %}
+        <div class="card">
+            <h3>Default Parameters</h3>
+            <dl class="detail-list">
+                {% for key, value in procedure.parameters.items() %}
+                <dt>{{ key }}</dt>
+                <dd>{{ value }}</dd>
+                {% endfor %}
+            </dl>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

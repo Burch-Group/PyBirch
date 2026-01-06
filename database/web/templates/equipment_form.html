@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Equipment - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.equipment') }}">Equipment</a> / {{ action }}
+        </div>
+    </div>
+    
+    <h1>{{ action }} Equipment</h1>
+    
+    {% if template %}
+    <div class="template-notice">
+        <span class="template-badge">📋 Using Template</span>
+        <strong>{{ template.name }}</strong>
+        {% if template.lab_name or (template.template_data and template.template_data.lab_name) %}
+         - {{ template.lab_name or template.template_data.lab_name }}
+        {% endif %}
+        <p class="template-hint">Fields have been pre-filled from the template. You can modify them as needed.</p>
+    </div>
+    {% endif %}
+    
+    <form method="POST" class="entity-form">
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="name">Name *</label>
+                <input type="text" id="name" name="name" required
+                       value="{{ equipment.name if equipment else '' }}"
+                       placeholder="e.g., Keithley 2400 Sourcemeter">
+            </div>
+            
+            <div class="form-group">
+                <label for="equipment_type">Type</label>
+                <select id="equipment_type" name="equipment_type">
+                    <option value="">Select type...</option>
+                    <option value="movement" {% if equipment and equipment.equipment_type == 'movement' %}selected{% endif %}>Movement</option>
+                    <option value="measurement" {% if equipment and equipment.equipment_type == 'measurement' %}selected{% endif %}>Measurement</option>
+                    <option value="fabrication" {% if equipment and equipment.equipment_type == 'fabrication' %}selected{% endif %}>Fabrication</option>
+                    <option value="other" {% if equipment and equipment.equipment_type == 'other' %}selected{% endif %}>Other</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="pybirch_class">PyBirch Class</label>
+                <input type="text" id="pybirch_class" name="pybirch_class"
+                       value="{{ equipment.pybirch_class if equipment else '' }}"
+                       placeholder="e.g., Keithley2400">
+            </div>
+            
+            <div class="form-group">
+                <label for="manufacturer">Manufacturer</label>
+                <input type="text" id="manufacturer" name="manufacturer"
+                       value="{{ equipment.manufacturer if equipment else '' }}">
+            </div>
+            
+            <div class="form-group">
+                <label for="model">Model</label>
+                <input type="text" id="model" name="model"
+                       value="{{ equipment.model if equipment else '' }}">
+            </div>
+            
+            <div class="form-group">
+                <label for="serial_number">Serial Number</label>
+                <input type="text" id="serial_number" name="serial_number"
+                       value="{{ equipment.serial_number if equipment else '' }}">
+            </div>
+            
+            <div class="form-group">
+                <label for="adapter">Adapter / Connection String</label>
+                <input type="text" id="adapter" name="adapter"
+                       value="{{ equipment.adapter if equipment else '' }}"
+                       placeholder="e.g., GPIB0::24::INSTR">
+            </div>
+            
+            <div class="form-group">
+                <label for="location">Location</label>
+                <input type="text" id="location" name="location"
+                       value="{{ equipment.location if equipment else '' }}"
+                       placeholder="e.g., Lab 101">
+            </div>
+            
+            <div class="form-group">
+                <label for="status">Status</label>
+                <select id="status" name="status">
+                    <option value="available" {% if equipment and equipment.status == 'available' %}selected{% endif %}>Available</option>
+                    <option value="in_use" {% if equipment and equipment.status == 'in_use' %}selected{% endif %}>In Use</option>
+                    <option value="maintenance" {% if equipment and equipment.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                    <option value="retired" {% if equipment and equipment.status == 'retired' %}selected{% endif %}>Retired</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.equipment') }}" class="btn btn-link">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ action }} Equipment</button>
+        </div>
+    </form>
+</div>
+
+<style>
+.template-notice {
+    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+    border: 1px solid #81c784;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.template-badge {
+    background: #4caf50;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+}
+.template-notice strong { color: #2e7d32; }
+.template-hint {
+    margin: 0.5rem 0 0 0;
+    font-size: 0.9rem;
+    color: #558b2f;
+}
+</style>
+{% endblock %}

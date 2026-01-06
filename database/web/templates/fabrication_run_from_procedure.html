@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}Start Run - {{ procedure.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.procedures') }}">Procedures</a> / 
+            <a href="{{ url_for('main.procedure_detail', procedure_id=procedure.id) }}">{{ procedure.name }}</a> / 
+            Start Run
+        </div>
+    </div>
+
+    <div class="form-container">
+        <h1>▶️ Start Fabrication Run</h1>
+        <p class="form-subtitle">Procedure: <strong>{{ procedure.name }}</strong> {% if procedure.procedure_type %}({{ procedure.procedure_type }}){% endif %} v{{ procedure.version }}</p>
+        
+        <form method="POST" class="entity-form">
+            <div class="form-section">
+                <h2>🧬 Select Samples</h2>
+                <p class="section-help">Select one or more samples to apply this procedure to. A separate fabrication run will be created for each selected sample.</p>
+                
+                <div class="sample-selector">
+                    <div class="selector-controls">
+                        <button type="button" class="btn btn-small btn-secondary" onclick="selectAllSamples()">Select All</button>
+                        <button type="button" class="btn btn-small btn-secondary" onclick="deselectAllSamples()">Deselect All</button>
+                        <input type="text" id="sample-search" placeholder="Filter samples..." onkeyup="filterSamples()">
+                    </div>
+                    
+                    <div class="sample-list" id="sample-list">
+                        {% for sample in samples %}
+                        <label class="sample-checkbox">
+                            <input type="checkbox" name="sample_ids" value="{{ sample.id }}">
+                            <span class="sample-info">
+                                <strong>{{ sample.sample_id }}</strong>
+                                {% if sample.name %} - {{ sample.name }}{% endif %}
+                                {% if sample.material %}<span class="sample-material">({{ sample.material }})</span>{% endif %}
+                            </span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="selected-count">
+                        <span id="selected-count">0</span> sample(s) selected
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-section">
+                <h2>⚗️ Run Details</h2>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="status">Status *</label>
+                        <select id="status" name="status" required>
+                            <option value="pending">Pending</option>
+                            <option value="in_progress" selected>In Progress</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="operator">Operator</label>
+                        <input type="text" id="operator" name="operator" 
+                               value="{{ g.current_user.username if g.current_user else '' }}"
+                               placeholder="Person performing this run">
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="started_at">Started At</label>
+                        <input type="datetime-local" id="started_at" name="started_at" value="{{ now }}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="run_number">Run Number</label>
+                        <input type="number" id="run_number" name="run_number" min="1"
+                               placeholder="Optional batch/run number">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="notes">Notes</label>
+                    <textarea id="notes" name="notes" rows="4" 
+                              placeholder="Any observations or notes about this run..."></textarea>
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <a href="{{ url_for('main.procedure_detail', procedure_id=procedure.id) }}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">Start Fabrication Run</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.form-subtitle {
+    color: var(--color-text-secondary);
+    margin-bottom: 1.5rem;
+}
+
+.section-help {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.sample-selector {
+    background: var(--color-bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.selector-controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.selector-controls input[type="text"] {
+    flex: 1;
+    min-width: 200px;
+    padding: 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg-primary);
+}
+
+.sample-list {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg-primary);
+}
+
+.sample-checkbox {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.sample-checkbox:last-child {
+    border-bottom: none;
+}
+
+.sample-checkbox:hover {
+    background: var(--color-bg-secondary);
+}
+
+.sample-checkbox input[type="checkbox"] {
+    margin-right: 0.75rem;
+    width: 18px;
+    height: 18px;
+}
+
+.sample-info {
+    flex: 1;
+}
+
+.sample-material {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+}
+
+.selected-count {
+    margin-top: 1rem;
+    padding: 0.5rem;
+    background: var(--color-bg-primary);
+    border-radius: 4px;
+    text-align: center;
+    font-weight: 500;
+}
+
+.sample-checkbox.hidden {
+    display: none;
+}
+</style>
+
+<script>
+function selectAllSamples() {
+    document.querySelectorAll('#sample-list input[type="checkbox"]').forEach(cb => {
+        if (!cb.closest('.sample-checkbox').classList.contains('hidden')) {
+            cb.checked = true;
+        }
+    });
+    updateSelectedCount();
+}
+
+function deselectAllSamples() {
+    document.querySelectorAll('#sample-list input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+    updateSelectedCount();
+}
+
+function filterSamples() {
+    const search = document.getElementById('sample-search').value.toLowerCase();
+    document.querySelectorAll('.sample-checkbox').forEach(label => {
+        const text = label.textContent.toLowerCase();
+        if (text.includes(search)) {
+            label.classList.remove('hidden');
+        } else {
+            label.classList.add('hidden');
+        }
+    });
+}
+
+function updateSelectedCount() {
+    const count = document.querySelectorAll('#sample-list input[type="checkbox"]:checked').length;
+    document.getElementById('selected-count').textContent = count;
+}
+
+// Update count when checkboxes change
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('#sample-list input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', updateSelectedCount);
+    });
+});
+</script>
+{% endblock %}
