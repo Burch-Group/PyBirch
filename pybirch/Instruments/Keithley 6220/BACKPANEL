@@ -21,6 +21,155 @@ MIN_COMPLIANCE_V = 0.0
 
 def _fmt(v: float) -> str:
     return f"{v:.12g}"
+from dataclasses import dataclass
+from typing import Any, Dict, Callable, Optional, Iterable
+
+@dataclass
+class SettingSpec:
+    key: str
+    scpi_set: str
+    scpi_get: Optional[str] = None
+    validator: Optional[Callable[[Any], bool]] = None
+    transform: Optional[Callable[[Any], Any]] = None
+    default: Any = None
+
+
+def float_setting(
+    key: str,
+    scpi: str,
+    *,
+    min: float | None = None,
+    max: float | None = None,
+    default: float | None = None,
+) -> SettingSpec:
+    def validator(v):
+        if min is not None and v < min: return False
+        if max is not None and v > max: return False
+        return True
+
+    return SettingSpec(
+        key=key,
+        scpi_set=f"{scpi} {{value}}",
+        scpi_get=f"{scpi}?",
+        validator=validator,
+        default=default,
+    )
+
+
+def bool_setting(key: str, scpi: str, *, default: bool | None = None) -> SettingSpec:
+    return SettingSpec(
+        key=key,
+        scpi_set=f"{scpi} {{value}}",
+        scpi_get=f"{scpi}?",
+        transform=lambda v: "ON" if bool(v) else "OFF",
+        default=default,
+    )
+
+
+def enum_setting(key: str, scpi: str, allowed: Iterable[str], *, default: str | None = None) -> SettingSpec:
+    allowed = set(allowed)
+
+    def validator(v):
+        return True if not allowed else (v in allowed)
+
+    return SettingSpec(
+        key=key,
+        scpi_set=f"{scpi} {{value}}",
+        scpi_get=f"{scpi}?",
+        validator=validator,
+        default=default,
+    )
+
+
+# ---- 6220: settings generators (mirrors 6221 style) ----
+
+def source_settings_6220() -> Iterable[SettingSpec]:
+    # current level uses driver.set_current() override to keep your clamp + "FUNC CURR" behavior
+    yield float_setting("source.current.level", "SOUR:CURR", default=0.0)
+    yield float_setting("source.current.range", "SOUR:CURR:RANG", default=None)
+    yield bool_setting("source.current.autorange", "SOUR:CURR:RANG:AUTO", default=True)
+    yield enum_setting("source.current.polarity", "SOUR:CURR:POL", allowed=set(), default="POS")
+
+    # compliance
+    yield float_setting("source.compliance.voltage", "SOUR:VOLT:PROT", default=1.0)
+
+
+def output_settings_6220() -> Iterable[SettingSpec]:
+    # OUTP is a special case in your 6220 SCPI map (OUT_ON/OUT_OFF), so we keep it as an override callable.
+    # Spec here exists only so it appears in registry + defaults.
+    yield bool_setting("source.output.enabled", "OUTP", default=False)
+
+
+def trigger_settings_6220() -> Iterable[SettingSpec]:
+    yield enum_setting("trigger.source", "TRIG:SOUR", allowed=set(), default="IMM")
+    yield float_setting("trigger.delay", "TRIG:DEL", default=0.0)
+    yield float_setting("trigger.count", "TRIG:COUN", min=1, default=1)
+
+
+def trace_settings_6220() -> Iterable[SettingSpec]:
+    yield enum_setting("trace.feed", "TRAC:FEED", allowed=set(), default="SENSE")
+    yield float_setting("trace.points", "TRAC:POIN", min=1, default=1000)
+
+
+def build_all_settings_6220() -> Iterable[SettingSpec]:
+    yield from source_settings_6220()
+    yield from output_settings_6220()
+    yield from trigger_settings_6220()
+    yield from trace_settings_6220()
+
+
+def build_setting_registry_6220() -> dict[str, SettingSpec]:
+    registry: dict[str, SettingSpec] = {}
+    for spec in build_all_settings_6220():
+        if spec.key in registry:
+            raise KeyError(f"Duplicate setting key: {spec.key}")
+        registry[spec.key] = spec
+    return registry
+
+
+def build_default_settings(registry: dict[str, SettingSpec]) -> dict[str, Any]:
+    return {key: spec.default for key, spec in registry.items()}
+
+
+def build_callable_settings_6220(
+    driver: "Keithley6220Driver",
+    registry: dict[str, SettingSpec],
+) -> dict[str, Callable[[Any], None]]:
+    """
+    6221-style: auto-generate callables for every SettingSpec.
+    We keep a few overrides so we DON'T change behavior (clamps, multi-command, etc).
+    """
+    callables: dict[str, Callable[[Any], None]] = {}
+
+    # ---- Overrides that preserve existing 6220 behavior ----
+    overrides: dict[str, Callable[[Any], None]] = {
+        "source.current.level": lambda v: driver.set_current(float(v)),
+        "source.compliance.voltage": lambda v: driver.set_compliance(float(v)),
+        "source.current.autorange": lambda v: driver.set_range_auto(bool(v)),
+        "source.current.range": lambda v: driver.set_range(float(v)),
+        "source.current.polarity": lambda v: driver.set_polarity(str(v)),
+        "source.output.enabled": lambda v: driver.set_output(bool(v)),
+    }
+
+    for key, spec in registry.items():
+        if key in overrides:
+            callables[key] = overrides[key]
+            continue
+
+        def _make_setter(spec: SettingSpec):
+            def _setter(value: Any) -> None:
+                v = value
+                if spec.transform:
+                    v = spec.transform(v)
+                if spec.validator and not spec.validator(v):
+                    raise ValueError(f"Validation failed for {spec.key}: {value}")
+                cmd = spec.scpi_set.format(value=v)
+                driver.enqueue(cmd, expect_resp=False)
+            return _setter
+
+        callables[key] = _make_setter(spec)
+
+    return callables
 
 # Basic SCPI commands relevant to 6220 (kept minimal and editable)
 SCPI = {
@@ -86,6 +235,17 @@ class Keithley6220Driver(QObject):
         self.read_term = "\n"
         self.write_term = "\n"
 
+        self._SETTING_REGISTRY = build_setting_registry_6220()
+        self.DEFAULT_SETTINGS = build_default_settings(self._SETTING_REGISTRY)
+        self.CALLABLE_SETTINGS = build_callable_settings_6220(self, self._SETTING_REGISTRY)
+        print("\n===== Keithley 6220 DEFAULT_SETTINGS =====")
+        for k, v in self.DEFAULT_SETTINGS.items():
+            print(f"{k}: {v}")
+
+        print("\n===== Keithley 6220 CALLABLE_SETTINGS =====")
+        for k, v in self.CALLABLE_SETTINGS.items():
+            print(f"{k}: {v}")
+
     def list_resources(self) -> List[str]:
         if not self.rm:
             return []
@@ -132,6 +292,21 @@ class Keithley6220Driver(QObject):
 
     def is_connected(self) -> bool:
         return self.inst is not None
+    def set_setting(self, key: str, value):
+        fn = getattr(self, "CALLABLE_SETTINGS", {}).get(key)
+        if fn is None:
+            raise KeyError(f"Unknown setting: {key}")
+        fn(value)
+
+    def apply_settings_dict(self, values: dict):
+        """
+        Apply flat dotted settings dict using CALLABLE_SETTINGS.
+        Purely additive; does not change any UI behavior.
+        """
+        for k, v in values.items():
+            if v is None:
+                continue
+            self.set_setting(k, v)
 
     def _worker_loop(self):
         while not self._stop_event.is_set():
