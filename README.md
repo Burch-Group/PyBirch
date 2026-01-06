@@ -5,6 +5,27 @@
   
 Laboratory measurement architecture. Integrates with PyMeasure instruments to run scans over arbitrary dimensions, all from a simple, intuitive GUI. Tracks sample fabrication history using LablinQR extension; and passes data to a Wandb interface for real-time data visualization, storage and management.
 
+### Database Web Interface
+
+PyBirch includes a built-in database web application for managing laboratory resources. The database provides:
+
+- **Sample Management**: Track samples with fabrication history, QR codes for physical labeling, and linked procedures
+- **Precursor Tracking**: Manage chemical precursors with lot numbers, suppliers, and safety information
+- **Equipment Registry**: Catalog laboratory equipment with maintenance schedules and documentation
+- **Procedure Library**: Store and version fabrication procedures with step-by-step instructions
+- **Project Organization**: Group related samples, equipment, and procedures by project
+- **Issue Tracking**: Built-in issue reporting for bugs and feature requests
+- **User Authentication**: Google OAuth integration for secure access
+
+To run the database web interface:
+```bash
+cd database
+python run_web.py
+```
+Then visit `http://127.0.0.1:5000` in your browser.
+
+### Roadmap
+
 Items:
 - [x] Python Backend
 - [x] WanDB Integration
@@ -25,15 +46,14 @@ Items:
 - [x] Instrument Autoload
 - [x] Main Scan Page
 - [x] User Fields Box
-- [ ] Instrument Page Serialization
+- [x] Instrument Page Serialization
 - [x] Scan Serialization
-- [ ] Queue Serialization
+- [x] Queue Serialization
 - [x] Scan Info Page
 - [x] Queue Info Page
-- [ ] Scan Presets
-- [ ] Queue Presets
-- [ ] Queue Logic
-- [ ] WanDB Basic VEGA Plots
+- [x] Scan Presets
+- [x] Queue Presets
+- [x] Queue Logic
 - [ ] Basic Live Plotting in PyBirch
 - [ ] Documentation
 - [ ] Settings Table Search Function
@@ -42,9 +62,8 @@ Items:
 - [ ] User Alphatest
 - [ ] Revamp UI with Yusuke Kamiyamane icons
 - [ ] Finalize code structure
-- [ ] LabLinQR Extension
-- [ ] Extension Autoload
 - [ ] Available Extensions List
-- [ ] Maybe: Replace WanDB with a specialized database in Flask
+- [x] Pinecone Database
+- [x] Database Web Interface
 - [ ] Maybe: Autogenerate Acquisition, Movement objects from PyMeasure instruments
 - [ ] Maybe: Autofind devices using 2D scans, add folder for data passing between scans...
