@@ -108,7 +108,7 @@ class VisaMovement(Movement):
 
 class MovementItem:
     """An object to hold movement settings and positions."""
-    def __init__(self, movement: Movement | VisaMovement, positions: np.ndarray, settings: dict = {}):
+    def __init__(self, movement: Movement | VisaMovement, positions: np.ndarray = np.array([]), settings: dict = {}):
         self.instrument = movement
         self.settings = settings
         self.positions = positions

@@ -1,168 +1,214 @@
-import re
-import time
+"""
+Fake Multimeter instrument for testing and development.
+
+This module demonstrates how to create both measurement and movement instruments
+using the simplified PyBirch instrument architecture. The multimeter has:
+- A voltage meter (measurement)
+- A current source (movement)
+
+Usage:
+    # Voltage measurement
+    voltage_meter = VoltageMeterMeasurement("Voltage Meter")
+    voltage_meter.connect()
+    data = voltage_meter.perform_measurement()
+    
+    # Current source movement
+    current_source = CurrentSourceMovement("Current Source")
+    current_source.connect()
+    current_source.position = 0.001  # Set to 1 mA
+"""
+
 import numpy as np
-import pandas as pd
 
-from pymeasure.adapters import FakeAdapter
-from pymeasure.instruments import Instrument, fakes
-
+from pybirch.Instruments.base import (
+    FakeMeasurementInstrument,
+    FakeMovementInstrument,
+    SimulatedDelay,
+)
 from pybirch.scan.measurements import Measurement
 from pybirch.scan.movements import Movement
 
 
-class FakeMultimeter(fakes.FakeInstrument):
-    """A fake multimeter for simulating a multimeter instrument."""
+class FakeMultimeter(SimulatedDelay):
+    """
+    A fake multimeter backend for simulating voltage and current measurements.
+    
+    This class represents the hardware layer - the actual instrument that can
+    measure voltage and source current.
+    """
 
-    def __init__(self, name: str ="Mock Multimeter", wait: float = 0, **kwargs):
-        super().__init__(
-            name=name,
-            includeSCPI=False,
-            **kwargs
-        )
-        self._wait = wait
+    def __init__(self, name: str = "Mock Multimeter", wait: float = 0.0):
+        super().__init__(wait)
+        self.name = name
         self._current = 0.0
         self._voltage = 0.0
-        self._units = np.array(["amperes", "volts"])
 
     @property
-    def current(self):
-        time.sleep(self._wait)
+    def current(self) -> float:
+        self._delay()
         return self._current
     
     @current.setter
-    def current(self, value):
-        time.sleep(self._wait)
+    def current(self, value: float):
+        self._delay()
         self._current = value
     
     @property
-    def voltage(self):
-        time.sleep(self._wait)
+    def voltage(self) -> float:
+        self._delay()
         return self._voltage
     
     @voltage.setter
-    def voltage(self, value):
-        time.sleep(self._wait)
+    def voltage(self, value: float):
+        self._delay()
         self._voltage = value
 
 
-# define a measurement subclass for the voltage_meter of the multimeter
-# instrument is a placeholder; will be replaced with actual instrument instance at runtime
-# We do not use a VisaMeasurement subclass here because FakeMultimeter does not use a visa adapter
-class VoltageMeterMeasurement(Measurement):
-    def __init__(self, name: str):
+class VoltageMeterMeasurement(FakeMeasurementInstrument):
+    """
+    Voltage measurement from the fake multimeter.
+    
+    This demonstrates a measurement instrument that reads from a shared
+    instrument backend (FakeMultimeter).
+    """
+
+    def __init__(self, name: str = "Voltage Meter"):
         super().__init__(name)
         self.instrument = FakeMultimeter()
-        self.data_dimensions = (2,1)  # 1 column for current, 1 column for voltage
-        self.data_units = np.array(["A","V"])
+        
+        # Define data columns and units
         self.data_columns = np.array(["current", "voltage"])
-        self.num_data_points = 10
-
-    def perform_measurement(self):
-        # Simulate a measurement by reading the current and voltage
-        time.sleep(self.instrument._wait)
-        currents = []
-        voltages = []
-        for _ in range(self.num_data_points):
-            currents.append(self.instrument.current)
-            voltages.append(self.instrument.voltage + np.random.normal(0, 0.01))
-            
-        data = np.array([currents, voltages]).T
-        return data
-
-    def connect(self):
-        # Connect to the multimeter
-        # pretend there are some functions here
-        time.sleep(self.instrument._wait)
-        return
+        self.data_units = np.array(["A", "V"])
+        
+        # Define settings
+        self._define_settings({
+            "num_data_points": 10,
+        })
     
-    def initialize(self):
-        # Initialize the multimeter
-        time.sleep(self.instrument._wait)
+    def _perform_measurement_impl(self) -> np.ndarray:
+        """Measure current and voltage from the multimeter."""
+        self._delay()
+        n = self._num_data_points
+        
+        currents = np.full(n, self.instrument.current)
+        voltages = self.instrument.voltage + np.random.normal(0, 0.01, n)
+        
+        return np.column_stack([currents, voltages])
+    
+    def _initialize_impl(self):
+        """Reset multimeter to zero."""
+        self._delay()
         self.instrument.current = 0.0
         self.instrument.voltage = 0.0
-        return
+
+
+class CurrentSourceMovement(FakeMovementInstrument):
+    """
+    Current source control from the fake multimeter.
     
-    def shutdown(self):
-        return
-    
-    @property
-    def settings(self):
-        # Get the current settings of the instrument, as a dictionary
-        return {
-            "current": self.instrument.current,
-            "voltage": self.instrument.voltage,
-            "units": self.instrument._units,
-            "wait": self.instrument._wait
-        }
-    
-    @settings.setter
-    def settings(self, settings):
-        # Set the settings of the instrument, from a dictionary
-        time.sleep(self.instrument._wait)
-        if "current" in settings:
-            self.instrument.current = settings["current"]
-        if "voltage" in settings:
-            self.instrument.voltage = settings["voltage"]
-        if "units" in settings:
-            self.instrument._units = np.array(settings["units"])
-        if "wait" in settings:
-            self.instrument._wait = settings["wait"]
+    This demonstrates a movement instrument that controls the current
+    output of the multimeter.
+    """
 
-
-
-
-# next a movement subclass for the current source of the multimeter
-class CurrentSourceMovement(Movement):
-    def __init__(self, name: str):
+    def __init__(self, name: str = "Current Source"):
         super().__init__(name)
         self.instrument = FakeMultimeter()
-        self.position_shape = (1,)  # 1D position
+        
+        # Define position properties
         self.position_units = "A"
         self.position_column = "current"
-
+        
+        # No additional settings needed beyond position
+        self._define_settings({})
+    
     @property
-    def position(self):
-        time.sleep(self.instrument._wait)
+    def position(self) -> float:
+        self._delay()
         return self.instrument.current
     
     @position.setter
-    def position(self, value):
-        time.sleep(self.instrument._wait)
+    def position(self, value: float):
+        self._delay()
         self.instrument.current = value
     
-    def connect(self):
-        # Connect to the multimeter
-        time.sleep(self.instrument._wait)
-        return
-    
-    def initialize(self):
-        # Initialize the current source
-        time.sleep(self.instrument._wait)
+    def _initialize_impl(self):
+        """Reset current to zero."""
+        self._delay()
         self.instrument.current = 0.0
-        return
+
+
+# Legacy-style wrapper classes for backwards compatibility
+class VoltageMeterMeasurementLegacy(Measurement):
+    """Legacy wrapper for VoltageMeterMeasurement."""
+
+    def __init__(self, name: str = "Voltage Meter"):
+        super().__init__(name)
+        self._impl = VoltageMeterMeasurement(name)
+        self.data_columns = self._impl.data_columns
+        self.data_units = self._impl.data_units
+
+    def check_connection(self) -> bool:
+        return self._impl.check_connection()
+
+    def perform_measurement(self) -> np.ndarray:
+        return self._impl.perform_measurement()
     
+    def connect(self):
+        self._impl.connect()
+        self.status = self._impl.status
+
+    def initialize(self):
+        self._impl.initialize()
+
     def shutdown(self):
-        return
-    
+        self._impl.shutdown()
+
     @property
-    def settings(self):
-        # Get the current settings of the instrument, as a dictionary
-        return {
-            "current": self.instrument.current,
-            "units": self.instrument._units,
-            "wait": self.instrument._wait
-        }
+    def settings(self) -> dict:
+        return self._impl.settings
     
     @settings.setter
-    def settings(self, settings):
-        # Set the settings of the instrument, from a dictionary
-        time.sleep(self.instrument._wait)
-        if "current" in settings:
-            self.instrument.current = settings["current"]
-        if "units" in settings:
-            self.instrument._units = np.array(settings["units"])
-        if "wait" in settings:
-            self.instrument._wait = settings["wait"]
+    def settings(self, settings: dict):
+        self._impl.settings = settings
+
+
+class CurrentSourceMovementLegacy(Movement):
+    """Legacy wrapper for CurrentSourceMovement."""
+
+    def __init__(self, name: str = "Current Source"):
+        super().__init__(name)
+        self._impl = CurrentSourceMovement(name)
+        self.position_units = self._impl.position_units
+        self.position_column = self._impl.position_column
+
+    def check_connection(self) -> bool:
+        return self._impl.check_connection()
+
+    @property
+    def position(self) -> float:
+        return self._impl.position
+    
+    @position.setter
+    def position(self, value: float):
+        self._impl.position = value
+    
+    def connect(self):
+        self._impl.connect()
+        self.status = self._impl.status
+
+    def initialize(self):
+        self._impl.initialize()
+
+    def shutdown(self):
+        self._impl.shutdown()
+
+    @property
+    def settings(self) -> dict:
+        return self._impl.settings
+    
+    @settings.setter
+    def settings(self, settings: dict):
+        self._impl.settings = settings
 
 
 

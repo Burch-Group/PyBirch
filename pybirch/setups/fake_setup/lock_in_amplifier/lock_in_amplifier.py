@@ -1,157 +1,148 @@
-import re
-import time
+"""
+Fake Lock-In Amplifier instrument for testing and development.
+
+This module demonstrates how to create a measurement instrument using the
+simplified PyBirch instrument architecture. The FakeLockInAmplifier simulates
+a lock-in amplifier that returns X, Y, and R data.
+
+Usage:
+    # Create and use the measurement class directly
+    measurement = LockInAmplifierMeasurement("My Lock-In")
+    measurement.connect()
+    measurement.initialize()
+    data = measurement.perform_measurement()
+    
+    # Access settings
+    measurement.settings = {"sensitivity": 1e-6, "time_constant": 0.3}
+    print(measurement.settings)
+"""
+
 import numpy as np
-import pandas as pd
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
-from pymeasure.adapters import FakeAdapter
-from pymeasure.instruments import Instrument, fakes
+
+from pybirch.Instruments.base import FakeMeasurementInstrument
 from pybirch.scan.measurements import Measurement
 
 
-class FakeLockinAmplifier(fakes.FakeInstrument):
-    """A fake lock-in amplifier for simulating a lock-in instrument."""
-
-    def __init__(self, name: str ="Mock Lock-in Amplifier", wait: float = 0, **kwargs):
-        super().__init__(
-            name=name,
-            includeSCPI=False,
-            **kwargs
-        )
-
-        # variables to simulate the lock-in amplifier's state; these do not exist for real instruments
-        self._wait = wait
-        self._num_data_points = 10
-        self._sensitivity = 1.0  # Sensitivity in V
-        self._units = np.array(["V", "V", "V"])  # X, Y, R units
-        self._time_constant = 0.1  # Time constant in seconds
-        self.data_columns = np.array(["X", "Y", "R"])  # Data columns for X, Y, R
+class FakeLockInAmplifier(FakeMeasurementInstrument):
+    """
+    A fake lock-in amplifier for simulating lock-in measurements.
     
-    def connect(self):
-        """Connect to the lock-in amplifier."""
-        time.sleep(self._wait)
-        return
+    This instrument simulates X, Y, and R (magnitude) measurements with
+    configurable sensitivity, time constant, and number of data points.
+    """
 
-    def initialize(self):
-        """Initialize the lock-in amplifier."""
-        time.sleep(self._wait)
-        self._num_data_points = 1
-        self._sensitivity = 1.0
-        self._time_constant = 0.1
-        return
+    def __init__(self, name: str = "Mock Lock-in Amplifier", wait: float = 0.0):
+        super().__init__(name, wait)
+        
+        # Define data columns and units
+        self.data_columns = np.array(["X", "Y", "R"])
+        self.data_units = np.array(["V", "V", "V"])
+        
+        # Define instrument settings with defaults
+        self._define_settings({
+            "sensitivity": 1.0,      # Sensitivity in V
+            "time_constant": 0.1,    # Time constant in seconds
+            "num_data_points": 10,   # Number of data points per measurement
+        })
     
-    def shutdown(self):
-        """Shutdown the lock-in amplifier."""
-        time.sleep(self._wait)
-        return
-
-    def perform_measurement(self) -> np.ndarray:
-        """Perform a measurement and return the results as a numpy array."""
-        time.sleep(self._wait)
-        return self.data
-
+    def _initialize_impl(self):
+        """Reset instrument to default state."""
+        self._delay()
+        self._reset_settings_to_defaults()
+    
+    def _shutdown_impl(self):
+        """Cleanup on shutdown."""
+        self._delay()
+    
+    def _perform_measurement_impl(self) -> np.ndarray:
+        """
+        Perform a simulated lock-in measurement.
+        
+        Returns:
+            2D array with shape (num_data_points, 3) containing X, Y, R data.
+        """
+        self._delay()
+        n = self._num_data_points
+        
+        # Simulate noisy X and Y data
+        X_data = np.random.normal(-3, 0.5, n)
+        Y_data = np.random.normal(2, 0.5, n)
+        R_data = np.sqrt(X_data**2 + Y_data**2)
+        
+        return np.column_stack([X_data, Y_data, R_data])
+    
+    # Properties for direct access to settings (optional convenience)
     @property
-    def sensitivity(self):
-        time.sleep(self._wait)
+    def sensitivity(self) -> float:
+        self._delay()
         return self._sensitivity
     
     @sensitivity.setter
-    def sensitivity(self, value):
-        time.sleep(self._wait)
-        if value > 0:
-            self._sensitivity = value
-        else:
+    def sensitivity(self, value: float):
+        self._delay()
+        if value <= 0:
             raise ValueError("Sensitivity must be positive")
+        self._sensitivity = value
     
     @property
-    def time_constant(self):
-        time.sleep(self._wait)
+    def time_constant(self) -> float:
+        self._delay()
         return self._time_constant
     
     @time_constant.setter
-    def time_constant(self, value):
-        time.sleep(self._wait)
-        if value > 0:
-            self._time_constant = value
-        else:
+    def time_constant(self, value: float):
+        self._delay()
+        if value <= 0:
             raise ValueError("Time constant must be positive")
-        
+        self._time_constant = value
+    
     @property
-    def num_data_points(self):
-        time.sleep(self._wait)
+    def num_data_points(self) -> int:
+        self._delay()
         return self._num_data_points
-
+    
     @num_data_points.setter
-    def num_data_points(self, value):
-        time.sleep(self._wait)
-        if value > 0:
-            self._num_data_points = value
-        else:
+    def num_data_points(self, value: int):
+        self._delay()
+        if value <= 0:
             raise ValueError("Number of data points must be positive")
-    
-    @property
-    def data(self):
-        time.sleep(self._wait)
-        X_data = np.random.normal(-3, 0.5, self._num_data_points)
-        Y_data = np.random.normal(2, 0.5, self._num_data_points)
-        R_data = np.sqrt(X_data**2 + Y_data**2)
-        return np.array([X_data, Y_data, R_data]).T
+        self._num_data_points = value
 
-    @property
-    def settings(self) -> dict:
-        return {
-            "sensitivity": self.sensitivity,
-            "time_constant": self.time_constant,
-            "num_data_points": self.num_data_points
-        }
-    
-    @settings.setter
-    def settings(self, settings: dict):
-        time.sleep(self._wait)
-        if "sensitivity" in settings:
-            self.sensitivity = settings["sensitivity"]
-        if "time_constant" in settings:
-            self.time_constant = settings["time_constant"]
-        if "num_data_points" in settings:
-            self.num_data_points = settings["num_data_points"]
-    
 
 class LockInAmplifierMeasurement(Measurement):
-    """Measurement class for the lock-in amplifier."""
+    """
+    Measurement wrapper for the FakeLockInAmplifier.
+    
+    This class wraps the FakeLockInAmplifier to conform to the standard
+    PyBirch Measurement interface for use in scans.
+    """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str = "Lock-In Measurement"):
         super().__init__(name)
-        self.instrument = FakeLockinAmplifier()
-        self.data_units = self.instrument._units
+        self.instrument = FakeLockInAmplifier()
+        self.data_units = self.instrument.data_units
         self.data_columns = self.instrument.data_columns
 
+    def check_connection(self) -> bool:
+        return self.instrument.check_connection()
+
     def perform_measurement(self) -> np.ndarray:
-        """Perform the measurement."""
         return self.instrument.perform_measurement()
     
     def connect(self):
         self.instrument.connect()
+        self.status = self.instrument.status
 
     def initialize(self):
-        """Initialize the lock-in amplifier."""
         self.instrument.initialize()
 
     def shutdown(self):
-        """Shutdown the lock-in amplifier."""
         self.instrument.shutdown()
 
     @property
     def settings(self) -> dict:
-        return {
-            "sensitivity": self.instrument.sensitivity,
-            "time_constant": self.instrument.time_constant,
-            "num_data_points": self.instrument.num_data_points
-        }
+        return self.instrument.settings
     
     @settings.setter
     def settings(self, settings: dict):
-        """Set the settings of the lock-in amplifier."""
         self.instrument.settings = settings
-    
-

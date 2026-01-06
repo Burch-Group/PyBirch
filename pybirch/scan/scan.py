@@ -11,7 +11,6 @@ from GUI.widgets.scan_tree.treeitem import InstrumentTreeItem
 from GUI.widgets.scan_tree.treemodel import ScanTreeModel
 import wandb
 import os
-from pybirch.queue.samples import Sample
 import pickle
 from itertools import compress
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,7 +20,7 @@ from typing import List, Dict, Any, Optional, Tuple
 
 class ScanSettings:
     """A class to hold scan settings, including movement and measurement dictionaries."""
-    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, ScanTree: ScanTreeModel, extensions: list[ScanExtension] = [], additional_tags: list[str] = [], status: str = "Queued"):
+    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, ScanTree: ScanTreeModel, extensions: list[ScanExtension] = [], additional_tags: list[str] = [], status: str = "Queued", user_fields: dict | None = None):
         
         # Name of the project, e.g. 'rare_earth_tritellurides', 'trilayer_twisted_graphene', etc.
         self.project_name = project_name
@@ -51,6 +50,9 @@ class ScanSettings:
         self.status = status
 
         self.wandb_link: str = ""
+        
+        # User-defined fields (dictionary)
+        self.user_fields: dict = user_fields if user_fields is not None else {}
 
     def serialize(self) -> dict:
         """Serialize the scan settings into a dictionary."""
@@ -62,21 +64,52 @@ class ScanSettings:
             "additional_tags": self.additional_tags,
             "scan_tree": self.scan_tree.serialize(),
             "status": self.status,
-            "wandb_link": self.wandb_link
+            "wandb_link": self.wandb_link,
+            "user_fields": self.user_fields
         }
         return data
 
 
+    def __getstate__(self):
+        """Prepare state for pickling - serialize ScanTreeModel to dict."""
+        state = self.__dict__.copy()
+        # Serialize the scan_tree (ScanTreeModel) to a dictionary
+        if hasattr(self, 'scan_tree') and self.scan_tree is not None:
+            state['_scan_tree_data'] = self.scan_tree.serialize()
+            del state['scan_tree']
+        return state
+    
+    def __setstate__(self, state):
+        """Restore state after unpickling - deserialize ScanTreeModel from dict."""
+        # Restore scan_tree from serialized data
+        scan_tree_data = state.pop('_scan_tree_data', None)
+        self.__dict__.update(state)
+        
+        if scan_tree_data is not None:
+            from GUI.widgets.scan_tree.treeitem import InstrumentTreeItem
+            self.scan_tree = ScanTreeModel()
+            # Restore root_item
+            self.scan_tree.root_item = InstrumentTreeItem.deserialize(scan_tree_data.get("root_item", {}))
+            # Restore state flags
+            self.scan_tree.completed = scan_tree_data.get("completed", False)
+            self.scan_tree.paused = scan_tree_data.get("paused", False)
+            self.scan_tree.stopped = scan_tree_data.get("stopped", False)
+            # Restore next_item if present
+            next_item_data = scan_tree_data.get("next_item")
+            if next_item_data:
+                self.scan_tree.next_item = InstrumentTreeItem.deserialize(next_item_data)
+        else:
+            self.scan_tree = ScanTreeModel()
+
     def __repr__(self):
-        return f"ScanSettings(project_name={self.project_name}, \nscan_name={self.scan_name}, \nscan_type={self.scan_type}, \njob_type={self.job_type}, \nmeasurement_items={self.measurement_items}, \nmovement_items={self.movement_items})"
+        return f"ScanSettings(project_name={self.project_name}, \nscan_name={self.scan_name}, \nscan_type={self.scan_type}, \njob_type={self.job_type})"
     def __str__(self):
         return self.__repr__()
 
 
 class Scan():
     """Base class for scans in the PyBirch framework."""
-    # sample directory is under pybirch/samples
-    def __init__(self, scan_settings: ScanSettings, owner: str, sample_ID: str, sample_directory: str = os.path.join(os.path.dirname(__file__), '..', '..', "samples"), master_index: int = 0, indices: np.ndarray = np.array([]), buffer_size: int = 1000, max_workers: int = 2):
+    def __init__(self, scan_settings: ScanSettings, owner: str, master_index: int = 0, indices: np.ndarray = np.array([]), buffer_size: int = 1000, max_workers: int = 2):
 
         # scan settings
         self.scan_settings = scan_settings
@@ -89,10 +122,9 @@ class Scan():
         self.owner = owner
 
         self.current_item = None
-
-        # e.g. 'S001', 'S002', etc. format is, of yet, unknown
-        self.sample_ID = sample_ID
-        self.sample_directory = sample_directory
+        
+        # Tree state for GUI persistence (stores scan tree widget state)
+        self.tree_state: list = []
 
         self._max_workers = 1000 # essentially no default limit
         self._buffer_size = buffer_size
@@ -110,38 +142,21 @@ class Scan():
     def startup(self):
 
         # Initialize all scan extensions
+        # Pass scan reference to extensions that support it (e.g., DatabaseExtension)
         for extension in self.extensions:
+            if hasattr(extension, 'set_scan_reference'):
+                extension.set_scan_reference(self)
             extension.startup()
 
-        print(f"Starting up scan: {self.scan_settings.scan_name} for sample {self.sample_ID} owned by {self.owner}")
-        print(f"Sample directory: {self.sample_directory}")
+        print(f"Starting up scan: {self.scan_settings.scan_name} owned by {self.owner}")
 
         self.scan_settings.start_date = time.strftime("%H:%M:%S", time.localtime())
 
-        sample_file = os.path.join(self.sample_directory, self.sample_ID + ".pkl")
-        if not os.path.exists(sample_file):
-            print(f"Sample file {sample_file} does not exist. Creating a new sample.")
-            self.sample = Sample(ID=self.sample_ID, material='', additional_tags=[], image=np.array([]))
-            with open(sample_file, 'wb') as file:
-                pickle.dump(self.sample, file)
-                print(f"Created new sample file: {sample_file}")
-        with open(sample_file, 'rb') as file:
-            try:
-                self.sample = pickle.load(file)
-            except EOFError:
-                print(f"Sample file {sample_file} is empty. Creating a new sample.")
-                self.sample = Sample(ID=self.sample_ID, material='', additional_tags=[], image=np.array([]))
-        
-        print(f"Loaded sample: {self.sample}")
-        print(f"Sample material: {self.sample.material}")
-        print(f"Sample additional tags: {self.sample.additional_tags}")
-
         # Initialize wandb run, add tags and metadata (MOVE TO EXTENSIONS)
         wandb.login()
-        tags = [self.scan_settings.scan_type, str(self.sample.material), *self.sample.additional_tags, *self.scan_settings.additional_tags]
-        tags = [tag for tag in tags if tag]  # Remove empty tags. Lovely, unintelligible pythonic syntax is an added bonus
+        tags = [self.scan_settings.scan_type, *self.scan_settings.additional_tags]
+        tags = [tag for tag in tags if tag]  # Remove empty tags
         self.run = wandb.init(project=self.project_name, 
-                   group=self.sample.ID,
                    name=self.scan_settings.scan_name, 
                    job_type=self.scan_settings.job_type,
                    tags=tags, 
@@ -149,10 +164,7 @@ class Scan():
                         "scan_name": self.scan_settings.scan_name,
                         "scan_type": self.scan_settings.scan_type,
                         "job_type": self.scan_settings.job_type,
-                        "sample_ID": self.sample.ID,
                         "owner": self.owner,
-                        "sample_material": self.sample.material,
-                        "sample": self.sample,
                         "scan_settings": self.scan_settings.serialize()
                 })
         
@@ -246,7 +258,7 @@ class Scan():
 
     def execute(self):
         """Execute the scan procedure using the FastForward traversal and move_next functionality."""
-        print(f"Starting scan: {self.scan_settings.scan_name} for sample {self.sample_ID} owned by {self.owner}")
+        print(f"Starting scan: {self.scan_settings.scan_name} owned by {self.owner}")
         root_item = self.scan_settings.scan_tree.root_item
         # Initialize all extensions
         for extension in self.extensions:
@@ -340,7 +352,6 @@ class Scan():
             # Process the stack of items in parallel
             if ff.stack:
                 print(f"Processing items in parallel: {[item.unique_id() for item in ff.stack]}")
-                input("Press Enter to continue...")
                 
                 with ThreadPoolExecutor(max_workers=min(len(ff.stack),self._max_workers)) as executor:
                     # Submit all move_next tasks
@@ -409,31 +420,34 @@ class Scan():
         self.execute()
         self.shutdown()
 
-    def __repr__(self):
-        return f"Scan(project_name={self.project_name}, scan_settings={self.scan_settings}, owner={self.owner}, sample_ID={self.sample.ID})"
-    def __str__(self):
-        return self.__repr__()
-    
     def __getstate__(self):
-        # Return a dictionary of the object's state, excluding wandb and sample
+        """Prepare state for pickling - exclude unpicklable objects."""
         state = self.__dict__.copy()
-        if state["sample"]:
-            del state['sample']
+        # Remove unpicklable threading objects
+        state.pop('_executor', None)
+        state.pop('_buffer_lock', None)
+        state.pop('_stop_event', None)
+        state.pop('_pending_futures', None)
+        state.pop('run', None)  # wandb run object
+        state.pop('wandb_tables', None)  # wandb tables
         return state
     
     def __setstate__(self, state):
+        """Restore state after unpickling - recreate unpicklable objects."""
         self.__dict__.update(state)
+        # Recreate threading objects
+        self._buffer_lock = Lock()
+        self._stop_event = Event()
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='save_worker_')
+        self._pending_futures = deque(maxlen=100)
+        # Initialize empty wandb references (will be set on startup)
+        self.run = None
+        self.wandb_tables = {}
 
-        # Reinitialize wandb and sample
-        wandb.init(project=self.project_name,
-                   config=self.scan_settings.__dict__,
-                   group=self.sample.ID,
-                   name=self.scan_settings.scan_name,
-                   job_type=self.scan_settings.job_type,
-                   tags=[self.scan_settings.scan_type, str(self.sample.material), *self.sample.additional_tags, *self.scan_settings.additional_tags],
-                   )
-        self.sample = Sample(self.sample.ID)
-        self.sample = pickle.load(open(os.path.join(self.sample_directory, self.sample.ID + ".pkl"), 'rb'))
+    def __repr__(self):
+        return f"Scan(project_name={self.project_name}, scan_settings={self.scan_settings}, owner={self.owner})"
+    def __str__(self):
+        return self.__repr__()
 
 def get_empty_scan() -> Scan:
     """Create an empty scan with default settings."""
@@ -446,4 +460,4 @@ def get_empty_scan() -> Scan:
         additional_tags=[],
         status="Queued"
     )
-    return Scan(scan_settings=scan_settings, owner="", sample_ID="")
+    return Scan(scan_settings=scan_settings, owner="")
