@@ -7,6 +7,9 @@ from functools import partial
 from typing import Optional, Dict, Any, List
 import json
 
+from dataclasses import dataclass
+from typing import Callable, Any, Dict, Optional
+
 from PyQt5 import QtWidgets, QtCore
 
 # try flexible import for pymeasure Ametek driver — different versions may use different names
@@ -23,9 +26,6 @@ try:
 except Exception:
     VISAAdapter = None
 
-# ---------------------------
-# Status bit decoding (N command bits)
-# ---------------------------
 STATUS_BITS = {
     0: "Input overload",
     1: "Output overload",
@@ -45,8 +45,6 @@ def decode_status(byteval: int) -> str:
             flags.append(desc)
     return ", ".join(flags) if flags else "OK"
 
-
-# ST bit mapping (extended status word)
 ST_BITS = {
     0: "Command NOT complete",
     1: "Invalid command",
@@ -66,8 +64,6 @@ def decode_st(byteval: int) -> str:
             flags.append(desc)
     return ", ".join(flags) if flags else "OK"
 
-
-# DC channel mapping (for DC. command)
 DC_CHANNELS = {
     "X (0)": 0,
     "Y (1)": 1,
@@ -83,7 +79,6 @@ DC_CHANNELS = {
     "ADC4 (11)": 11,
 }
 
-# sensible defaults for SENSITIVITIES and TIME_CONSTANTS
 SENSITIVITY_DEFAULTS = [
     1e-9, 2e-9, 5e-9,
     1e-8, 2e-8, 5e-8,
@@ -99,10 +94,230 @@ TIME_CONSTANT_DEFAULTS = [
     0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0
 ]
 
+@dataclass
+class SettingSpec:
+    key: str
+    default: Any
+    apply: Callable[["Ametek7230ControlWidget", Any], None]
 
-# ---------------------------
-# Polling worker (sampling only)
-# ---------------------------
+
+def build_setting_registry_ametek() -> Dict[str, SettingSpec]:
+
+    reg: Dict[str, SettingSpec] = {}
+
+    def add(spec: SettingSpec):
+        if spec.key in reg:
+            raise KeyError(f"Duplicate setting key: {spec.key}")
+        reg[spec.key] = spec
+    def _set_combo_index_and_apply(widget, combo, idx: int, handler):
+        idx = int(idx)
+        if idx < 0:
+            idx = 0
+        if idx >= combo.count():
+            idx = combo.count() - 1 if combo.count() > 0 else 0
+        combo.blockSignals(True)
+        combo.setCurrentIndex(idx)
+        combo.blockSignals(False)
+        handler(idx)
+
+    def _set_combo_to_nearest_numeric_text_and_apply(widget, combo, value: float, handler):
+        try:
+            target = float(value)
+        except Exception:
+            return _set_combo_index_and_apply(widget, combo, int(value), handler)
+
+        best_i = 0
+        best_err = None
+        for i in range(combo.count()):
+            try:
+                v = float(combo.itemText(i))
+                err = abs(v - target)
+                if best_err is None or err < best_err:
+                    best_err = err
+                    best_i = i
+            except Exception:
+                continue
+        _set_combo_index_and_apply(widget, combo, best_i, handler)
+
+    def _set_spin_and_apply(widget, spin, value: float, apply_fn: Callable[[], None]):
+        spin.blockSignals(True)
+        spin.setValue(float(value))
+        spin.blockSignals(False)
+        apply_fn()
+
+    def _set_check_and_apply(widget, chk, state: bool, apply_fn: Callable[[int], None]):
+        chk.blockSignals(True)
+        chk.setChecked(bool(state))
+        chk.blockSignals(False)
+        apply_fn(1 if bool(state) else 0)
+    def _dflt(fn):
+        return fn
+
+    add(SettingSpec(
+        key="connection.resource",
+        default=_dflt(lambda w: w.resource_le.text()),
+        apply=lambda w, v: w.resource_le.setText(str(v)),
+    ))
+    add(SettingSpec(
+        key="input.imode_idx",
+        default=_dflt(lambda w: w.imode_cb.currentIndex()),
+        apply=lambda w, v: _set_combo_index_and_apply(w, w.imode_cb, v, w.on_imode_changed),
+    ))
+    add(SettingSpec(
+        key="input.vmode_idx",
+        default=_dflt(lambda w: w.vmode_cb.currentIndex()),
+        apply=lambda w, v: _set_combo_index_and_apply(w, w.vmode_cb, v, w.on_vmode_changed),
+    ))
+    add(SettingSpec(
+        key="input.float_shell",
+        default=_dflt(lambda w: bool(w.float_chk.isChecked())),
+        apply=lambda w, v: _set_check_and_apply(w, w.float_chk, bool(v), w.on_float_toggled),
+    ))
+    add(SettingSpec(
+        key="input.auto_acgain",
+        default=_dflt(lambda w: bool(w.auto_acgain_chk.isChecked())),
+        apply=lambda w, v: _set_check_and_apply(w, w.auto_acgain_chk, bool(v), w.on_auto_acgain_toggled),
+    ))
+    add(SettingSpec(
+        key="input.acgain_db",
+        default=_dflt(lambda w: int(w.acgain_sb.value())),
+        apply=lambda w, v: w.acgain_sb.setValue(int(v)),
+    ))
+    add(SettingSpec(
+        key="input.lf_mode_idx",
+        default=_dflt(lambda w: w.lf_mode_cb.currentIndex()),
+        apply=lambda w, v: _set_combo_index_and_apply(w, w.lf_mode_cb, v, lambda _idx: w.on_lf_changed(_idx)),
+    ))
+    add(SettingSpec(
+        key="input.lf_freq_idx",
+        default=_dflt(lambda w: w.lf_freq_cb.currentIndex()),
+        apply=lambda w, v: _set_combo_index_and_apply(w, w.lf_freq_cb, v, lambda _idx: w.on_lf_changed(_idx)),
+    ))
+
+    add(SettingSpec(
+        key="ref.refsrc_idx",
+        default=_dflt(lambda w: w.refsrc_cb.currentIndex()),
+        apply=lambda w, v: _set_combo_index_and_apply(w, w.refsrc_cb, v, w.on_refsrc_changed),
+    ))
+    add(SettingSpec(
+        key="ref.harmonic",
+        default=_dflt(lambda w: int(w.harmonic_sb.value())),
+        apply=lambda w, v: _set_spin_and_apply(w, w.harmonic_sb, int(v), lambda: w.on_refn_changed(w.harmonic_sb.value())),
+    ))
+    add(SettingSpec(
+        key="ref.phase_deg",
+        default=_dflt(lambda w: float(w.phase_sb.value())),
+        apply=lambda w, v: _set_spin_and_apply(w, w.phase_sb, float(v), lambda: w.on_refp_changed(w.phase_sb.value())),
+    ))
+
+    add(SettingSpec(
+        key="osc.amp_v",
+        default=_dflt(lambda w: float(w.osc_amp_sb.value())),
+        apply=lambda w, v: _set_spin_and_apply(w, w.osc_amp_sb, float(v), lambda: w.on_osc_amp_changed(w.osc_amp_sb.value())),
+    ))
+    add(SettingSpec(
+        key="osc.freq_hz",
+        default=_dflt(lambda w: float(w.osc_freq_sb.value())),
+        apply=lambda w, v: _set_spin_and_apply(w, w.osc_freq_sb, float(v), lambda: w.on_osc_freq_changed(w.osc_freq_sb.value())),
+    ))
+
+    add(SettingSpec(
+        key="meas.sensitivity",
+        default=_dflt(lambda w: float(w.sensitivity_cb.currentText()) if w.sensitivity_cb.count() else None),
+        apply=lambda w, v: _set_combo_to_nearest_numeric_text_and_apply(w, w.sensitivity_cb, v, w.on_sensitivity_changed),
+    ))
+    add(SettingSpec(
+        key="meas.time_constant",
+        default=_dflt(lambda w: float(w.tc_cb.currentText()) if w.tc_cb.count() else None),
+        apply=lambda w, v: _set_combo_to_nearest_numeric_text_and_apply(w, w.tc_cb, v, w.on_tc_changed),
+    ))
+    add(SettingSpec(
+        key="meas.slope_db_per_oct_idx",
+        default=_dflt(lambda w: w.slope_cb.currentIndex()),
+        apply=lambda w, v: _set_combo_index_and_apply(w, w.slope_cb, v, w.on_slope_changed),
+    ))
+    add(SettingSpec(
+        key="reserve.mode_idx",
+        default=_dflt(lambda w: w.reserve_mode_cb.currentIndex()),
+        apply=lambda w, v: _set_combo_index_and_apply(w, w.reserve_mode_cb, v, w.on_reserve_mode_changed),
+    ))
+    add(SettingSpec(
+        key="reserve.dynamic_enabled",
+        default=_dflt(lambda w: bool(w.dynamic_reserve_chk.isChecked())),
+        apply=lambda w, v: _set_check_and_apply(w, w.dynamic_reserve_chk, bool(v), w.on_dynamic_reserve_changed),
+    ))
+
+    add(SettingSpec(
+        key="noise.enabled",
+        default=False,
+        apply=lambda w, v: (w.send_cmd(f"NOISE {1 if bool(v) else 0}", read=False) if w.inst else None),
+    ))
+
+    add(SettingSpec(
+        key="dac.1_v",
+        default=_dflt(lambda w: float(w.dac_sbs[0].value()) if len(w.dac_sbs) >= 1 else 0.0),
+        apply=lambda w, v: (w.dac_sbs[0].blockSignals(True), w.dac_sbs[0].setValue(float(v)), w.dac_sbs[0].blockSignals(False), w._on_dac_set(1, float(v))),
+    ))
+    add(SettingSpec(
+        key="dac.2_v",
+        default=_dflt(lambda w: float(w.dac_sbs[1].value()) if len(w.dac_sbs) >= 2 else 0.0),
+        apply=lambda w, v: (w.dac_sbs[1].blockSignals(True), w.dac_sbs[1].setValue(float(v)), w.dac_sbs[1].blockSignals(False), w._on_dac_set(2, float(v))),
+    ))
+    add(SettingSpec(
+        key="dac.3_v",
+        default=_dflt(lambda w: float(w.dac_sbs[2].value()) if len(w.dac_sbs) >= 3 else 0.0),
+        apply=lambda w, v: (w.dac_sbs[2].blockSignals(True), w.dac_sbs[2].setValue(float(v)), w.dac_sbs[2].blockSignals(False), w._on_dac_set(3, float(v))),
+    ))
+    add(SettingSpec(
+        key="dac.4_v",
+        default=_dflt(lambda w: float(w.dac_sbs[3].value()) if len(w.dac_sbs) >= 4 else 0.0),
+        apply=lambda w, v: (w.dac_sbs[3].blockSignals(True), w.dac_sbs[3].setValue(float(v)), w.dac_sbs[3].blockSignals(False), w._on_dac_set(4, float(v))),
+    ))
+
+    add(SettingSpec(
+        key="curve.len",
+        default=_dflt(lambda w: int(w.len_spin.value())),
+        apply=lambda w, v: (w.len_spin.blockSignals(True), w.len_spin.setValue(int(v)), w.len_spin.blockSignals(False), w.on_set_len()),
+    ))
+    add(SettingSpec(
+        key="curve.channel_text",
+        default=_dflt(lambda w: w.curve_chan_cb.currentText()),
+        # does not talk to instrument; just selects channel for later capture/download
+        apply=lambda w, v: (w.curve_chan_cb.setCurrentIndex(max(0, w.curve_chan_cb.findText(str(v))))),
+    ))
+
+    add(SettingSpec(
+        key="memory.slot",
+        default=_dflt(lambda w: int(w.save_spin.value())),
+        apply=lambda w, v: w.save_spin.setValue(int(v)),
+    ))
+
+    return reg
+
+
+def build_default_settings_from_registry(widget, registry: Dict[str, SettingSpec]) -> Dict[str, Any]:
+    d: Dict[str, Any] = {}
+    for k, spec in registry.items():
+        if callable(spec.default):
+            try:
+                d[k] = spec.default(widget)
+            except Exception:
+                d[k] = None
+        else:
+            d[k] = spec.default
+    return d
+
+
+def build_callable_settings_from_registry(widget, registry: Dict[str, SettingSpec]) -> Dict[str, Callable[[Any], None]]:
+    c: Dict[str, Callable[[Any], None]] = {}
+    for k, spec in registry.items():
+        # bind spec.apply safely
+        def _make(spec=spec):
+            return lambda v: spec.apply(widget, v)
+        c[k] = _make()
+    return c
+
+
 class PollWorker(QtCore.QObject):
     measurements_ready = QtCore.pyqtSignal(dict)
     error = QtCore.pyqtSignal(Exception)
@@ -352,10 +567,6 @@ class DownloadWorker(QtCore.QObject):
         except Exception as e:
             self.error.emit(e)
 
-
-# ---------------------------
-# Main GUI
-# ---------------------------
 class Ametek7230ControlWidget(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
@@ -366,10 +577,18 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         self.curve_data: List[float] = []
         self._build_ui()
         self._wire_basic_signals()
+        self._SETTING_REGISTRY = build_setting_registry_ametek()
+        self.DEFAULT_SETTINGS = build_default_settings_from_registry(self, self._SETTING_REGISTRY)
+        self.CALLABLE_SETTINGS = build_callable_settings_from_registry(self, self._SETTING_REGISTRY)
 
-    # -------------------------
-    # Build UI
-    # -------------------------
+        print("\n===== AMETEK DEFAULT_SETTINGS =====")
+        for k, v in self.DEFAULT_SETTINGS.items():
+            print(f"{k}: {v}")
+
+        print("\n===== AMETEK CALLABLE_SETTINGS =====")
+        for k, v in self.CALLABLE_SETTINGS.items():
+            print(f"{k}: {v}")
+
     def _build_ui(self):
         scroll_area = QtWidgets.QScrollArea(self)
         scroll_area.setWidgetResizable(True)
@@ -439,7 +658,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         settings_hbox.addWidget(self.sync_btn)
         settings_hbox.addWidget(self.savefile_btn)
         settings_hbox.addWidget(self.load_btn)
-        grid.addLayout(settings_hbox, 5, 0, 1, 6)
 
         # Reference channel
         ref_grp = QtWidgets.QGroupBox("Reference / Oscillator")
@@ -583,7 +801,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
 
         grid.addWidget(meas_grp, 6, 0, 2, 3)
 
-        # Curve buffer panel
         curve_grp = QtWidgets.QGroupBox("Curve Buffer")
         curve_layout = QtWidgets.QVBoxLayout(curve_grp)
 
@@ -613,7 +830,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
 
         grid.addWidget(curve_grp, 6, 3, 4, 3)
 
-        # Status / errors
         stat_grp = QtWidgets.QGroupBox("Status / Errors")
         stat_layout = QtWidgets.QVBoxLayout(stat_grp)
         self.overload_lbl = QtWidgets.QLabel("Overload/Status: –")
@@ -628,7 +844,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         stat_layout.addWidget(self.err_lbl)
         grid.addWidget(stat_grp, 10, 0, 2, 3)
 
-        # Raw command
         raw_grp = QtWidgets.QGroupBox("Raw Command")
         raw_layout = QtWidgets.QVBoxLayout(raw_grp)
         self.cmd_le = QtWidgets.QLineEdit()
@@ -642,14 +857,12 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         raw_layout.addWidget(self.cmd_resp_te)
         grid.addWidget(raw_grp, 12, 0, 2, 6)
 
-        grid.setRowStretch(14, 1)
+        grid.setRowStretch(15, 1)
+        grid.addLayout(settings_hbox, 14, 0, 1, 6)
 
-        # Populate sensitivity/time-constant defaults immediately
+
         self._populate_defaults_in_ui()
 
-    # -------------------------
-    # Ensure defaults exist on startup
-    # -------------------------
     def _populate_defaults_in_ui(self):
         self.sensitivity_cb.clear()
         for s in SENSITIVITY_DEFAULTS:
@@ -658,9 +871,7 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         for t in TIME_CONSTANT_DEFAULTS:
             self.tc_cb.addItem(f"{t:.6g}")
 
-    # -------------------------
-    # Wire signals
-    # -------------------------
+
     def _wire_basic_signals(self):
         self.connect_btn.clicked.connect(self.on_connect)
         self.disconnect_btn.clicked.connect(self.on_disconnect)
@@ -675,13 +886,11 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         self.download_btn.clicked.connect(lambda: self._on_download_curve_clicked())
         self.auto_phase_btn.clicked.connect(lambda: self.send_cmd("AQN", read=False))  # auto-phase example
 
-        # Curve buffer
         self.len_btn.clicked.connect(self.on_set_len)
         self.cbd_btn.clicked.connect(self.on_cbd_start)
         self.download_btn.clicked.connect(self.on_download_buffer)
         self.export_btn.clicked.connect(self.on_export_curve_csv)
 
-        # Basic mappings
         self.sensitivity_cb.currentIndexChanged.connect(self.on_sensitivity_changed)
         self.tc_cb.currentIndexChanged.connect(self.on_tc_changed)
         self.slope_cb.currentIndexChanged.connect(self.on_slope_changed)
@@ -697,11 +906,9 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         self.harmonic_sb.valueChanged.connect(self.on_refn_changed)
         self.phase_sb.valueChanged.connect(self.on_refp_changed)
 
-        # Reserve / dynamic reserve
         self.reserve_mode_cb.currentIndexChanged.connect(self.on_reserve_mode_changed)
         self.dynamic_reserve_chk.stateChanged.connect(self.on_dynamic_reserve_changed)
 
-        # extras
         self.ar_btn.clicked.connect(lambda: self._auto_with_resync("AR", "Auto-Reserve (AR)"))
         self.atc_btn.clicked.connect(lambda: self._auto_with_resync("ATC", "Auto-TC (ATC)"))
         self.noise_btn.clicked.connect(self.on_toggle_noise)
@@ -712,7 +919,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         self.recall_btn.clicked.connect(self.on_recall_slot)
         self.reset_btn.clicked.connect(lambda: self._send_raw_with_feedback("RST"))
 
-        # Settings management
         self.sync_btn.clicked.connect(self.on_sync_from_inst)
         self.savefile_btn.clicked.connect(self.on_save_settings)
         self.load_btn.clicked.connect(self.on_load_settings)
@@ -720,9 +926,7 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         for i, sb in enumerate(self.dac_sbs, 1):
             sb.valueChanged.connect(partial(self._on_dac_set, i))
 
-    # -------------------------
-    # Connection / sync
-    # -------------------------
+
     def on_connect(self):
         resource = self.resource_le.text().strip()
         if not resource:
@@ -799,7 +1003,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         except Exception:
             pass
 
-        # Time constant
         try:
             cur_tc = None
             try:
@@ -839,7 +1042,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         except Exception:
             pass
 
-        # Reference harmonic and phase
         try:
             try:
                 cur_refn = self.inst.harmonic
@@ -1315,9 +1517,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "Apply Error", str(e))
 
-    # -------------------------
-    # Measurement updates
-    # -------------------------
     def on_dynamic_reserve_changed(self, state: int):
         if not self.inst:
             return
@@ -1372,9 +1571,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         self.status_lbl.setText("Status: Polling Error")
         QtWidgets.QMessageBox.critical(self, "Polling error", str(exc))
 
-    # -------------------------
-    # Low-level send helper (widget-level)
-    # -------------------------
     def send_cmd(self, cmd: str, read: bool = True, binary: bool = False, timeout_s: Optional[float] = None):
         if self.inst is None:
             raise RuntimeError("Instrument not connected")
@@ -1472,9 +1668,7 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
     def _log_raw(self, cmd: str, resp: Any):
         self.cmd_resp_te.appendPlainText(f"> {cmd}< {resp}")
 
-    # -------------------------
-    # Raw command panel
-    # -------------------------
+
     def send_raw_command(self):
         cmd = self.cmd_le.text().strip()
         if not cmd or not self.inst:
@@ -1489,9 +1683,7 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         except Exception as e:
             self.cmd_resp_te.appendPlainText(f"ERROR sending {cmd}: {e}")
 
-    # -------------------------
-    # Control handlers (wired)
-    # -------------------------
+
     def on_sensitivity_changed(self, idx):
         if not self.inst:
             return
@@ -1556,7 +1748,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         if not self.inst:
             return
         try:
-            # map UI idx 0,1,2 -> VMODE 1,2,3
             self.send_cmd(f"VMODE {idx+1}", read=False)
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "VMODE Error", str(e))
@@ -1656,9 +1847,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, f"DAC{idx} Error", str(e))
 
-    # -------------------------
-    # Extras: Auto commands with ST resync helper
-    # -------------------------
     def _auto_with_resync(self, cmd: str, label: str):
         if not self.inst:
             QtWidgets.QMessageBox.warning(self, label, "Connect first.")
@@ -1699,10 +1887,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
             self.cmd_resp_te.appendPlainText(f"? -> {tokens}")
         except Exception as e:
             self.cmd_resp_te.appendPlainText(f"?: ERROR {e}")
-
-    # -------------------------
-    # Noise toggle
-    # -------------------------
     def on_toggle_noise(self):
         if not self.inst:
             QtWidgets.QMessageBox.warning(self, "No Instrument", "Connect first.")
@@ -1723,9 +1907,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "NOISE Error", str(e))
 
-    # -------------------------
-    # Offsets / Auto Offsets
-    # -------------------------
     def on_offsets(self):
         if not self.inst:
             return
@@ -1735,9 +1916,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "AXO Error", str(e))
 
-    # -------------------------
-    # Save / Recall
-    # -------------------------
     def on_save_slot(self):
         if not self.inst:
             return
@@ -1758,9 +1936,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "RCL Error", str(e))
 
-    # -------------------------
-    # ERR? query
-    # -------------------------
     def on_err_query(self):
         if not self.inst:
             return
@@ -1771,9 +1946,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "ERR? Error", str(e))
 
-    # -------------------------
-    # Curve buffer: set LEN, start CBD, download DC., export CSV
-    # -------------------------
     def on_set_len(self):
         if not self.inst:
             return
@@ -1801,9 +1973,7 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
             except Exception:
                 length = int(self.len_spin.value())
         expected_bytes = 2 * int(length)
-        # set adequate timeout proportional to data size (seconds)
         timeout_s = max(5.0, (expected_bytes / 1024.0) * timeout_s_per_kb)
-        # issue DCB command (write preferred for binary path)
         try:
             try:
                 self.inst.write(f"DCB {curve_idx}")
@@ -1812,17 +1982,13 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
                 _ = self.inst.ask(f"DCB {curve_idx}")
             raw = self._read_exact_bytes(expected_bytes, timeout_s)
         except Exception as e:
-            # fallback: try ASCII DC. when binary fails
             ascii_vals = self._read_dc_dot_ascii(curve_idx, length)
             return ascii_vals
-        # unpack big-endian signed 16-bit MSB-first
         try:
             cnt = len(raw) // 2
             vals = list(struct.unpack(">" + f"{cnt}h", raw[:cnt*2]))
-            # If curve is frequency low/high pair assembly handled by caller
             return vals
         except Exception:
-            # try little-endian fallback
             try:
                 cnt = len(raw) // 2
                 vals = list(struct.unpack("<" + f"{cnt}h", raw[:cnt*2]))
@@ -1830,7 +1996,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
             except Exception as e2:
                 raise RuntimeError("Failed to unpack DCB binary data") from e2
     def _read_dc_dot_ascii(self, curve_idx: int, length: Optional[int] = None):
-        # get delimiter and terminator
         delim = self.get_delimiter()
         term = self.get_usb_terminator().decode('latin1', errors='ignore')
         try:
@@ -1838,7 +2003,6 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
             if resp is None:
                 return []
             s = str(resp)
-            # split by terminator first, then by delimiter
             s = s.rstrip(term)
             tokens = s.split(delim)
             vals = []
@@ -1849,23 +2013,30 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
                 try:
                     vals.append(float(t))
                 except Exception:
-                    # ignore unparsable tokens
                     pass
             return vals
         except Exception:
             return []
+    def set_setting(self, key: str, value: Any):
+        fn = getattr(self, "CALLABLE_SETTINGS", {}).get(key)
+        if fn is None:
+            raise KeyError(f"Unknown setting: {key}")
+        fn(value)
+
+    def apply_settings_dict(self, values: Dict[str, Any]):
+        for k, v in values.items():
+            if v is None:
+                continue
+            self.set_setting(k, v)
 
     def read_dct_multi(self, mask: int):
-        # DCT transfers multiple curves; mask bits define order per table
         delim = self.get_delimiter()
         all_text = ""
-        # DCT is a streaming multi-line response until finished — use ask loop until terminator or empty
         try:
             resp = self.inst.ask(f"DCT {mask}")
             if resp is None:
                 return []
             all_text = str(resp)
-            # split by newlines then tokens
             lines = all_text.splitlines()
             parsed = []
             for line in lines:
@@ -1875,14 +2046,12 @@ class Ametek7230ControlWidget(QtWidgets.QWidget):
         except Exception:
             return []
 
-    # helper to read curve 15/16 and assemble 32-bit mHz
     def read_frequency_curve(self, low_idx: int = 15, high_idx: int = 16, length: Optional[int] = None):
         low = self.read_dcb_curve(low_idx, length)
         high = self.read_dcb_curve(high_idx, length)
         if not low or not high:
             return []
         assembled = []
-        # per manual: value16 signed 16-bit (upper), value15 unsigned 16-bit (lower)
         for l, h in zip(low, high):
             # ensure unsigned for low
             lower = l & 0xFFFF
