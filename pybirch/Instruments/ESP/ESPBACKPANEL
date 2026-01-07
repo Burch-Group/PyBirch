@@ -18,8 +18,8 @@ from save_ESP_settings import (
     read_settings_file,
     apply_settings_to_widgets
 )
-
-
+from pprint import pprint
+import inspect
 adapter = VISAAdapter("GPIB::7::INSTR")
 adapter.connection.write_termination = "\r"
 adapter.connection.read_termination  = "\r"
@@ -61,8 +61,15 @@ class MainWindow(QMainWindow):
 
         self._populate_initial_fields()
         self._connect_signals()
+        self.DEFAULT_SETTINGS = {k: None for k in SETTINGS.keys()}
+        self.CALLABLE_SETTINGS = {k: fn for k, fn in SETTINGS.items()}
 
-    # ensure instrument present before sending commands
+        print("\n===== BACKPANEL DEFAULT_SETTINGS =====")
+        pprint(self.DEFAULT_SETTINGS, width=140)
+
+        print("\n===== BACKPANEL CALLABLE_SETTINGS =====")
+        pprint(self.CALLABLE_SETTINGS, width=140)
+
     def _ensure_connected(self):
         if self.esp is None:
             logger.error("Instrument not connected")
@@ -736,6 +743,50 @@ class MainWindow(QMainWindow):
                 "Z":3
             }.get(self.comboBox_SS_2.currentText())
         ))
+    def set_setting(self, key: str, value):
+        """
+        Backpanel-only setter using CALLABLE_SETTINGS.
+
+        Supported value formats:
+          - dict  -> passed as **kwargs
+          - tuple/list -> passed as *args
+          - scalar -> mapped to the first parameter after 'esp' (best-effort)
+          - None -> skipped (no-op)
+        """
+        if value is None:
+            return
+
+        fn = getattr(self, "CALLABLE_SETTINGS", {}).get(key)
+        if fn is None:
+            raise KeyError(f"Unknown setting: {key}")
+
+        # Most of your entries are fn(esp, ...)
+        if isinstance(value, dict):
+            return fn(self.esp, **value)
+
+        if isinstance(value, (tuple, list)):
+            return fn(self.esp, *value)
+
+        # Scalar: map onto first non-esp parameter name if possible
+        try:
+            sig = inspect.signature(fn)
+            params = list(sig.parameters.keys())
+            if params and params[0] == "esp":
+                if len(params) >= 2:
+                    return fn(self.esp, **{params[1]: value})
+                return fn(self.esp)
+        except Exception:
+            pass
+
+        # Fallback: try calling with (esp, value)
+        return fn(self.esp, value)
+
+    def apply_settings_dict(self, settings: dict):
+        """
+        Apply a dict of {setting_key: value} using set_setting().
+        """
+        for k, v in settings.items():
+            self.set_setting(k, v)
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
