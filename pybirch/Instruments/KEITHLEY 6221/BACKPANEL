@@ -1,28 +1,213 @@
 import sys
+import re
 import os
 import time
+from typing import Any, Dict, Union, Callable, Optional, Tuple
 import math
 import json
 import threading
 import queue
+import pyvisa
+#from pymeasure.instruments.keithley import Keithley6221
 from typing import Optional, List, Dict, Any, Callable
-
-from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer, QThread
+#import simpleaudio
+import time
+import threading
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer, QThread, pyqtSlot
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QPushButton, QComboBox, QGroupBox, QDoubleSpinBox, QSpinBox,
     QPlainTextEdit, QLineEdit, QFileDialog, QMessageBox, QCheckBox,
     QTabWidget, QProgressBar, QTextEdit
 )
+import pyvisa
+from pyvisa.resources import MessageBasedResource
+from dataclasses import dataclass
+from typing import Callable, Optional, Any, Iterable
 
-try:
-    import pyvisa
-    from pyvisa.resources import MessageBasedResource
-except Exception as e:
-    raise ImportError("pyvisa is required: pip install pyvisa\n" + str(e))
+@dataclass
+class SettingSpec:
+    key: str                      # e.g. "source.current.level"
+    scpi_set: str                 # e.g. "SOUR:CURR:LEV {value}"
+    scpi_get: Optional[str] = None
+    validator: Optional[Callable[[Any], bool]] = None
+    transform: Optional[Callable[[Any], Any]] = None
+    default: Any = None
+    widget: Any = None
+    unit_widget: Any = None
+
+def float_setting(
+    key: str,
+    scpi: str,
+    *,
+    min: float | None = None,
+    max: float | None = None,
+    default: float | None = None,
+) -> SettingSpec:
+    def validator(v):
+        if min is not None and v < min: return False
+        if max is not None and v > max: return False
+        return True
+
+    return SettingSpec(
+        key=key,
+        scpi_set=f"{scpi} {{value}}",
+        scpi_get=f"{scpi}?",
+        validator=validator,
+        default=default,
+    )
 
 
-# Device limits (manual-derived)
+def bool_setting(key: str, scpi: str, *, default: bool | None = None) -> SettingSpec:
+    return SettingSpec(
+        key=key,
+        scpi_set=f"{scpi} {{value}}",
+        scpi_get=f"{scpi}?",
+        transform=lambda v: "ON" if bool(v) else "OFF",
+        default=default,
+    )
+
+def enum_setting(key: str, scpi: str, allowed: Iterable[str], *, default: str | None = None) -> SettingSpec:
+    allowed = set(allowed)
+
+    def validator(v):
+        return True if not allowed else (v in allowed)   # ✅ allow anything when allowed is empty
+
+    return SettingSpec(
+        key=key,
+        scpi_set=f"{scpi} {{value}}",
+        scpi_get=f"{scpi}?",
+        validator=validator,
+        default=default,
+    )
+
+def build_all_settings() -> Iterable[SettingSpec]:
+    # keep your existing explicit groups if you want
+    yield from source_current_settings()
+    yield from source_compliance_settings()
+    yield from source_output_settings()
+
+    # automatically pull in everything else from command_map
+    yield from build_all_settings_from_command_map(command_map)
+
+def to_nested(flat: dict[str, Any]) -> dict:
+    root: dict = {}
+    for k, v in flat.items():
+        parts = k.split(".")
+        cur = root
+        for p in parts[:-1]:
+            cur = cur.setdefault(p, {})
+        cur[parts[-1]] = v
+    return root
+
+
+def build_setting_registry() -> dict[str, SettingSpec]:
+    """
+    Auto-build registry from generators.
+    YOU NEVER EDIT THIS MANUALLY.
+    """
+    registry = {}
+    for spec in build_all_settings():
+        if spec.key in registry:
+            raise KeyError(f"Duplicate setting key: {spec.key}")
+        registry[spec.key] = spec
+    return registry
+from typing import Callable, Any
+
+def build_callable_settings(driver: "FullDriver", registry: dict[str, SettingSpec]) -> dict[str, Callable[[Any], None]]:
+    callables: dict[str, Callable[[Any], None]] = {}
+
+    for key, spec in registry.items():
+        def _make_setter(spec: SettingSpec):
+            def _setter(value: Any) -> None:
+                v = value
+                if spec.transform:
+                    v = spec.transform(v)
+                if spec.validator and not spec.validator(v):
+                    raise ValueError(f"Validation failed for {spec.key}: {value}")
+                cmd = spec.scpi_set.format(value=v)
+                driver.queue(cmd)
+            return _setter
+
+        callables[key] = _make_setter(spec)
+
+    return callables
+
+def build_default_settings(registry: dict[str, SettingSpec]) -> dict[str, Any]:
+    return {key: spec.default for key, spec in registry.items()}
+
+
+def apply_settings_dict(driver, values: dict[str, Any], registry: dict[str, SettingSpec]):
+    """
+    Apply settings without ANY UI present.
+    This is the ONLY path from values -> SCPI.
+    """
+    for key, value in values.items():
+        if key not in registry:
+            raise KeyError(f"Unknown setting: {key}")
+
+        spec = registry[key]
+
+        if spec.transform:
+            value = spec.transform(value)
+
+        if spec.validator and not spec.validator(value):
+            raise ValueError(f"Validation failed for {key}: {value}")
+
+        cmd = spec.scpi_set.format(value=value)
+        driver.queue(cmd)
+
+
+def source_current_settings():
+    base = "source.current"
+    scpi = "SOUR:CURR"
+
+    yield float_setting(
+        key=f"{base}.level",
+        scpi=f"{scpi}:LEV",
+        min=1e-12,
+        max=0.105,
+        default=1e-3,          # example default: 1 mA
+    )
+
+    yield bool_setting(
+        key=f"{base}.autorange",
+        scpi=f"{scpi}:RANG:AUTO",
+        default=True,
+    )
+
+    yield float_setting(
+        key=f"{base}.range",
+        scpi=f"{scpi}:RANG",
+        min=1e-12,
+        max=0.105,
+        default=0.01,          # example default: 10 mA range
+    )
+
+
+def source_compliance_settings():
+    base = "source.compliance"
+    scpi = "SOUR:VOLT"
+
+    yield float_setting(
+        key=f"{base}.voltage",
+        scpi=f"{scpi}:PROT",
+        min=0.01,
+        max=105.0,
+        default=10.0,
+    )
+
+
+def source_output_settings():
+    base = "source.output"
+    scpi = "OUTP"
+
+    yield bool_setting(
+        key=f"{base}.enabled",
+        scpi=scpi,
+        default=False,
+    )
+
 MAX_CURRENT_A = 0.105
 MIN_CURRENT_A = 1e-13
 MAX_COMPLIANCE_V = 105.0
@@ -98,8 +283,114 @@ command_map = {
     "diag":"SYST:DIAG?"
 }
 
+_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
-# ----------------- Driver -----------------
+def _cmd_placeholders(cmd: str) -> set[str]:
+    return set(_PLACEHOLDER_RE.findall(cmd))
+
+def _looks_like_query(cmd: str) -> bool:
+    return cmd.strip().endswith("?")
+
+def _is_setting_cmd(cmd: str) -> bool:
+    """
+    We treat commands with placeholders (val/onoff/etc) as settings.
+    Queries/actions like *TST?, SYST:ERR?, TRAC:CLE are not settings.
+    """
+    if _looks_like_query(cmd):
+        return False
+    return len(_cmd_placeholders(cmd)) > 0
+
+def _key_from_command_map_name(name: str) -> str:
+    """
+    Map command_map keys -> dotted setting keys.
+    Example: sour_wave_freq -> source.wave.frequency
+    """
+    parts = name.split("_")
+
+    # rough grouping
+    if parts[0] == "sour":
+        group = "source"
+        rest = parts[1:]
+    elif parts[0] == "trig":
+        group = "trigger"
+        rest = parts[1:]
+    elif parts[0] == "sens":
+        group = "sense"
+        rest = parts[1:]
+    elif parts[0] == "trac":
+        group = "trace"
+        rest = parts[1:]
+    elif parts[0] in ("setup", "panel"):
+        group = "system"
+        rest = parts
+    else:
+        group = "system"
+        rest = parts
+
+    # normalize common tokens
+    token_map = {
+        "lev": "level",
+        "rang": "range",
+        "freq": "frequency",
+        "ampl": "amplitude",
+        "offs": "offset",
+        "phas": "phase",
+        "duty": "duty",
+        "burs": "burst.enabled",
+        "count": "count",
+        "pol": "polarity",
+        "wid": "width",
+        "stat": "enabled",
+        "poin": "points",
+        "feed": "feed",
+        "mode": "mode",
+        "sour": "source",
+        "prot": "protection",
+        "write": "write",
+        "read": "read",
+        "power": "power",
+        "lock": "lock",
+        "gpib": "gpib",
+        "addr": "address",
+    }
+
+    # expand tokens
+    out = []
+    for t in rest:
+        out.append(token_map.get(t, t))
+
+    # if we embedded a dotted token like "burst.enabled", split it
+    dotted = []
+    for t in out:
+        dotted.extend(t.split("."))
+
+    return ".".join([group] + dotted)
+
+def build_all_settings_from_command_map(cmd_map: dict[str, str]) -> Iterable[SettingSpec]:
+    """
+    Auto-generate SettingSpec from command_map entries.
+    Defaults here are conservative; you can refine later.
+    """
+    for name, cmd in cmd_map.items():
+        if not _is_setting_cmd(cmd):
+            continue
+
+        placeholders = _cmd_placeholders(cmd)
+        key = _key_from_command_map_name(name)
+
+        # choose a builder based on placeholder type
+        if "onoff" in placeholders:
+            yield bool_setting(key=key, scpi=cmd.replace(" {onoff}", ""), default=False)
+        elif "val" in placeholders or "n" in placeholders or "slot" in placeholders:
+            # numeric setting; default None unless you want to pick specific defaults
+            scpi = cmd.split("{")[0].strip()
+            yield float_setting(key=key, scpi=scpi, default=None)
+        else:
+            # string/enum-ish setting (pol, type, src, feed, etc.)
+            scpi = cmd.split("{")[0].strip()
+            # allow unknown values by not validating yet
+            yield enum_setting(key=key, scpi=scpi, allowed=set(), default=None)
+
 class DriverSignals(QObject):
     cmd_result = pyqtSignal(str, object)
     cmd_error = pyqtSignal(str, str)
@@ -123,7 +414,242 @@ class FullDriver(QObject):
         self.write_termination = "\n"
         self.read_termination = "\n"
         self.eoi = True
+        self.registry = build_setting_registry()
+        self.DEFAULT_SETTINGS = build_default_settings(self.registry)
+        self.CALLABLE_SETTINGS = self.build_callable_settings( self.registry)
+
+        print("DEFAULT SETTINGS:")
+        print(self.DEFAULT_SETTINGS)
+
+        print("CALLABLE SETTINGS:")
+        print({k: v for k, v in self.CALLABLE_SETTINGS.items()})
+
+    def apply_settings_dict(self, settings: dict, registry: dict[str, SettingSpec]):
+        for key, value in settings.items():
+            if key not in registry:
+                raise KeyError(f"Unknown setting: {key}")
+
+            spec = registry[key]
+
+            if spec.transform:
+                value = spec.transform(value)
+
+            if spec.validator and not spec.validator(value):
+                raise ValueError(f"Invalid value for {key}: {value}")
+
+            cmd = spec.scpi_set.format(value=_fmt(value))
+            self.queue(cmd)
+    def query_timeout(self, cmd: str, timeout_ms: int) -> str:
+        with self._lock:
+            if not self.inst:
+                raise ConnectionError("Not connected")
+            old = self.inst.timeout
+            try:
+                self.inst.timeout = int(timeout_ms)
+                return str(self.inst.query(cmd)).strip()
+            finally:
+                self.inst.timeout = old
+
+    def apply_settings(self, settings: dict) -> tuple[bool, str]:
+        """
+        Apply settings from a dictionary without UI interaction.
+        
+        Args:
+            settings: Dictionary containing instrument settings
+            
+        Returns:
+            tuple: (success: bool, message: str)
+        """
+        try:
+            # Validate settings first
+            is_valid, message = self.validate_settings(settings)
+            if not is_valid:
+                return False, f"Invalid settings: {message}"
+
+            # Source settings
+            if 'source' in settings:
+                src = settings['source']
+                if 'level' in src:
+                    self.queue(f"SOUR:CURR:LEV {src['level']}")
+                if 'compliance' in src:
+                    self.queue(f"SOUR:CURR:COMP {src['compliance']}")
+                if 'output_enabled' in src:
+                    self.queue(f"OUTP {'ON' if src['output_enabled'] else 'OFF'}")
+                if 'mode' in src:
+                    self.queue(f"SOUR:FUNC:MODE {src['mode']}")
+                if 'function' in src:
+                    self.queue(f"SOUR:FUNC {src['function']}")
+                if 'autorange' in src:
+                    self.queue(f"SOUR:CURR:RANG:AUTO {1 if src['autorange'] else 0}")
+                if 'range' in src and 'autorange' in src and not src['autorange']:
+                    self.queue(f"SOUR:CURR:RANG {src['range']}")
+                if 'delay' in src:
+                    self.queue(f"SOUR:DEL {src[ 'delay']}")
+                if 'filter' in src:
+                    filt = src['filter']
+                    if 'enabled' in filt:
+                        self.queue(f"SOUR:CURR:FILT:STAT {1 if filt['enabled'] else 0}")
+                    if 'type' in filt:
+                        self.queue(f"SOUR:CURR:FILT:TCON {filt['type']}")
+                    if 'count' in filt:
+                        self.queue(f"SOUR:CURR:FILT:COUN {filt['count']}")
+            
+            # Waveform settings
+            if 'waveform' in settings:
+                wave = settings['waveform']
+                if 'type' in wave:
+                    self.queue(f"SOUR:WAVE:FUNC {wave['type']}")
+                if 'amplitude' in wave:
+                    self.queue(f"SOUR:WAVE:AMPL {wave['amplitude']}")
+                if 'frequency' in wave:
+                    self.queue(f"SOUR:WAVE:FREQ {wave['frequency']}")
+                if 'offset' in wave:
+                    self.queue(f"SOUR:WAVE:OFFS {wave['offset']}")
+                if 'duty_cycle' in wave and wave['type'] in ['SQUARE', 'PULSE']:
+                    self.queue(f"SOUR:WAVE:DCYC {wave['duty_cycle']}")
+                if 'symmetry' in wave and wave['type'] == 'TRIANGLE':
+                    self.queue(f"SOUR:WAVE:SYMM {wave['symmetry']}")
+                if 'phase' in wave:
+                    self.queue(f"SOUR:WAVE:PHAS {wave['phase']}")
+                if 'burst' in wave:
+                    burst = wave['burst']
+                    if 'enabled' in burst:
+                        self.queue(f"SOUR:WAVE:BURS:STAT {1 if burst['enabled'] else 0}")
+                    if 'count' in burst:
+                        self.queue(f"SOUR:WAVE:BURS:NCYC {burst['count']}")
+                    if 'mode' in burst:
+                        self.queue(f"SOUR:WAVE:BURS:MODE {burst['mode']}")
+                    if 'polarity' in burst:
+                        self.queue(f"SOUR:WAVE:BURS:POL {burst['polarity']}")
+            
+            # Add more settings groups as needed (trigger, sweep, measurement, etc.)
+            
+            return True, "Settings applied successfully"
+            
+        except Exception as e:
+            return False, f"Error applying settings: {str(e)}"
+
+    def get_current_settings(self) -> dict:
+        """
+        Get current instrument settings as a dictionary.
+        
+        Returns:
+            dict: Current settings
+        """
+        settings = {}
+        try:
+            # Source settings
+            settings['source'] = {
+                'level': float(self.query("SOUR:CURR:LEV?")),
+                'compliance': float(self.query("SOUR:CURR:COMP?")),
+                'output_enabled': bool(int(self.query("OUTP?"))),
+                'mode': self.query("SOUR:FUNC:MODE?").strip(),
+                'function': self.query("SOUR:FUNC?").strip(),
+                'autorange': bool(int(self.query("SOUR:CURR:RANG:AUTO?"))),
+                'range': float(self.query("SOUR:CURR:RANG?")),
+                'delay': float(self.query("SOUR:DEL?")),
+                'filter': {
+                    'enabled': bool(int(self.query("SOUR:CURR:FILT:STAT?"))),
+                    'type': self.query("SOUR:CURR:FILT:TCON?").strip(),
+                    'count': int(self.query("SOUR:CURR:FILT:COUN?"))
+                }
+            }
+            
+            # Waveform settings
+            settings['waveform'] = {
+                'type': self.query("SOUR:WAVE:FUNC?").strip('"'),
+                'amplitude': float(self.query("SOUR:WAVE:AMPL?")),
+                'frequency': float(self.query("SOUR:WAVE:FREQ?")),
+                'offset': float(self.query("SOUR:WAVE:OFFS?")),
+                'duty_cycle': float(self.query("SOUR:WAVE:DCYC?")),
+                'symmetry': float(self.query("SOUR:WAVE:SYMM?")),
+                'phase': float(self.query("SOUR:WAVE:PHAS?")),
+                'burst': {
+                    'enabled': bool(int(self.query("SOUR:WAVE:BURS:STAT?"))),
+                    'count': int(float(self.query("SOUR:WAVE:BURS:NCYC?"))),
+                    'mode': self.query("SOUR:WAVE:BURS:MODE?").strip(),
+                    'polarity': self.query("SOUR:WAVE:BURS:POL?").strip()
+                }
+            }
+            
+            # Add more settings groups as needed
+            
+        except Exception as e:
+            self.signals.log.emit(f"Error getting settings: {str(e)}")
+            raise
+        
+        return settings
+
+    def validate_settings(self, settings: dict) -> tuple[bool, str]:
+        """
+        Validate settings before applying.
+        
+        Args:
+            settings: Dictionary containing settings to validate
+            
+        Returns:
+            tuple: (is_valid: bool, message: str)
+        """
+        try:
+            if 'source' in settings:
+                src = settings['source']
+                if 'level' in src and not (MIN_CURRENT_A <= abs(src['level']) <= MAX_CURRENT_A):
+                    return False, f"Current level must be between {MIN_CURRENT_A} and {MAX_CURRENT_A} A"
+                if 'compliance' in src and not (MIN_COMPLIANCE_V <= src['compliance'] <= MAX_COMPLIANCE_V):
+                    return False, f"Compliance must be between {MIN_COMPLIANCE_V} and {MAX_COMPLIANCE_V} V"
+                if 'range' in src and not (MIN_CURRENT_A <= abs(src['range']) <= MAX_CURRENT_A):
+                    return False, f"Range must be between {MIN_CURRENT_A} and {MAX_CURRENT_A} A"
+                
+                if 'filter' in src:
+                    filt = src['filter']
+                    if 'count' in filt and (filt['count'] < 1 or filt['count'] > 100):
+                        return False, "Filter count must be between 1 and 100"
+            
+            if 'waveform' in settings:
+                wave = settings['waveform']
+                if 'amplitude' in wave and not (0 <= wave['amplitude'] <= MAX_CURRENT_A):
+                    return False, f"Amplitude must be between 0 and {MAX_CURRENT_A} A"
+                if 'frequency' in wave and (wave['frequency'] < 0 or wave['frequency'] > 1e6):
+                    return False, "Frequency must be between 0 and 1 MHz"
+                if 'offset' in wave and not (-MAX_CURRENT_A <= wave['offset'] <= MAX_CURRENT_A):
+                    return False, f"Offset must be between {-MAX_CURRENT_A} and {MAX_CURRENT_A} A"
+                if 'duty_cycle' in wave and not (0 <= wave['duty_cycle'] <= 100):
+                    return False, "Duty cycle must be between 0 and 100%"
+                if 'symmetry' in wave and not (0 <= wave['symmetry'] <= 100):
+                    return False, "Symmetry must be between 0 and 100%"
+                if 'phase' in wave and not (0 <= wave['phase'] <= 360):
+                    return False, "Phase must be between 0 and 360 degrees"
+                
+                if 'burst' in wave:
+                    burst = wave['burst']
+                    if 'count' in burst and (burst['count'] < 1 or burst['count'] > 1e6):
+                        return False, "Burst count must be between 1 and 1,000,000"
+            
+            # Add more validation as needed
+            
+            return True, "Settings are valid"
+            
+        except Exception as e:
+            return False, f"Validation error: {str(e)}"
 # Insert into FullDriver
+    def build_callable_settings(self, registry: dict[str, SettingSpec]) -> dict[str, Callable]:
+        """
+        Auto-generate setting -> function map from SCPI templates.
+        """
+        callables = {}
+
+        for key, spec in registry.items():
+            before, after, has_value = self.split_command(spec.scpi_set)
+
+            if has_value:
+                def make_fn(b=before, a=after):
+                    return lambda v: self.queue(f"{b}{_fmt(v)}{a}")
+                callables[key] = make_fn()
+            else:
+                callables[key] = lambda _=None, b=before: self.queue(b)
+
+        return callables
+
     def query_options_and_firmware(self):
         result = {"idn": "", "vers": "", "options": []}
         try:
@@ -204,25 +730,117 @@ class FullDriver(QObject):
             self.signals.log.emit(f"list_resources failed: {e}")
             return []
 
-    def connect(self, resource_name: str) -> None:
-        with self._lock:
-            if not self.rm:
-                raise RuntimeError("VISA not initialized")
-            if self.inst: return
-            self.inst = self.rm.open_resource(resource_name, timeout=self.timeout_ms)
+    def f_that_makes_no_sense(self, item: Union[str, Dict[str, Any]]) -> Union[Callable, Dict[str, Any]]:
+        if isinstance(item, dict):
+            return {key: self.f_that_makes_no_sense(value) for key, value in item.items()}
+        return self.generate_function(item)
+
+    def split_command(self, cmd: str) -> Tuple[str, str, bool]:
+        """
+        Splits a command template into prefix, suffix, and whether it contains a placeholder.
+        
+        Args:
+            cmd: Command template string that may contain {value} placeholder
+            
+        Returns:
+            Tuple of (prefix, suffix, has_placeholder)
+            
+        Example:
+            >>> split_command("SOUR:CURR:LEV {value}")
+            ("SOUR:CURR:LEV ", "", True)
+        """
+        if not isinstance(cmd, str):
+            raise ValueError(f"Command must be a string, got {type(cmd)}")
+            
+        if "{" not in cmd:
+            return cmd, "", False
+            
+        parts = cmd.split("{", 1)
+        if len(parts) != 2:
+            raise ValueError(f"Malformed command template (unmatched {{): {cmd}")
+            
+        before = parts[0]
+        rest = parts[1]
+        
+        if "}" not in rest:
+            raise ValueError(f"Malformed command template (unmatched }}): {cmd}")
+            
+        middle_rest = rest.split("}", 1)
+        if len(middle_rest) != 2:
+            raise ValueError(f"Malformed command template (extra }}): {cmd}")
+            
+        after = middle_rest[1]
+        
+        # Verify the placeholder is exactly {value}
+        placeholder = middle_rest[0]
+        if placeholder.strip() != "value":
+            raise ValueError(f"Only {{value}} placeholder is supported, got {{{placeholder}}}")
+            
+        return before, after, True
+
+    def generate_function(self, cmd: str) -> Callable[[Any], None]:
+        """
+        Generates a function that will queue a formatted command when called.
+        
+        Args:
+            cmd: Command template string with optional {value} placeholder
+            
+        Returns:
+            A function that takes a value and queues the formatted command
+        """
+        try:
+            before, after, takes_input = self.split_command(cmd)
+            if takes_input:
+                return lambda val: self.queue(f"{before}{val}{after}")
+            return lambda _=None: self.queue(before)
+        except Exception as e:
+            error_msg = f"Failed to generate function for command '{cmd}': {str(e)}"
+            self.signals.log.emit(f"ERROR: {error_msg}")
+            raise ValueError(error_msg) from e
+
+    def set_settings(self, settings: Dict[str, Any]) -> None:
+        """
+        Applies a dictionary of settings using the callable functions in CALLABLE_SETTINGS.
+        
+        Args:
+            settings: Dictionary of setting names to values
+            
+        Raises:
+            KeyError: If a setting in the dictionary doesn't exist in CALLABLE_SETTINGS
+            ValueError: If there's an error processing a command template
+        """
+        if not hasattr(self, 'CALLABLE_SETTINGS'):
+            raise AttributeError("CALLABLE_SETTINGS not initialized")
+            
+        for key, value in settings.items():
+            if key not in self.CALLABLE_SETTINGS:
+                raise KeyError(f"Unknown setting: {key}")
+                
             try:
-                self.inst.write_termination = self.write_termination
-                self.inst.read_termination = self.read_termination
-            except Exception:
-                pass
-            try:
-                self.inst.write("*CLS")
-            except Exception:
-                pass
+                if value is not None:  # Skip None values to allow partial updates
+                    self.CALLABLE_SETTINGS[key](value)
+                    self.signals.log.emit(f"Applied setting {key} = {value}")
+            except Exception as e:
+                error_msg = f"Failed to apply setting {key} = {value}: {str(e)}"
+                self.signals.log.emit(f"ERROR: {error_msg}")
+                raise ValueError(error_msg) from e
+
+    def connect(self, resource_name: str = "GPIB0::12::INSTR") -> bool:
+        if not self.rm:
+            raise RuntimeError("VISA ResourceManager not initialized")
+        # Open VISA
+        self.inst = self.rm.open_resource(resource_name)
+        # Sanity check
+        idn = str(self.inst.query("*IDN?")).strip()
+        self.signals.log.emit(f"Connected to: {idn}")
+
+        # Start worker if not already running
+        if not getattr(self, "_worker", None) or not self._worker.is_alive():
             self._stop.clear()
             self._worker = threading.Thread(target=self._worker_loop, daemon=True)
             self._worker.start()
-            self.signals.log.emit(f"Connected {resource_name}")
+
+        return True
 
     def close(self) -> None:
         with self._lock:
@@ -244,6 +862,8 @@ class FullDriver(QObject):
 
     def is_connected(self) -> bool:
         return self.inst is not None
+
+
 
     # Low-level send/query and queueing
     def send(self, cmd: str) -> None:
@@ -301,6 +921,12 @@ class FullDriver(QObject):
         self.signals.log.emit(f"Timeout set to {ms} ms")
 
     def queue(self, cmd: str):
+        if not cmd or not isinstance(cmd, str):
+            return
+        if self.inst is None:
+            # surface the error instead of silently dropping work
+            self.signals.cmd_error.emit(cmd, "Not connected")
+            return
         self._queue.put((cmd, None))
 
     def _worker_loop(self):
@@ -309,28 +935,34 @@ class FullDriver(QObject):
                 cmd, _ = self._queue.get(timeout=0.2)
             except queue.Empty:
                 continue
+
             try:
                 if cmd == "__QUIT__":
+                    self._stop.set()
                     break
+
+                if not isinstance(cmd, str) or not cmd.strip():
+                    continue
+
                 if cmd.strip().endswith("?"):
                     try:
                         resp = self.query(cmd)
                         self.signals.cmd_result.emit(cmd, resp)
-                        self.signals.log.emit(f"? {cmd} -> {resp}")
                     except Exception as e:
                         self.signals.cmd_error.emit(cmd, str(e))
                 else:
                     try:
                         self.send(cmd)
                         self.signals.cmd_result.emit(cmd, None)
-                        self.signals.log.emit(f"> {cmd}")
                     except Exception as e:
                         self.signals.cmd_error.emit(cmd, str(e))
+
             finally:
                 try:
                     self._queue.task_done()
                 except Exception:
                     pass
+
 
     # Convenience helpers
     def idn(self): return self.query(command_map["idn"])
@@ -429,16 +1061,12 @@ class FullDriver(QObject):
             return payload
         except Exception as e:
             raise ValueError(f"Binary block parse failed: {e}")
-# Insert into FullDriver class (after parse_ieee488_binary_block)
 
-# Strict IEEE-488.2 definite-length binary block parser with validation
     def parse_ieee488_definite_block(self, data: bytes) -> bytes:
         if not data:
             raise ValueError("Empty block")
         if data[0:1] != b'#':
-            # not a binary block; caller should handle ASCII fallback
             return data
-        # format: '#' + <nlen digit ascii> + <nlen ascii digits> + <payload>
         try:
             if len(data) < 2:
                 raise ValueError("Incomplete header")
@@ -503,9 +1131,16 @@ class FullDriver(QObject):
             self.inst.write(cmd)
             raw = self.inst.read_raw()
             return raw
-# Insert into FullDriver class
+    def set_setting(self, key: str, value):
+        fn = self.CALLABLE_SETTINGS.get(key)
+        if fn is None:
+            raise KeyError(f"Unknown setting: {key}")
+        fn(value)
 
-# Read ESE and SRE and return integer values
+    def apply_settings_dict(self, values: dict[str, object]):
+        for k, v in values.items():
+            self.set_setting(k, v)
+
     def read_ese_sre(self) -> dict:
         ese = None; sre = None
         try:
@@ -572,19 +1207,6 @@ class FullDriver(QObject):
             }.get(val & 0x0F, "Other")
         }
 
-    # Option and firmware detection
-    def query_options_and_firmware(self):
-        try:
-            idn = self.query("*IDN?")
-        except Exception:
-            idn = ""
-        try:
-            vers = self.query("SYST:VERS?")
-        except Exception:
-            vers = ""
-        self.signals.log.emit(f"IDN: {idn}; VERS: {vers}")
-        return {"idn": idn, "vers": vers}
-
     # Trigger routing helper (simple)
     def set_trigger_output_route(self, route_spec: str):
         self.queue(route_spec)
@@ -613,6 +1235,21 @@ class FullDriver(QObject):
         th = threading.Thread(target=_stream, daemon=True)
         th.start()
         return tstop
+    def query_with_visa_override(self, cmd: str, timeout_ms: int | None = None) -> str:
+        with self._lock:
+            if not self.inst:
+                raise ConnectionError("Not connected")
+            old_timeout = getattr(self.inst, "timeout", None)
+            try:
+                if timeout_ms is not None:
+                    self.inst.timeout = int(timeout_ms)
+                return str(self.inst.query(cmd)).strip()
+            finally:
+                try:
+                    if old_timeout is not None:
+                        self.inst.timeout = old_timeout
+                except Exception:
+                    pass
 
     # Per-command VISA override best-effort
     def send_with_visa_override(self, cmd: str, timeout_ms: Optional[int] = None, eoi: Optional[bool] = None):
@@ -670,15 +1307,13 @@ class FullDriver(QObject):
         severity = "ok" if code == 0 else ("fatal" if code is not None and code < -100 else "recoverable")
         return {"code": code, "severity": severity, "text": err_str}
 
-
-# ----------------- Sweep Worker -----------------
 class SweepWorker(QThread):
     progress = pyqtSignal(int)
     log = pyqtSignal(str)
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
 
-    def __init__(self, driver: FullDriver, seq: List[float], dwell: float, measure: bool=True):
+    def __init__(self, driver: FullDriver, seq: List[float], dwell: float, measure: bool = True):
         super().__init__()
         self.driver = driver
         self.seq = seq
@@ -686,36 +1321,45 @@ class SweepWorker(QThread):
         self._abort = False
         self.measure = measure
 
+        if not self.driver.is_connected():
+            # Don't QMessageBox here; emit an error the UI can display
+            self.error.emit("SweepWorker created but driver is not connected.")
+
     def run(self):
-        res = []
-        total = max(1, len(self.seq))
-        for i, v in enumerate(self.seq):
-            if self._abort:
-                break
-            val = v
-            if abs(val) > MAX_CURRENT_A:
-                val = math.copysign(MAX_CURRENT_A, val)
-                self.log.emit(f"Clamped to {val} A")
-            try:
-                self.driver.set_current(val)
-            except Exception as e:
-                self.error.emit(f"Set failed: {e}")
-                break
-            elapsed = 0.0
-            while elapsed < self.dwell:
-                if self._abort: break
-                time.sleep(0.05)
-                elapsed += 0.05
-            meas = None
-            if self.measure and not self._abort:
-                try:
-                    meas = self.driver.query("MEAS:VOLT?")
-                except Exception as e:
-                    self.log.emit(f"Measure failed: {e}")
-            ts = time.strftime("%Y-%m-%d %H:%M:%S")
-            res.append({"set": val, "meas": meas, "time": ts})
-            self.progress.emit(int((i+1)/total*100))
-        self.finished.emit(res)
+        try:
+            if not self.driver.is_connected():
+                self.error.emit("Not connected; aborting sweep.")
+                return
+
+            results = []
+            n = len(self.seq)
+
+            for i, val in enumerate(self.seq):
+                if self._abort:
+                    self.log.emit("Sweep aborted.")
+                    break
+
+                # Set current level immediately
+                self.driver.send(f"SOUR:CURR:LEV {_fmt(val)}")
+
+                # dwell
+                self.msleep(int(max(0, self.dwell) * 1000))
+
+                if self.measure:
+                    # Replace with whatever you actually measure
+                    resp = self.driver.query("SOUR:CURR:LEV?")
+                    try:
+                        results.append(float(resp))
+                    except Exception:
+                        results.append(resp)
+
+                self.progress.emit(int((i + 1) * 100 / max(1, n)))
+
+            self.finished.emit(results)
+
+        except Exception as e:
+            self.error.emit(str(e))
+
 
     def abort(self):
         self._abort = True
@@ -723,6 +1367,9 @@ class SweepWorker(QThread):
 
 # ----------------- GUI -----------------
 class FullApp(QMainWindow):
+    _settings_loaded = pyqtSignal(dict)
+    _load_error = pyqtSignal(str)
+    _load_finished = pyqtSignal()
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Keithley 6221 — Complete Controller")
@@ -759,7 +1406,9 @@ class FullApp(QMainWindow):
         top.addWidget(self.idn_label,2)
         top.addWidget(self.emergency_btn)
         main_l.addLayout(top)
-
+        self._settings_loaded.connect(self._on_settings_loaded)
+        self._load_error.connect(self._on_load_error)
+        self._load_finished.connect(self._on_load_finished)
         # Tabs
         self.tabs = QTabWidget()
         main_l.addWidget(self.tabs,1)
@@ -786,7 +1435,8 @@ class FullApp(QMainWindow):
         self.emergency_btn.clicked.connect(self._emergency_off)
 
         # Periodic error poll
-        self.err_timer = QTimer(self); self.err_timer.timeout.connect(self._poll_syst_err); self.err_timer.start(3000)
+        if self._connect():
+            self.err_timer = QTimer(self); self.err_timer.timeout.connect(self._poll_syst_err); self.err_timer.start(3000)
 
         self.sweep_worker: Optional[SweepWorker] = None
         self._trace_stream_stop: Optional[threading.Event] = None
@@ -794,7 +1444,31 @@ class FullApp(QMainWindow):
         self._append("GUI started")
         self._refresh_resources()
 
-    # ----- Tab builders (core) -----
+    #def play_local_audio(self, audio_file_path=None):
+  
+     #   if not audio_file_path:
+      #      print("Error: No audio file path provided")
+       #     return
+
+     # #audio_file_path = os.path.abspath(os.path.expanduser(audio_file_path))     
+       # if not os.path.exists(audio_file_path):
+       #     print(f"Error: Audio file not found at {audio_file_path}")
+       #     return
+
+     #   print(f"Attempting to play: {audio_file_path}")
+        
+    #    try:
+   #         import subprocess
+    #        if sys.platform == 'darwin':  # macOS
+    #            subprocess.Popen(['afplay', audio_file_path])
+    #        elif sys.platform == 'win32':  # Windows
+    #            os.startfile(audio_file_path)
+     #       else:  # Linux
+    #            subprocess.Popen(['xdg-open', audio_file_path])
+      #      print("Playback started successfully")
+    #    except Exception as e:
+      #      print(f"Error playing audio: {str(e)}")
+
     def _tab_main(self) -> QWidget:
         w = QWidget(); h = QHBoxLayout(w)
         left = QVBoxLayout(); left.addWidget(self._build_source_group()); left.addWidget(self._build_wave_group()); left.addStretch(1)
@@ -841,6 +1515,45 @@ class FullApp(QMainWindow):
         self.polarity_combo.currentTextChanged.connect(lambda p: self.driver.set_polarity(p))
         self.src_mode_combo.currentTextChanged.connect(lambda m: self.driver.queue(f"SOUR:FUNC:MODE {m}"))
         return g
+    def apply_loaded_flat_to_ui(self, flat: dict[str, object]):
+        self.blockSignals(True)
+        try:
+            applied = 0
+            for key, val in flat.items():
+                if val is None:
+                    continue
+                spec = self.driver.registry.get(key)
+                if not spec or spec.widget is None:
+                    continue
+
+                w = spec.widget
+
+                try:
+                    # Spin boxes
+                    if hasattr(w, "setValue"):
+                        w.setValue(float(val))
+                    # Checkboxes
+                    elif hasattr(w, "setChecked"):
+                        if isinstance(val, str) and val.strip().isdigit():
+                            w.setChecked(bool(int(val.strip())))
+                        else:
+                            w.setChecked(bool(val))
+                    # Combo boxes
+                    elif hasattr(w, "setCurrentText"):
+                        w.setCurrentText(str(val))
+                    # Line edits
+                    elif hasattr(w, "setText"):
+                        w.setText(str(val))
+                    else:
+                        continue
+
+                    applied += 1
+                except Exception as e:
+                    self._append(f"UI apply skip {key}: {e}")
+
+            self._append(f"Loaded {applied} settings into UI")
+        finally:
+            self.blockSignals(False)
 
     def _build_wave_group(self) -> QGroupBox:
         g = QGroupBox("Waveform & Burst")
@@ -874,23 +1587,112 @@ class FullApp(QMainWindow):
         return g
 
     def _build_quick_controls(self) -> QGroupBox:
-        g = QGroupBox("Quick Controls")
+        g = QGroupBox("Quick Controls")  # Initialize the QGroupBox
         v = QVBoxLayout()
-        self.terminator_read = QLineEdit(); self.terminator_read.setPlaceholderText("\\n or \\r\\n")
-        self.terminator_write = QLineEdit(); self.terminator_write.setPlaceholderText("\\n or \\r\\n")
+        
+        # Add save/load buttons
+        btn_box = QHBoxLayout()
+        self.btn_save = QPushButton("Save Settings")
+        self.btn_load = QPushButton("Load Settings")
+        self.btn_load_from_instr = QPushButton("Load from Instrument")
+        
+        # Add buttons to layout
+        btn_box.addWidget(self.btn_save)
+        btn_box.addWidget(self.btn_load)
+        btn_box.addWidget(self.btn_load_from_instr)
+        v.addLayout(btn_box)
+        
+        # Add existing controls
+        self.terminator_read = QLineEdit()
+        self.terminator_read.setPlaceholderText("\\n or \\r\\n")
+        self.terminator_write = QLineEdit()
+        self.terminator_write.setPlaceholderText("\\n or \\r\\n")
         self.set_terms_btn = QPushButton("Set Terminators")
         self.set_eoi_chk = QCheckBox("EOI on write")
-        self.visa_timeout = QSpinBox(); self.visa_timeout.setRange(100, 600000); self.visa_timeout.setValue(5000)
-        v.addWidget(QLabel("Read Term:")); v.addWidget(self.terminator_read)
-        v.addWidget(QLabel("Write Term:")); v.addWidget(self.terminator_write)
-        v.addWidget(self.set_terms_btn); v.addWidget(self.set_eoi_chk); v.addWidget(QLabel("VISA timeout (ms):")); v.addWidget(self.visa_timeout)
+        self.visa_timeout = QSpinBox()
+        self.visa_timeout.setRange(100, 600000)
+        self.visa_timeout.setValue(5000)
+        
+        # Add existing controls to layout
+        v.addWidget(QLabel("Read Term:"))
+        v.addWidget(self.terminator_read)
+        v.addWidget(QLabel("Write Term:"))
+        v.addWidget(self.terminator_write)
+        v.addWidget(self.set_terms_btn)
+        v.addWidget(self.set_eoi_chk)
+        v.addWidget(QLabel("VISA timeout (ms):"))
+        v.addWidget(self.visa_timeout)
+        
+        # Connect buttons
+        self.btn_save.clicked.connect(self._save_settings_ui)
+        self.btn_load.clicked.connect(self._load_settings_ui)
+        self.btn_load_from_instr.clicked.connect(self._load_from_instrument)
         self.set_terms_btn.clicked.connect(self._apply_terminators)
         self.set_eoi_chk.stateChanged.connect(lambda s: self.driver.set_eoi(bool(s)))
         self.visa_timeout.valueChanged.connect(lambda t: self.driver.set_timeout(int(t)))
-        self.verif_chk = QCheckBox("Verify after state changes")
-        v.addWidget(self.verif_chk)
+        
+        # Set layout to group box
         g.setLayout(v)
         return g
+
+
+    def load_thread(self):
+        try:
+            settings = {'source': {}, 'waveform': {}, 'trigger': {}}
+            
+            # Get source settings
+            settings['source']['level'] = float(self.driver.query("SOUR:CURR:LEV:AMPL?"))
+            settings['source']['compliance'] = float(self.driver.query("SOUR:CURR:COMP?"))
+            settings['source']['autorange'] = self.driver.query("SOUR:CURR:RANG:AUTO?").strip().upper() == "1"
+            settings['source']['polarity'] = self.driver.query("SOUR:CURR:POL?").strip()
+            settings['source']['mode'] = self.driver.query("SOUR:FUNC:MODE?").strip()
+            
+            # Get waveform settings
+            settings['waveform']['type'] = self.driver.query("SOUR:WAVE:FUNC?").strip('"').upper()
+            settings['waveform']['amplitude'] = float(self.driver.query("SOUR:WAVE:AMPL?"))
+            settings['waveform']['frequency'] = float(self.driver.query("SOUR:WAVE:FREQ?"))
+            settings['waveform']['offset'] = float(self.driver.query("SOUR:WAVE:OFFS?"))
+            settings['waveform']['phase'] = float(self.driver.query("SOUR:WAVE:PHAS?"))
+            settings['waveform']['duty'] = float(self.driver.query("SOUR:WAVE:DCYC?"))
+            
+            # Get trigger settings
+            settings['trigger']['source'] = self.driver.query("TRIG:SOUR?").strip()
+            settings['trigger']['slope'] = self.driver.query("TRIG:SLOP?").strip()
+            settings['trigger']['level'] = float(self.driver.query("TRIG:LEV?"))
+            settings['trigger']['delay'] = float(self.driver.query("TRIG:DEL?"))
+            settings['trigger']['count'] = int(self.driver.query("TRIG:COUN?"))
+            
+            # Emit signal with the loaded settings
+            self._settings_loaded.emit(settings)
+            
+        except Exception as e:
+            # Emit error signal
+            self._load_error.emit(str(e))
+        finally:
+            # Emit finished signal
+            self._load_finished.emit()
+
+    @pyqtSlot(dict)
+    def _on_settings_loaded(self, settings):
+        """Handle successful settings load"""
+        try:
+            self.apply_settings(settings, apply_to_instrument=False)
+            self._append("Settings loaded from instrument")
+        except Exception as e:
+            self._append(f"Error applying settings: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to apply settings: {str(e)}")
+
+    @pyqtSlot(str)
+    def _on_load_error(self, error_msg):
+        """Handle load error"""
+        QMessageBox.critical(self, "Error", f"Failed to load settings from instrument: {error_msg}")
+        self._append(f"Error loading from instrument: {error_msg}")
+
+    @pyqtSlot()
+    def _on_load_finished(self):
+        """Clean up after load attempt"""
+        self.btn_load_from_instr.setEnabled(True)
+        self.btn_load_from_instr.setText("Load from Instrument")
 
     # ----- Trigger & Meas Tab -----
     def _tab_trig_meas(self) -> QWidget:
@@ -1194,7 +1996,6 @@ class FullApp(QMainWindow):
     def _connect(self):
         res = self.manual_res.text().strip() or self.res_combo.currentText().strip()
         if not res:
-            QMessageBox.warning(self, "No resource", "Choose a resource or enter one manually")
             return
         try:
             self.driver.connect(res)
@@ -1220,26 +2021,24 @@ class FullApp(QMainWindow):
     # Source actions
     def _set_level(self):
         try:
-            val = float(self.src_level.value()); unit = self.src_unit.currentText(); amps = _to_amps(val, unit)
-            if abs(amps) < MIN_CURRENT_A:
-                if QMessageBox.question(self, "Very small current", f"Requested {amps} A is below instrument min. Continue?") != QMessageBox.Yes:
-                    return
-            if abs(amps) > MAX_CURRENT_A:
-                if QMessageBox.question(self, "Clamp current", f"Requested {amps} A exceeds max {MAX_CURRENT_A} A. Clamp?") != QMessageBox.Yes:
-                    return
-                amps = math.copysign(MAX_CURRENT_A, amps)
-            self.driver.set_current(amps)
-            if self.verif_chk.isChecked():
-                def vr():
-                    time.sleep(0.12)
-                    try:
-                        resp = self.driver.query("SOUR:CURR:LEV?")
-                        self._append(f"Set verify: {resp}")
-                    except Exception as e:
-                        self._append(f"Verify failed: {e}")
-                threading.Thread(target=vr, daemon=True).start()
+            level = float(self.src_level.value())
+
+            if not self.driver.is_connected():
+                QMessageBox.warning(self, "Error", "Instrument not connected.")
+                return
+
+            # Use the driver like every other button
+            self.driver.set_current(level)
+
+            # Optional readback (queued so it shows in console via cmd_result)
+            self.driver.queue("SOUR:CURR:LEV?")
+
+            self._append(f"Queued current level set: {level} A")
+
         except Exception as e:
             QMessageBox.critical(self, "Set level error", str(e))
+
+
 
     def _apply_range(self):
         rng = self.src_range_edit.text().strip()
@@ -1427,8 +2226,11 @@ class FullApp(QMainWindow):
 
     # Polling and driver callbacks
     def _poll_syst_err(self):
-        if not self.driver.is_connected(): return
-        self.driver.queue(command_map["syst_err"])
+        if not self.driver.is_connected(): 
+            self._append("Not connected; skipping SYST:ERR poll")
+            return
+        resp = self.instrument.query("SYST:ERR?")
+        self._append(f"SYST:ERR -> {resp}")
 
     def _on_cmd_result(self, cmd: str, resp: object):
         if resp is None:
@@ -1465,6 +2267,259 @@ class FullApp(QMainWindow):
         except Exception:
             pass
 
+    def _load_from_instrument(self):
+        """Load current settings from the connected instrument (paced + safe)."""
+        if not hasattr(self.driver, "is_connected") or not self.driver.is_connected():
+            QMessageBox.warning(self, "Not Connected", "Not connected to instrument")
+            return
+
+        # UI state
+        self.btn_load_from_instr.setEnabled(False)
+        self.btn_load_from_instr.setText("Loading...")
+        QApplication.processEvents()
+
+        # --- timeout bump ONLY for this operation ---
+        old_timeout = getattr(getattr(self.driver, "inst", None), "timeout", None)
+
+        def q(cmd: str, delay_ms: int = 40) -> str:
+            """Query with pacing to avoid overloading the instrument."""
+            resp = self.driver.query(cmd)
+            QThread.msleep(delay_ms)
+            QApplication.processEvents()
+            return resp
+
+        def safe(name: str, fn):
+            """Never crash the whole load on one bad query."""
+            try:
+                return fn()
+            except Exception as e:
+                self._append(f"Load skip {name}: {e}")
+                return None
+
+        try:
+            try:
+                if self.driver.inst is not None:
+                    self.driver.inst.timeout = 20000  # 20s for slow queries during load
+            except Exception:
+                pass
+
+            # --- SOURCE ---
+            level = safe("source.current.level", lambda: float(q("SOUR:CURR:LEV?")))
+            if level is not None and hasattr(self, "src_level"):
+                self.src_level.setValue(level)
+
+            compliance = safe("source.compliance.voltage", lambda: float(q("SOUR:VOLT:PROT?")))
+            if compliance is not None and hasattr(self, "comp_spin"):
+                self.comp_spin.setValue(compliance)
+
+            autorange_raw = safe("source.current.autorange", lambda: q("SOUR:CURR:RANG:AUTO?").strip())
+            if autorange_raw is not None and hasattr(self, "autorange_chk"):
+                self.autorange_chk.setChecked(autorange_raw.upper() in ("1", "ON", "TRUE"))
+
+            rng_raw = safe("source.current.range", lambda: q("SOUR:CURR:RANG?").strip())
+            if rng_raw is not None and hasattr(self, "src_range_edit"):
+                self.src_range_edit.setText(rng_raw)
+
+            outp_raw = safe("source.output.enabled", lambda: q("OUTP?").strip())
+            if outp_raw is not None and hasattr(self, "outp_enable"):
+                self.outp_enable.setChecked(outp_raw.upper() in ("1", "ON", "TRUE"))
+
+            # --- WAVEFORM (only if you have these widgets) ---
+            w_type = safe("waveform.type", lambda: q("SOUR:WAVE:FUNC?").strip().strip('"'))
+            if w_type is not None and hasattr(self, "wave_type"):
+                self.wave_type.setCurrentText(w_type)
+
+            w_amp = safe("waveform.amplitude", lambda: float(q("SOUR:WAVE:AMPL?")))
+            if w_amp is not None and hasattr(self, "wave_amp"):
+                self.wave_amp.setValue(w_amp)
+
+            w_freq = safe("waveform.frequency", lambda: float(q("SOUR:WAVE:FREQ?")))
+            if w_freq is not None and hasattr(self, "wave_freq"):
+                self.wave_freq.setValue(w_freq)
+
+            w_offs = safe("waveform.offset", lambda: float(q("SOUR:WAVE:OFFS?")))
+            if w_offs is not None and hasattr(self, "wave_offs"):
+                self.wave_offs.setValue(w_offs)
+
+            w_phas = safe("waveform.phase", lambda: float(q("SOUR:WAVE:PHAS?")))
+            if w_phas is not None and hasattr(self, "wave_phase"):
+                self.wave_phase.setValue(w_phas)
+
+            w_duty = safe("waveform.duty", lambda: float(q("SOUR:WAVE:DUTY?")))
+            if w_duty is not None and hasattr(self, "wave_duty"):
+                self.wave_duty.setValue(w_duty)
+
+            # --- TRIGGER (optional widgets) ---
+            t_src = safe("trigger.source", lambda: q("TRIG:SOUR?").strip())
+            if t_src is not None and hasattr(self, "trig_src"):
+                self.trig_src.setCurrentText(t_src)
+
+            t_slope = safe("trigger.slope", lambda: q("TRIG:SLOP?").strip())
+            if t_slope is not None and hasattr(self, "trig_slope"):
+                self.trig_slope.setCurrentText(t_slope)
+
+            t_level = safe("trigger.level", lambda: float(q("TRIG:LEV?")))
+            if t_level is not None and hasattr(self, "trig_level"):
+                self.trig_level.setValue(t_level)
+
+            t_delay = safe("trigger.delay", lambda: float(q("TRIG:DEL?")))
+            if t_delay is not None and hasattr(self, "trig_delay"):
+                self.trig_delay.setValue(t_delay)
+
+            t_count = safe("trigger.count", lambda: int(float(q("TRIG:COUN?"))))
+            if t_count is not None and hasattr(self, "trig_count"):
+                self.trig_count.setValue(t_count)
+
+            self._append("Settings loaded from instrument")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load settings from instrument: {str(e)}")
+            self._append(f"Error loading from instrument: {e}")
+
+        finally:
+            # restore timeout
+            try:
+                if old_timeout is not None and self.driver.inst is not None:
+                    self.driver.inst.timeout = old_timeout
+            except Exception:
+                pass
+
+            self.btn_load_from_instr.setEnabled(True)
+            self.btn_load_from_instr.setText("Load from Instrument")
+
+
+    def _save_settings_ui(self):
+        """Open file dialog to save settings to a JSON file"""
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Instrument Settings",
+            os.getcwd(),
+            "JSON Files (*.json)"
+        )
+        if filename:
+            if not filename.endswith('.json'):
+                filename += '.json'
+            settings = self.get_current_settings()
+            try:
+                with open(filename, 'w') as f:
+                    json.dump(settings, f, indent=2)
+                self._append(f"Settings saved to {filename}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save settings: {e}")
+
+    def _load_settings_ui(self):
+        """Open file dialog to load settings from a JSON file"""
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Instrument Settings",
+            os.getcwd(),
+            "JSON Files (*.json)"
+        )
+        if filename:
+            try:
+                with open(filename, 'r') as f:
+                    settings = json.load(f)
+                self.apply_settings(settings)
+                self._append(f"Settings loaded from {filename}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to load settings: {e}")
+
+    def get_current_settings(self) -> dict:
+        """Get current settings from the UI"""
+        settings = {
+            'source': {
+                'level': self.src_level.value(),
+                'unit': self.src_unit.currentText(),
+                'compliance': self.comp_spin.value(),
+                'autorange': self.autorange_chk.isChecked(),
+                'polarity': self.polarity_combo.currentText(),
+                'mode': self.src_mode_combo.currentText()
+            },
+            'waveform': {
+                'type': self.wave_type.currentText(),
+                'amplitude': self.wave_amp.value(),
+                'frequency': self.wave_freq.value(),
+                'offset': self.wave_offs.value(),
+                'phase': self.wave_phase.value(),
+                'duty': self.wave_duty.value()
+            },
+            'trigger': {
+                'source': self.trig_src.currentText(),
+                'slope': self.trig_slope.currentText(),
+                'level': self.trig_level.value(),
+                'delay': self.trig_delay.value(),
+                'count': self.trig_count.value()
+            }
+            # Add more settings as needed
+        }
+        return settings
+
+    def apply_settings(self, settings: dict, apply_to_instrument: bool = True):
+        """Apply settings from a dictionary to the UI and optionally to the instrument"""
+        try:
+            # Apply source settings
+            src = settings.get('source', {})
+            self.src_level.setValue(float(src.get('level', self.src_level.value())))
+            self.src_unit.setCurrentText(str(src.get('unit', self.src_unit.currentText())))
+            self.comp_spin.setValue(float(src.get('compliance', self.comp_spin.value())))
+            self.autorange_chk.setChecked(bool(src.get('autorange', self.autorange_chk.isChecked())))
+            self.polarity_combo.setCurrentText(str(src.get('polarity', self.polarity_combo.currentText())))
+            self.src_mode_combo.setCurrentText(str(src.get('mode', self.src_mode_combo.currentText())))
+            
+            # Apply waveform settings
+            wave = settings.get('waveform', {})
+            self.wave_type.setCurrentText(str(wave.get('type', self.wave_type.currentText())))
+            self.wave_amp.setValue(float(wave.get('amplitude', self.wave_amp.value())))
+            self.wave_freq.setValue(float(wave.get('frequency', self.wave_freq.value())))
+            self.wave_offs.setValue(float(wave.get('offset', self.wave_offs.value())))
+            self.wave_phase.setValue(float(wave.get('phase', self.wave_phase.value())))
+            self.wave_duty.setValue(float(wave.get('duty', self.wave_duty.value())))
+            
+            # Apply trigger settings
+            trig = settings.get('trigger', {})
+            self.trig_src.setCurrentText(str(trig.get('source', self.trig_src.currentText())))
+            self.trig_slope.setCurrentText(str(trig.get('slope', self.trig_slope.currentText())))
+            self.trig_level.setValue(float(trig.get('level', self.trig_level.value())))
+            self.trig_delay.setValue(float(trig.get('delay', self.trig_delay.value())))
+            self.trig_count.setValue(int(trig.get('count', self.trig_count.value())))
+            
+            # Apply settings to instrument if requested
+            if apply_to_instrument and self.driver.connected:
+                self._apply_all_settings()
+                
+        except Exception as e:
+            self._append(f"Error applying settings: {e}")
+
+    def _apply_all_settings(self):
+        """Apply all current UI settings to the instrument"""
+        if not self.driver.connected:
+            return
+            
+        try:
+            # Apply source settings
+            self._set_level()
+            self._apply_comp()
+            self.driver.set_range("AUTO" if self.autorange_chk.isChecked() else "OFF")
+            self.driver.set_polarity(self.polarity_combo.currentText())
+            self.driver.queue(f"SOUR:FUNC:MODE {self.src_mode_combo.currentText()}")
+            
+            # Apply waveform settings
+            wave_params = {
+                'type': self.wave_type.currentText(),
+                'amp': self.wave_amp.value(),
+                'freq': self.wave_freq.value(),
+                'offset': self.wave_offs.value(),
+                'phase': self.wave_phase.value(),
+                'duty': self.wave_duty.value()
+            }
+            self.driver.configure_wave(wave_params)
+            
+            # Apply trigger settings
+            self._apply_trigger()
+            
+            self._append("All settings applied to instrument")
+        except Exception as e:
+            self._append(f"Failed to apply settings to instrument: {e}")
     def closeEvent(self, ev):
         try:
             if hasattr(self, "sweep_worker") and self.sweep_worker and self.sweep_worker.isRunning():
@@ -1488,7 +2543,19 @@ def main():
     app = QApplication(sys.argv)
     w = FullApp()
     w.show()
+    
+    # Play the local MP3 file
+    from PyQt5.QtCore import QTimer
+    import os
+    
+    # Direct path to the audio file
+   # audio_file = os.path.expanduser("~/Desktop/march.wav")
+    #print(f"Looking for audio file at: {audio_file}")
+    
+    #QTimer.singleShot(500, lambda: w.play_local_audio(audio_file))
+    
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()
+    
