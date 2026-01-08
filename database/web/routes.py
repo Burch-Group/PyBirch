@@ -575,6 +575,7 @@ def fabrication_run_edit(run_id):
             'run_number': run_obj.run_number,
             'status': run_obj.status,
             'operator': run_obj.operator,
+            'created_by': run_obj.operator,  # Template uses created_by
             'started_at': run_obj.started_at.isoformat() if run_obj.started_at else None,
             'completed_at': run_obj.completed_at.isoformat() if run_obj.completed_at else None,
             'notes': run_obj.notes,
@@ -653,6 +654,63 @@ def fabrication_run_edit(run_id):
                           procedures=procedures,
                           action='Edit',
                           run=run)
+
+
+@main_bp.route('/fabrication-runs/<int:run_id>')
+def fabrication_run_detail(run_id):
+    """View a fabrication run detail page."""
+    db = get_db_service()
+    
+    with db.session_scope() as session:
+        from database.models import FabricationRun, Sample, Procedure
+        from sqlalchemy.orm import joinedload
+        
+        run_obj = session.query(FabricationRun).options(
+            joinedload(FabricationRun.sample),
+            joinedload(FabricationRun.procedure),
+        ).filter(FabricationRun.id == run_id).first()
+        
+        if not run_obj:
+            flash('Fabrication run not found', 'error')
+            return redirect(url_for('main.samples'))
+        
+        run = {
+            'id': run_obj.id,
+            'sample_id': run_obj.sample_id,
+            'procedure_id': run_obj.procedure_id,
+            'run_number': run_obj.run_number,
+            'status': run_obj.status,
+            'operator': run_obj.operator,
+            'started_at': run_obj.started_at.isoformat() if run_obj.started_at else None,
+            'completed_at': run_obj.completed_at.isoformat() if run_obj.completed_at else None,
+            'notes': run_obj.notes,
+            'results': run_obj.results,
+            'actual_parameters': run_obj.actual_parameters,
+            'weather_conditions': run_obj.weather_conditions,
+            'created_at': run_obj.created_at.isoformat() if run_obj.created_at else None,
+        }
+        
+        sample = {
+            'id': run_obj.sample.id,
+            'sample_id': run_obj.sample.sample_id,
+            'name': run_obj.sample.name,
+        } if run_obj.sample else None
+        
+        procedure = None
+        if run_obj.procedure:
+            procedure = {
+                'id': run_obj.procedure.id,
+                'name': run_obj.procedure.name,
+                'procedure_type': run_obj.procedure.procedure_type,
+                'version': run_obj.procedure.version,
+                'steps': run_obj.procedure.steps,
+                'parameters': run_obj.procedure.parameters,
+            }
+    
+    return render_template('fabrication_run_detail.html',
+                          run=run,
+                          sample=sample,
+                          procedure=procedure)
 
 
 @main_bp.route('/fabrication-runs/<int:run_id>/delete', methods=['POST'])
@@ -5130,3 +5188,177 @@ def instrument_binding_delete(instrument_id, binding_id):
     if definition_id:
         return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
     return redirect(url_for('main.instruments'))
+
+
+# -------------------- Computers --------------------
+
+@main_bp.route('/computers')
+def computers():
+    """Computers list page."""
+    page = request.args.get('page', 1, type=int)
+    search = request.args.get('search', '')
+    
+    db = get_db_service()
+    computers_list, total = db.get_computers(
+        search=search if search else None,
+        page=page,
+    )
+    
+    return render_template('computers.html',
+        computers=computers_list,
+        total=total,
+        search=search,
+        page=page,
+    )
+
+
+@main_bp.route('/computers/<int:computer_id>')
+def computer_detail(computer_id):
+    """Computer detail page."""
+    db = get_db_service()
+    computer = db.get_computer_with_bindings(computer_id)
+    
+    if not computer:
+        flash('Computer not found', 'error')
+        return redirect(url_for('main.computers'))
+    
+    return render_template('computer_detail.html', computer=computer)
+
+
+@main_bp.route('/computers/new', methods=['GET', 'POST'])
+@login_required
+def computer_new():
+    """Create a new computer."""
+    db = get_db_service()
+    
+    if request.method == 'POST':
+        data = {
+            'computer_name': request.form.get('computer_name', '').strip(),
+            'computer_id': request.form.get('computer_id', '').strip() or None,
+            'nickname': request.form.get('nickname', '').strip() or None,
+            'location': request.form.get('location', '').strip() or None,
+            'description': request.form.get('description', '').strip() or None,
+        }
+        
+        if not data['computer_name']:
+            flash('Computer name (hostname) is required', 'error')
+        else:
+            try:
+                computer = db.create_computer(**data)
+                flash(f'Computer "{data["computer_name"]}" created successfully', 'success')
+                return redirect(url_for('main.computer_detail', computer_id=computer['id']))
+            except Exception as e:
+                flash(f'Error creating computer: {str(e)}', 'error')
+    
+    # Pre-fill with current computer info
+    from pybirch.Instruments.factory import get_computer_info
+    try:
+        computer_info = get_computer_info()
+    except:
+        computer_info = {'computer_name': '', 'computer_id': '', 'username': ''}
+    
+    return render_template('computer_form.html',
+        action='New',
+        computer={
+            'computer_name': computer_info.get('computer_name', ''),
+            'computer_id': computer_info.get('computer_id', ''),
+        },
+    )
+
+
+@main_bp.route('/computers/<int:computer_id>/edit', methods=['GET', 'POST'])
+@login_required
+def computer_edit(computer_id):
+    """Edit a computer."""
+    db = get_db_service()
+    computer = db.get_computer_by_id(computer_id)
+    
+    if not computer:
+        flash('Computer not found', 'error')
+        return redirect(url_for('main.computers'))
+    
+    if request.method == 'POST':
+        data = {
+            'computer_name': request.form.get('computer_name', '').strip() or None,
+            'computer_id': request.form.get('computer_id', '').strip() or None,
+            'nickname': request.form.get('nickname', '').strip() or None,
+            'location': request.form.get('location', '').strip() or None,
+            'description': request.form.get('description', '').strip() or None,
+        }
+        
+        try:
+            db.update_computer_by_id(computer_id, **data)
+            flash('Computer updated successfully', 'success')
+            return redirect(url_for('main.computer_detail', computer_id=computer_id))
+        except Exception as e:
+            flash(f'Error updating computer: {str(e)}', 'error')
+    
+    return render_template('computer_form.html',
+        action='Edit',
+        computer=computer,
+    )
+
+
+@main_bp.route('/computers/<int:computer_id>/delete', methods=['POST'])
+@login_required
+def computer_delete(computer_id):
+    """Delete a computer."""
+    db = get_db_service()
+    
+    try:
+        if db.delete_computer(computer_id):
+            flash('Computer deleted successfully', 'success')
+        else:
+            flash('Computer not found', 'error')
+    except Exception as e:
+        flash(f'Error deleting computer: {str(e)}', 'error')
+    
+    return redirect(url_for('main.computers'))
+
+
+@main_bp.route('/computers/<int:computer_id>/bindings/new', methods=['GET', 'POST'])
+@login_required
+def computer_binding_new(computer_id):
+    """Add an instrument binding to a computer."""
+    db = get_db_service()
+    computer = db.get_computer_by_id(computer_id)
+    
+    if not computer:
+        flash('Computer not found', 'error')
+        return redirect(url_for('main.computers'))
+    
+    if request.method == 'POST':
+        instrument_id = request.form.get('instrument_id', type=int)
+        if not instrument_id:
+            flash('Please select an instrument', 'error')
+        else:
+            data = {
+                'instrument_id': instrument_id,
+                'computer_name': computer['computer_name'],
+                'computer_id': computer.get('computer_id'),
+                'adapter': request.form.get('adapter', '').strip() or None,
+                'adapter_type': request.form.get('adapter_type', '').strip() or None,
+                'is_primary': request.form.get('is_primary') == 'on',
+            }
+            
+            try:
+                db.bind_instrument_to_computer(
+                    instrument_id=data['instrument_id'],
+                    computer_name=data['computer_name'],
+                    computer_id=data.get('computer_id'),
+                    adapter=data.get('adapter'),
+                    adapter_type=data.get('adapter_type'),
+                    is_primary=data.get('is_primary', True),
+                )
+                flash('Instrument bound successfully', 'success')
+                return redirect(url_for('main.computer_detail', computer_id=computer_id))
+            except Exception as e:
+                flash(f'Error creating binding: {str(e)}', 'error')
+    
+    # GET - show form with instrument dropdown
+    instruments = db.get_instruments_simple_list()
+    
+    return render_template('computer_binding_add.html',
+        computer=computer,
+        instruments=instruments,
+    )

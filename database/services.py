@@ -1547,12 +1547,14 @@ class DatabaseService:
     def get_instrument(self, instrument_id: int) -> Optional[Dict]:
         """Get a single instrument by ID."""
         from sqlalchemy.orm import joinedload
+        from database.models import ComputerBinding, Computer
         
         with self.session_scope() as session:
             instrument = session.query(Instrument).options(
-                joinedload(Instrument.definition)
+                joinedload(Instrument.definition),
+                joinedload(Instrument.computer_bindings).joinedload(ComputerBinding.computer)
             ).filter(Instrument.id == instrument_id).first()
-            return self._instrument_to_dict(instrument) if instrument else None
+            return self._instrument_to_dict(instrument, include_computer_bindings=True) if instrument else None
     
     def create_instrument(self, data: Dict[str, Any]) -> Dict:
         """Create new instrument."""
@@ -1774,7 +1776,7 @@ class DatabaseService:
             
             return self._instrument_to_dict(instrument)
     
-    def _instrument_to_dict(self, instrument: Instrument) -> Dict:
+    def _instrument_to_dict(self, instrument: Instrument, include_computer_bindings: bool = False) -> Dict:
         """Convert Instrument model to dictionary."""
         # Get definition info if linked
         definition_name = None
@@ -1783,7 +1785,7 @@ class DatabaseService:
             definition_name = instrument.definition.name
             definition_display_name = instrument.definition.display_name
         
-        return {
+        result = {
             'id': instrument.id,
             'name': instrument.name,
             'instrument_type': instrument.instrument_type,
@@ -1804,6 +1806,31 @@ class DatabaseService:
             'next_calibration_date': instrument.next_calibration_date.isoformat() if instrument.next_calibration_date else None,
             'created_at': instrument.created_at.isoformat() if instrument.created_at else None,
         }
+        
+        # Include computer bindings if requested
+        if include_computer_bindings and hasattr(instrument, 'computer_bindings'):
+            bindings = []
+            for binding in instrument.computer_bindings:
+                binding_dict = {
+                    'id': binding.id,
+                    'computer_name': binding.computer_name,
+                    'computer_id': binding.computer_id,
+                    'adapter': binding.adapter,
+                    'adapter_type': binding.adapter_type,
+                    'is_primary': binding.is_primary,
+                    'last_connected': binding.last_connected.isoformat() if binding.last_connected else None,
+                }
+                # Include linked Computer info if available
+                if binding.computer:
+                    binding_dict['computer'] = {
+                        'id': binding.computer.id,
+                        'nickname': binding.computer.nickname,
+                        'location': binding.computer.location,
+                    }
+                bindings.append(binding_dict)
+            result['computer_bindings'] = bindings
+        
+        return result
 
     # ==================== Instrument Definitions (Stored Code) ====================
     
@@ -2462,6 +2489,215 @@ class DatabaseService:
             'created_at': computer.created_at.isoformat() if computer.created_at else None,
             'updated_at': computer.updated_at.isoformat() if computer.updated_at else None,
         }
+    
+    def create_computer(
+        self,
+        computer_name: str,
+        computer_id: Optional[str] = None,
+        nickname: Optional[str] = None,
+        location: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict:
+        """Create a new computer.
+        
+        Args:
+            computer_name: Hostname of the computer (required, unique)
+            computer_id: MAC address or UUID (optional)
+            nickname: Friendly name (optional)
+            location: Physical location (optional)
+            description: Additional notes (optional)
+            
+        Returns:
+            Created computer as dictionary
+        """
+        from database.models import Computer
+        
+        with self.session_scope() as session:
+            computer = Computer(
+                computer_name=computer_name,
+                computer_id=computer_id,
+                nickname=nickname,
+                location=location,
+                description=description,
+            )
+            session.add(computer)
+            session.flush()
+            return self._computer_to_dict(computer)
+    
+    def update_computer_by_id(
+        self,
+        computer_db_id: int,
+        computer_name: Optional[str] = None,
+        computer_id: Optional[str] = None,
+        nickname: Optional[str] = None,
+        location: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """Update a computer by database ID.
+        
+        Args:
+            computer_db_id: Database ID of the computer
+            computer_name: Hostname (None to keep existing)
+            computer_id: MAC/UUID (None to keep existing)
+            nickname: Friendly name (None to keep existing)
+            location: Physical location (None to keep existing)
+            description: Additional notes (None to keep existing)
+            
+        Returns:
+            Updated computer as dictionary, or None if not found
+        """
+        from database.models import Computer
+        
+        with self.session_scope() as session:
+            computer = session.query(Computer).filter(
+                Computer.id == computer_db_id
+            ).first()
+            
+            if not computer:
+                return None
+            
+            if computer_name is not None:
+                computer.computer_name = computer_name
+            if computer_id is not None:
+                computer.computer_id = computer_id
+            if nickname is not None:
+                computer.nickname = nickname
+            if location is not None:
+                computer.location = location
+            if description is not None:
+                computer.description = description
+            
+            session.flush()
+            return self._computer_to_dict(computer)
+    
+    def delete_computer(self, computer_db_id: int) -> bool:
+        """Delete a computer by database ID.
+        
+        Note: This will also delete all associated computer bindings.
+        
+        Args:
+            computer_db_id: Database ID of the computer
+            
+        Returns:
+            True if deleted, False if not found
+        """
+        from database.models import Computer, ComputerBinding
+        
+        with self.session_scope() as session:
+            computer = session.query(Computer).filter(
+                Computer.id == computer_db_id
+            ).first()
+            
+            if not computer:
+                return False
+            
+            # Delete associated bindings first
+            session.query(ComputerBinding).filter(
+                ComputerBinding.computer_id_fk == computer_db_id
+            ).delete()
+            
+            session.delete(computer)
+            return True
+    
+    def get_computer_with_bindings(self, computer_db_id: int) -> Optional[Dict]:
+        """Get a computer by ID with all its instrument bindings.
+        
+        Args:
+            computer_db_id: Database ID of the computer
+            
+        Returns:
+            Computer dict with 'bindings' list, or None if not found
+        """
+        from database.models import Computer, ComputerBinding, Instrument, InstrumentDefinition
+        from sqlalchemy.orm import joinedload
+        
+        with self.session_scope() as session:
+            computer = session.query(Computer).filter(
+                Computer.id == computer_db_id
+            ).first()
+            
+            if not computer:
+                return None
+            
+            result = self._computer_to_dict(computer)
+            
+            # Get bindings with instrument info
+            bindings = session.query(ComputerBinding).options(
+                joinedload(ComputerBinding.instrument).joinedload(Instrument.definition)
+            ).filter(
+                ComputerBinding.computer_id_fk == computer_db_id
+            ).all()
+            
+            result['bindings'] = []
+            for b in bindings:
+                binding_dict = {
+                    'id': b.id,
+                    'instrument_id': b.instrument_id,
+                    'adapter': b.adapter,
+                    'adapter_type': b.adapter_type,
+                    'is_primary': b.is_primary,
+                    'last_connected': b.last_connected.isoformat() if b.last_connected else None,
+                    'last_settings': b.last_settings,
+                }
+                if b.instrument:
+                    binding_dict['instrument_name'] = b.instrument.name
+                    binding_dict['instrument_status'] = b.instrument.status
+                    binding_dict['pybirch_class'] = b.instrument.pybirch_class
+                    if b.instrument.definition:
+                        binding_dict['definition_name'] = b.instrument.definition.name
+                result['bindings'].append(binding_dict)
+            
+            return result
+    
+    def get_computers(
+        self,
+        search: Optional[str] = None,
+        page: int = 1,
+        per_page: int = 50,
+    ) -> Tuple[List[Dict], int]:
+        """Get paginated list of computers with binding counts.
+        
+        Args:
+            search: Optional search term
+            page: Page number (1-indexed)
+            per_page: Items per page
+            
+        Returns:
+            Tuple of (list of computers, total count)
+        """
+        from database.models import Computer, ComputerBinding
+        from sqlalchemy import or_, func
+        
+        with self.session_scope() as session:
+            query = session.query(Computer)
+            
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        Computer.computer_name.ilike(search_term),
+                        Computer.nickname.ilike(search_term),
+                        Computer.location.ilike(search_term),
+                    )
+                )
+            
+            total = query.count()
+            
+            computers = query.order_by(Computer.computer_name).offset(
+                (page - 1) * per_page
+            ).limit(per_page).all()
+            
+            result = []
+            for c in computers:
+                c_dict = self._computer_to_dict(c)
+                # Count bindings
+                binding_count = session.query(func.count(ComputerBinding.id)).filter(
+                    ComputerBinding.computer_id_fk == c.id
+                ).scalar()
+                c_dict['binding_count'] = binding_count or 0
+                result.append(c_dict)
+            
+            return result, total
 
     # ==================== Equipment (Large lab equipment) ====================
     

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Computers - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Computers</h1>
+        <div class="header-actions">
+            <a href="{{ url_for('main.computer_new') }}" class="btn btn-primary">+ New Computer</a>
+        </div>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search computers..." 
+                   value="{{ search }}" class="filter-input">
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search %}
+                <a href="{{ url_for('main.computers') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} computer(s) found</p>
+    
+    {% if computers %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Hostname</th>
+                <th>Nickname</th>
+                <th>Location</th>
+                <th>Computer ID</th>
+                <th>Bindings</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for computer in computers %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('main.computer_detail', computer_id=computer.id) }}">
+                        <code>{{ computer.computer_name }}</code>
+                    </a>
+                </td>
+                <td>{{ computer.nickname or '-' }}</td>
+                <td>{{ computer.location or '-' }}</td>
+                <td><small>{{ computer.computer_id or '-' }}</small></td>
+                <td>
+                    <span class="badge">{{ computer.binding_count }} instrument(s)</span>
+                </td>
+                <td>
+                    <a href="{{ url_for('main.computer_detail', computer_id=computer.id) }}" class="btn btn-sm">View</a>
+                    <a href="{{ url_for('main.computer_edit', computer_id=computer.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <p>No computers found.</p>
+        <p>Computers are registered when instruments are bound to them, or you can <a href="{{ url_for('main.computer_new') }}">add one manually</a>.</p>
+    </div>
+    {% endif %}
+    
+    {% if total > 50 %}
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="{{ url_for('main.computers', search=search, page=page-1) }}" class="btn btn-secondary">← Previous</a>
+        {% endif %}
+        <span>Page {{ page }}</span>
+        {% if computers|length == 50 %}
+        <a href="{{ url_for('main.computers', search=search, page=page+1) }}" class="btn btn-secondary">Next →</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

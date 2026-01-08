@@ -169,6 +169,49 @@
             </dl>
         </div>
         
+        <!-- Bound Computer Section -->
+        {% if instrument.computer_bindings %}
+        <div class="detail-section">
+            <h2>Bound Computers</h2>
+            {% for binding in instrument.computer_bindings %}
+            <div class="binding-card" style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <strong>
+                        {% if binding.computer %}
+                        <a href="{{ url_for('main.computer_detail', computer_id=binding.computer.id) }}">
+                            {{ binding.computer.nickname or binding.computer_name }}
+                        </a>
+                        {% else %}
+                        {{ binding.computer_name }}
+                        {% endif %}
+                    </strong>
+                    {% if binding.is_primary %}
+                    <span class="badge" style="background: var(--accent); color: white; font-size: 0.75rem;">Primary</span>
+                    {% endif %}
+                </div>
+                <dl class="detail-list" style="margin: 0;">
+                    {% if binding.adapter %}
+                    <dt>Adapter</dt>
+                    <dd><code>{{ binding.adapter }}</code></dd>
+                    {% endif %}
+                    {% if binding.adapter_type %}
+                    <dt>Adapter Type</dt>
+                    <dd>{{ binding.adapter_type }}</dd>
+                    {% endif %}
+                    {% if binding.last_connected %}
+                    <dt>Last Connected</dt>
+                    <dd>{{ binding.last_connected[:16].replace('T', ' ') }}</dd>
+                    {% endif %}
+                    {% if binding.computer and binding.computer.location %}
+                    <dt>Location</dt>
+                    <dd>{{ binding.computer.location }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
         <div class="detail-section">
             <h2>Connection & Calibration</h2>
             <dl class="detail-list">

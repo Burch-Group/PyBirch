@@ -244,6 +244,10 @@
                 <img src="{{ url_for('static', filename='images/instrument_definitions.svg') }}" class="nav-icon" alt="">
                 <span>Instrument Definitions</span>
             </a>
+            <a href="{{ url_for('main.computers') }}" class="nav-drawer-link {% if request.endpoint and 'computer' in request.endpoint and 'binding' not in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/computers.svg') }}" class="nav-icon" alt="">
+                <span>Computers</span>
+            </a>
             <a href="{{ url_for('main.equipment') }}" class="nav-drawer-link {% if request.endpoint and 'equipment' in request.endpoint %}active{% endif %}">
                 <img src="{{ url_for('static', filename='images/equipment.svg') }}" class="nav-icon" alt="">
                 <span>Equipment</span>

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Computer - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.computers') }}">Computers</a> / {{ action }}
+        </div>
+    </div>
+    
+    <h1>{{ action }} Computer</h1>
+    
+    <form method="POST" class="entity-form">
+        <div class="form-section">
+            <h2>Computer Information</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="computer_name">Hostname *</label>
+                    <input type="text" id="computer_name" name="computer_name" required
+                           value="{{ computer.computer_name if computer else '' }}"
+                           placeholder="e.g., LAB-PC-01">
+                    <small class="form-hint">The computer's hostname (network name)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="nickname">Nickname</label>
+                    <input type="text" id="nickname" name="nickname"
+                           value="{{ computer.nickname if computer else '' }}"
+                           placeholder="e.g., Main Lab Computer">
+                    <small class="form-hint">Friendly name for easy identification</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="computer_id">Computer ID</label>
+                    <input type="text" id="computer_id" name="computer_id"
+                           value="{{ computer.computer_id if computer else '' }}"
+                           placeholder="MAC address or UUID">
+                    <small class="form-hint">Optional unique identifier (MAC address, UUID, etc.)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="location">Location</label>
+                    <input type="text" id="location" name="location"
+                           value="{{ computer.location if computer else '' }}"
+                           placeholder="e.g., Room 101, Building A">
+                    <small class="form-hint">Physical location of the computer</small>
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" rows="3"
+                              placeholder="Additional notes about this computer...">{{ computer.description if computer else '' }}</textarea>
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.computers') }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ action }} Computer</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

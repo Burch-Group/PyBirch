@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Fabrication Run #{{ run.run_number }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-content">
+        <h1>Fabrication Run #{{ run.run_number }}</h1>
+        <div class="header-actions">
+            <a href="{{ url_for('main.fabrication_run_edit', run_id=run.id) }}" class="btn btn-primary">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                Edit
+            </a>
+            <form action="{{ url_for('main.fabrication_run_delete', run_id=run.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this fabrication run?');">
+                <button type="submit" class="btn btn-danger">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                    Delete
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="detail-content">
+    <!-- Basic Information -->
+    <div class="detail-section">
+        <h3>Basic Information</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <label>Status</label>
+                <span class="badge badge-{{ run.status }}">{{ run.status }}</span>
+            </div>
+            <div class="info-item">
+                <label>Operator</label>
+                <span>{{ run.operator or 'Not specified' }}</span>
+            </div>
+            <div class="info-item">
+                <label>Started At</label>
+                <span>{{ run.started_at[:16].replace('T', ' ') if run.started_at else 'Not started' }}</span>
+            </div>
+            <div class="info-item">
+                <label>Completed At</label>
+                <span>{{ run.completed_at[:16].replace('T', ' ') if run.completed_at else 'Not completed' }}</span>
+            </div>
+            <div class="info-item">
+                <label>Created At</label>
+                <span>{{ run.created_at[:16].replace('T', ' ') if run.created_at else '-' }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Related Items -->
+    <div class="detail-section">
+        <h3>Related Items</h3>
+        <div class="info-grid">
+            {% if sample %}
+            <div class="info-item">
+                <label>Sample</label>
+                <a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}">
+                    {{ sample.name }} ({{ sample.sample_id }})
+                </a>
+            </div>
+            {% endif %}
+            {% if procedure %}
+            <div class="info-item">
+                <label>Procedure</label>
+                <a href="{{ url_for('main.procedure_detail', procedure_id=procedure.id) }}">
+                    {{ procedure.name }} v{{ procedure.version }}
+                </a>
+            </div>
+            <div class="info-item">
+                <label>Procedure Type</label>
+                <span>{{ procedure.procedure_type }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Actual Parameters -->
+    {% if run.actual_parameters %}
+    <div class="detail-section">
+        <h3>Actual Parameters</h3>
+        
+        {% if run.actual_parameters.procedure_parameters %}
+        <h4 style="margin-top: 1rem; margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">Procedure Parameters</h4>
+        <table class="data-table" style="margin-bottom: 1.5rem;">
+            <thead>
+                <tr>
+                    <th>Parameter</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for key, value in run.actual_parameters.procedure_parameters.items() %}
+                <tr>
+                    <td><strong>{{ key }}</strong></td>
+                    <td>{{ value }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+        
+        {% if run.actual_parameters.step_parameters %}
+        <h4 style="margin-top: 1rem; margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">Step Parameters</h4>
+        {% for step_key, step_params in run.actual_parameters.step_parameters.items() %}
+        <div style="margin-bottom: 1rem;">
+            <strong style="display: block; margin-bottom: 0.5rem;">{{ step_key }}</strong>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for param_name, param_value in step_params.items() %}
+                    <tr>
+                        <td>{{ param_name }}</td>
+                        <td>{{ param_value }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Notes -->
+    {% if run.notes %}
+    <div class="detail-section">
+        <h3>Notes</h3>
+        <div class="notes-content">
+            {{ run.notes }}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Results -->
+    {% if run.results %}
+    <div class="detail-section">
+        <h3>Results</h3>
+        <div class="notes-content">
+            {{ run.results }}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Weather Conditions -->
+    {% if run.weather_conditions %}
+    <div class="detail-section">
+        <h3>Weather Conditions</h3>
+        <div class="info-grid">
+            {% if run.weather_conditions.temperature %}
+            <div class="info-item">
+                <label>Temperature</label>
+                <span>{{ run.weather_conditions.temperature }}°C</span>
+            </div>
+            {% endif %}
+            {% if run.weather_conditions.humidity %}
+            <div class="info-item">
+                <label>Humidity</label>
+                <span>{{ run.weather_conditions.humidity }}%</span>
+            </div>
+            {% endif %}
+            {% if run.weather_conditions.pressure %}
+            <div class="info-item">
+                <label>Pressure</label>
+                <span>{{ run.weather_conditions.pressure }} hPa</span>
+            </div>
+            {% endif %}
+            {% if run.weather_conditions.description %}
+            <div class="info-item">
+                <label>Description</label>
+                <span>{{ run.weather_conditions.description }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+    .notes-content {
+        background: var(--bg-tertiary);
+        padding: 1rem;
+        border-radius: 4px;
+        white-space: pre-wrap;
+        font-family: inherit;
+        line-height: 1.6;
+    }
+    
+    .badge-pending {
+        background: var(--warning);
+        color: var(--text-primary);
+    }
+    
+    .badge-in_progress {
+        background: var(--info);
+        color: white;
+    }
+    
+    .badge-completed {
+        background: var(--success);
+        color: white;
+    }
+    
+    .badge-failed {
+        background: var(--error);
+        color: white;
+    }
+    
+    .badge-cancelled {
+        background: var(--text-secondary);
+        color: white;
+    }
+</style>
+{% endblock %}

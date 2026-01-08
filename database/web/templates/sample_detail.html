@@ -189,6 +189,7 @@
                     </td>
                     <td>
                         <div class="action-buttons">
+                            <a href="{{ url_for('main.fabrication_run_detail', run_id=run.id) }}" class="btn btn-sm" title="View">View</a>
                             <a href="{{ url_for('main.fabrication_run_edit', run_id=run.id) }}" class="btn btn-sm btn-secondary" title="Edit">Edit</a>
                             <form method="POST" action="{{ url_for('main.fabrication_run_delete', run_id=run.id) }}" style="display:inline;">
                                 <button type="submit" class="btn btn-sm btn-danger" title="Delete" onclick="return confirm('Delete this fabrication run?')">Delete</button>

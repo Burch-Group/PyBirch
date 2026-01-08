@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Add Binding to {{ computer.nickname or computer.computer_name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.computers') }}">Computers</a> / 
+            <a href="{{ url_for('main.computer_detail', computer_id=computer.id) }}">{{ computer.nickname or computer.computer_name }}</a> / 
+            Add Binding
+        </div>
+    </div>
+    
+    <div class="form-container" style="max-width: 600px;">
+        <h1>Add Instrument Binding</h1>
+        <p class="text-muted">Bind an instrument to <strong>{{ computer.nickname or computer.computer_name }}</strong></p>
+        
+        <form method="POST" class="detail-form">
+            <div class="form-section">
+                <h3>Select Instrument</h3>
+                
+                <div class="form-group">
+                    <label for="instrument_id">Instrument <span class="required">*</span></label>
+                    <select id="instrument_id" name="instrument_id" required>
+                        <option value="">-- Select an instrument --</option>
+                        {% for instrument in instruments %}
+                        <option value="{{ instrument.id }}">{{ instrument.display }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="help-text">Select the instrument to bind to this computer.</p>
+                </div>
+            </div>
+            
+            <div class="form-section">
+                <h3>Connection Details</h3>
+                
+                <div class="form-group">
+                    <label for="adapter">Adapter / Connection String</label>
+                    <input type="text" id="adapter" name="adapter" placeholder="e.g., GPIB0::1::INSTR or COM3">
+                    <p class="help-text">VISA address, serial port, or other connection identifier.</p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="adapter_type">Adapter Type</label>
+                    <select id="adapter_type" name="adapter_type">
+                        <option value="">-- Select type --</option>
+                        <option value="GPIB">GPIB</option>
+                        <option value="USB">USB</option>
+                        <option value="Serial">Serial</option>
+                        <option value="TCP">TCP/IP</option>
+                        <option value="Simulated">Simulated</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="is_primary" name="is_primary" checked>
+                        <label for="is_primary">Primary binding</label>
+                    </div>
+                    <p class="help-text">Mark this as the primary computer for this instrument.</p>
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <a href="{{ url_for('main.computer_detail', computer_id=computer.id) }}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">Add Binding</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+    .form-container {
+        margin: 0 auto;
+    }
+    .form-section {
+        background: var(--bg-secondary);
+        padding: 24px;
+        border-radius: 8px;
+        margin-bottom: 24px;
+    }
+    .form-section h3 {
+        margin-top: 0;
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .form-group {
+        margin-bottom: 16px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 500;
+    }
+    .form-group label .required {
+        color: var(--error);
+    }
+    .form-group input,
+    .form-group select {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 0.95rem;
+        box-sizing: border-box;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+    .form-group input:focus,
+    .form-group select:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    .form-group .help-text {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-top: 4px;
+    }
+    .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .checkbox-group input[type="checkbox"] {
+        width: auto;
+    }
+    .checkbox-group label {
+        display: inline;
+        margin-bottom: 0;
+    }
+    .form-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid var(--border-color);
+    }
+</style>
+{% endblock %}
