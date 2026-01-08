@@ -3958,6 +3958,64 @@ def instrument_detail(instrument_id):
     return render_template('instrument_detail.html', instrument=instrument, images=images)
 
 
+@main_bp.route('/instruments/<int:instrument_id>/qrcode/preview')
+def instrument_qrcode_preview(instrument_id):
+    """Return QR code image inline for preview."""
+    db = get_db_service()
+    instrument = db.get_instrument(instrument_id)
+    
+    if not instrument:
+        return jsonify({'error': 'Instrument not found'}), 404
+    
+    target_url = url_for('main.instrument_detail', instrument_id=instrument_id, _external=True)
+    
+    try:
+        qr_image = generate_entity_qr_code(
+            url=target_url,
+            entity_id=instrument.get('name', f'Instrument #{instrument_id}'),
+            entity_type='Instrument',
+            project_name=''
+        )
+        return send_file(qr_image, mimetype='image/png')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/instruments/<int:instrument_id>/qrcode')
+@login_required
+def instrument_qrcode(instrument_id):
+    """Generate and download a QR code image for an instrument."""
+    db = get_db_service()
+    instrument = db.get_instrument(instrument_id)
+    
+    if not instrument:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.instruments'))
+    
+    target_url = url_for('main.instrument_detail', instrument_id=instrument_id, _external=True)
+    
+    try:
+        qr_image = generate_entity_qr_code(
+            url=target_url,
+            entity_id=instrument.get('name', f'Instrument #{instrument_id}'),
+            entity_type='Instrument',
+            project_name=''
+        )
+        
+        return send_file(
+            qr_image,
+            mimetype='image/png',
+            as_attachment=True,
+            download_name=f"qr_instrument_{instrument_id}.png"
+        )
+    except ImportError:
+        flash('QR code generation requires qrcode and Pillow packages.', 'error')
+        return redirect(url_for('main.instrument_detail', instrument_id=instrument_id))
+    except Exception as e:
+        flash(f'Error generating QR code: {str(e)}', 'error')
+        return redirect(url_for('main.instrument_detail', instrument_id=instrument_id))
+
+
 @main_bp.route('/instruments/new', methods=['GET', 'POST'])
 @login_required
 def instrument_new():
@@ -3967,18 +4025,23 @@ def instrument_new():
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
         lab_id = int(lab_id) if lab_id else None
+        definition_id = request.form.get('definition_id')
+        definition_id = int(definition_id) if definition_id else None
+        equipment_id = request.form.get('equipment_id')
+        equipment_id = int(equipment_id) if equipment_id else None
         
         data = {
             'name': request.form.get('name'),
             'instrument_type': request.form.get('instrument_type'),
-            'pybirch_class': request.form.get('pybirch_class'),
+            'definition_id': definition_id,
             'adapter': request.form.get('adapter'),
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
-            'description': request.form.get('description'),
+            'location': request.form.get('location'),
             'status': request.form.get('status', 'available'),
             'lab_id': lab_id,
+            'equipment_id': equipment_id,
             'created_by': g.current_user.get('username') if g.current_user else None,
         }
         
@@ -3990,6 +4053,8 @@ def instrument_new():
             flash(f'Error creating instrument: {str(e)}', 'error')
     
     labs = db.get_labs_simple_list()
+    definitions = db.get_instrument_definitions()
+    equipment_list = db.get_equipment_simple_list() if hasattr(db, 'get_equipment_simple_list') else []
     default_lab_id = None
     if g.current_user:
         user_prefs = db.get_user_preferences(g.current_user['id'])
@@ -3999,6 +4064,8 @@ def instrument_new():
         instrument=None,
         action='New',
         labs=labs,
+        definitions=definitions,
+        equipment_list=equipment_list,
         default_lab_id=default_lab_id,
     )
 
@@ -4017,18 +4084,23 @@ def instrument_edit(instrument_id):
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
         lab_id = int(lab_id) if lab_id else None
+        definition_id = request.form.get('definition_id')
+        definition_id = int(definition_id) if definition_id else None
+        equipment_id = request.form.get('equipment_id')
+        equipment_id = int(equipment_id) if equipment_id else None
         
         data = {
             'name': request.form.get('name'),
             'instrument_type': request.form.get('instrument_type'),
-            'pybirch_class': request.form.get('pybirch_class'),
+            'definition_id': definition_id,
             'adapter': request.form.get('adapter'),
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
-            'description': request.form.get('description'),
+            'location': request.form.get('location'),
             'status': request.form.get('status', 'available'),
             'lab_id': lab_id,
+            'equipment_id': equipment_id,
         }
         
         try:
@@ -4039,11 +4111,15 @@ def instrument_edit(instrument_id):
             flash(f'Error updating instrument: {str(e)}', 'error')
     
     labs = db.get_labs_simple_list()
+    definitions = db.get_instrument_definitions()
+    equipment_list = db.get_equipment_simple_list() if hasattr(db, 'get_equipment_simple_list') else []
     
     return render_template('instrument_form.html',
         instrument=instrument,
         action='Edit',
         labs=labs,
+        definitions=definitions,
+        equipment_list=equipment_list,
         default_lab_id=None,
     )
 
@@ -4158,9 +4234,13 @@ def instrument_definition_detail(definition_id):
     # Get version history
     versions = db.get_instrument_definition_versions(definition_id)
     
+    # Get instrument instances using this definition (with their computer bindings)
+    instruments = db.get_instruments_by_definition(definition_id, include_bindings=True)
+    
     return render_template('instrument_definition_detail.html', 
         definition=definition, 
-        versions=versions
+        versions=versions,
+        instruments=instruments,
     )
 
 
@@ -4426,3 +4506,236 @@ def instrument_definition_version(definition_id, version):
         version_data=version_data,
         all_versions=versions,
     )
+
+
+# -------------------- Instrument Instances (for Definitions) --------------------
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/instruments/new', methods=['GET', 'POST'])
+@login_required
+def instrument_definition_new_instance(definition_id):
+    """Create a new instrument instance from a definition."""
+    db = get_db_service()
+    definition = db.get_instrument_definition(definition_id)
+    
+    if not definition:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    if request.method == 'POST':
+        data = {
+            'name': request.form.get('name', '').strip(),
+            'adapter': request.form.get('adapter', '').strip() or None,
+            'serial_number': request.form.get('serial_number', '').strip() or None,
+            'location': request.form.get('location', '').strip() or None,
+            'manufacturer': request.form.get('manufacturer', '').strip() or None,
+            'model': request.form.get('model', '').strip() or None,
+            'lab_id': request.form.get('lab_id') or None,
+        }
+        
+        if data['lab_id']:
+            data['lab_id'] = int(data['lab_id'])
+        
+        if not data['name']:
+            flash('Instrument name is required', 'error')
+            labs = db.get_labs_simple_list()
+            return render_template('instrument_instance_form.html',
+                definition=definition,
+                instrument=data,
+                labs=labs,
+                form_action=url_for('main.instrument_definition_new_instance', definition_id=definition_id),
+                form_title=f'New {definition["display_name"]} Instance',
+            )
+        
+        try:
+            instrument = db.create_instrument_for_definition(definition_id, data)
+            if instrument:
+                flash(f'Instrument "{instrument["name"]}" created successfully', 'success')
+                return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+            else:
+                flash('Failed to create instrument', 'error')
+        except Exception as e:
+            flash(f'Error creating instrument: {str(e)}', 'error')
+    
+    # GET - show form
+    labs = db.get_labs_simple_list()
+    return render_template('instrument_instance_form.html',
+        definition=definition,
+        instrument={},
+        labs=labs,
+        form_action=url_for('main.instrument_definition_new_instance', definition_id=definition_id),
+        form_title=f'New {definition["display_name"]} Instance',
+    )
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/instruments/<int:instrument_id>/delete', methods=['POST'])
+@login_required
+def instrument_definition_delete_instance(definition_id, instrument_id):
+    """Delete an instrument instance."""
+    db = get_db_service()
+    instrument = db.get_instrument(instrument_id)
+    
+    if not instrument:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+    
+    try:
+        db.delete_instrument(instrument_id)
+        flash(f'Instrument "{instrument["name"]}" deleted', 'success')
+    except Exception as e:
+        flash(f'Error deleting instrument: {str(e)}', 'error')
+    
+    return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/link-instrument', methods=['GET', 'POST'])
+@login_required
+def instrument_definition_link_instrument(definition_id):
+    """Link an existing instrument to this definition."""
+    db = get_db_service()
+    definition = db.get_instrument_definition(definition_id)
+    
+    if not definition:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    if request.method == 'POST':
+        instrument_id = request.form.get('instrument_id')
+        if not instrument_id:
+            flash('Please select an instrument to link', 'error')
+        else:
+            try:
+                result = db.link_instrument_to_definition(int(instrument_id), definition_id)
+                if result:
+                    flash(f'Instrument "{result["name"]}" linked to {definition["display_name"]}', 'success')
+                else:
+                    flash('Failed to link instrument', 'error')
+            except Exception as e:
+                flash(f'Error linking instrument: {str(e)}', 'error')
+        
+        return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+    
+    # GET - show available instruments
+    unlinked_instruments = db.get_instruments_without_definition()
+    
+    return render_template('instrument_definition_link.html',
+        definition=definition,
+        instruments=unlinked_instruments,
+    )
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/instruments/<int:instrument_id>/unlink', methods=['POST'])
+@login_required
+def instrument_definition_unlink_instrument(definition_id, instrument_id):
+    """Unlink an instrument from this definition."""
+    db = get_db_service()
+    
+    try:
+        result = db.unlink_instrument_from_definition(instrument_id)
+        if result:
+            flash(f'Instrument "{result["name"]}" unlinked from definition', 'success')
+        else:
+            flash('Instrument not found', 'error')
+    except Exception as e:
+        flash(f'Error unlinking instrument: {str(e)}', 'error')
+    
+    return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+
+
+# -------------------- Computer Bindings --------------------
+
+@main_bp.route('/instruments/<int:instrument_id>/bindings/new', methods=['GET', 'POST'])
+@login_required
+def instrument_binding_new(instrument_id):
+    """Add a computer binding to an instrument."""
+    db = get_db_service()
+    instrument = db.get_instrument(instrument_id)
+    
+    if not instrument:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    # Get definition for redirect
+    definition_id = None
+    if instrument.get('definition_id'):
+        definition_id = instrument['definition_id']
+    
+    if request.method == 'POST':
+        data = {
+            'instrument_id': instrument_id,
+            'computer_name': request.form.get('computer_name', '').strip(),
+            'computer_id': request.form.get('computer_id', '').strip() or None,
+            'username': request.form.get('username', '').strip() or None,
+            'nickname': request.form.get('nickname', '').strip() or None,
+            'adapter': request.form.get('adapter', '').strip() or None,
+            'adapter_type': request.form.get('adapter_type', '').strip() or None,
+            'is_primary': request.form.get('is_primary') == 'on',
+        }
+        
+        if not data['computer_name']:
+            flash('Computer name (hostname) is required', 'error')
+        else:
+            try:
+                binding = db.bind_instrument_to_computer(
+                    instrument_id=data['instrument_id'],
+                    computer_name=data['computer_name'],
+                    computer_id=data.get('computer_id'),
+                    username=data.get('username'),
+                    adapter=data.get('adapter'),
+                    adapter_type=data.get('adapter_type'),
+                    is_primary=data.get('is_primary', True),
+                    nickname=data.get('nickname'),
+                )
+                flash(f'Binding to {data["computer_name"]} created successfully', 'success')
+                if definition_id:
+                    return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+                return redirect(url_for('main.instruments'))
+            except Exception as e:
+                flash(f'Error creating binding: {str(e)}', 'error')
+    
+    # GET - show form with current computer info pre-filled
+    from pybirch.Instruments.factory import get_computer_info
+    try:
+        computer_info = get_computer_info()
+    except:
+        computer_info = {'computer_name': '', 'computer_id': '', 'username': ''}
+    
+    # Check if this computer already exists in the database (to show existing nickname)
+    current_computer_name = computer_info.get('computer_name', '')
+    existing_computer = None
+    if current_computer_name:
+        existing_computer = db.get_computer(current_computer_name)
+    
+    return render_template('computer_binding_form.html',
+        instrument=instrument,
+        definition_id=definition_id,
+        binding={
+            'computer_name': current_computer_name,
+            'computer_id': computer_info.get('computer_id', ''),
+            'username': computer_info.get('username', ''),
+            'adapter': instrument.get('adapter', ''),
+        },
+        computer=existing_computer,
+        form_action=url_for('main.instrument_binding_new', instrument_id=instrument_id),
+        form_title=f'Bind {instrument["name"]} to Computer',
+    )
+
+
+@main_bp.route('/instruments/<int:instrument_id>/bindings/<int:binding_id>/delete', methods=['POST'])
+@login_required
+def instrument_binding_delete(instrument_id, binding_id):
+    """Delete a computer binding."""
+    db = get_db_service()
+    
+    # Get instrument for redirect info
+    instrument = db.get_instrument(instrument_id)
+    definition_id = instrument.get('definition_id') if instrument else None
+    
+    try:
+        db.delete_computer_binding(binding_id)
+        flash('Binding deleted successfully', 'success')
+    except Exception as e:
+        flash(f'Error deleting binding: {str(e)}', 'error')
+    
+    if definition_id:
+        return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+    return redirect(url_for('main.instruments'))

@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}{{ form_title }} - PyBirch Database{% endblock %}
+
+{% block extra_head %}
+<style>
+    .form-container {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+    .form-section {
+        background: white;
+        padding: 24px;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .form-section h3 {
+        margin-top: 0;
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .form-group {
+        margin-bottom: 16px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 500;
+        color: #374151;
+    }
+    .form-group label .required {
+        color: #dc2626;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 0.95rem;
+        box-sizing: border-box;
+    }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    .form-group .help-text {
+        font-size: 0.8rem;
+        color: #6b7280;
+        margin-top: 4px;
+    }
+    .form-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid #e2e8f0;
+    }
+    .definition-info {
+        background: #f8fafc;
+        padding: 16px;
+        border-radius: 8px;
+        margin-bottom: 24px;
+    }
+    .definition-info h4 {
+        margin: 0 0 8px 0;
+        color: #374151;
+    }
+    .definition-info code {
+        background: rgba(0,0,0,0.05);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.9rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="breadcrumb">
+        <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / 
+        <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
+        New Instance
+    </div>
+    
+    <h1>{{ form_title }}</h1>
+    
+    <div class="definition-info">
+        <h4>Creating instance of:</h4>
+        <strong>{{ definition.display_name }}</strong> 
+        <code>{{ definition.name }}</code>
+        <span class="definition-type {{ definition.instrument_type }}">{{ definition.instrument_type }}</span>
+    </div>
+    
+    <form method="POST" action="{{ form_action }}">
+        <div class="form-section">
+            <h3>Instance Details</h3>
+            
+            <div class="form-group">
+                <label for="name">Instance Name <span class="required">*</span></label>
+                <input type="text" id="name" name="name" value="{{ instrument.name or '' }}" required placeholder="e.g., Keithley 2400 #1, Lab A Stage">
+                <p class="help-text">A unique name to identify this specific physical device.</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="adapter">Adapter / Connection String</label>
+                <input type="text" id="adapter" name="adapter" value="{{ instrument.adapter or '' }}" placeholder="e.g., GPIB0::4::INSTR, COM3, TCPIP::192.168.1.100::INSTR">
+                <p class="help-text">VISA address or connection string for this instrument. Can be overridden per-computer in bindings.</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="serial_number">Serial Number</label>
+                <input type="text" id="serial_number" name="serial_number" value="{{ instrument.serial_number or '' }}" placeholder="e.g., 12345678">
+                <p class="help-text">Manufacturer's serial number for tracking.</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="location">Location</label>
+                <input type="text" id="location" name="location" value="{{ instrument.location or '' }}" placeholder="e.g., Room 123, Bench A">
+                <p class="help-text">Physical location of the instrument.</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="manufacturer">Manufacturer</label>
+                <input type="text" id="manufacturer" name="manufacturer" value="{{ instrument.manufacturer or definition.manufacturer or '' }}">
+            </div>
+            
+            <div class="form-group">
+                <label for="model">Model</label>
+                <input type="text" id="model" name="model" value="{{ instrument.model or '' }}">
+            </div>
+            
+            <div class="form-group">
+                <label for="lab_id">Lab</label>
+                <select id="lab_id" name="lab_id">
+                    <option value="">-- Select Lab --</option>
+                    {% for lab in labs %}
+                    <option value="{{ lab.id }}" {% if instrument.lab_id == lab.id %}selected{% endif %}>{{ lab.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Create Instance</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

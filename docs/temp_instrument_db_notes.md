@@ -1,6 +1,6 @@
 # Instrument Database Storage - Implementation Notes
 
-## Current Status: Phase 5 In Progress (Auto-Discovery)
+## Current Status: Phase 2 Complete (Computer Binding Web UI)
 
 ### Progress
 - [x] New models added to models.py
@@ -15,9 +15,8 @@
 - [x] MainWindow passes database service on state change
 - [x] Auto-discovery filter added to InstrumentAutoLoadWidget
 - [x] DatabaseService.get_definition_ids_for_computer() method added
-- [ ] Computer binding Web UI
+- [x] Computer binding Web UI (Phase 2 complete!)
 - [ ] Unit tests written
-- [ ] Web UI for browser-based creation
 
 ### Key Decisions
 1. `InstrumentDefinition` stores source_code as TEXT field
@@ -32,10 +31,14 @@
 - `database/migrations/add_instrument_definitions.py` - Migration script
 - `scripts/migrate_instruments_to_database.py` - Extract existing instruments (with --filter option)
 - `pybirch/Instruments/factory.py` - Dynamic class creation with instance-based db_service
-- `GUI/widgets/instrument_autoload.py` - Added database instrument loading
+- `GUI/widgets/instrument_autoload.py` - Added database instrument loading + auto-discovery filter
 - `GUI/windows/instruments_page.py` - Added set_database_service method
 - `GUI/main/main_window.py` - Passes db_service to instruments page
 - `scripts/test_factory.py` - Test script for factory
+- `database/web/routes.py` - Added routes for instrument instances and computer bindings
+- `database/web/templates/instrument_instance_form.html` - Form to create instrument instances
+- `database/web/templates/computer_binding_form.html` - Form to bind instruments to computers
+- `database/web/templates/instrument_definition_detail.html` - Updated with instances and bindings UI
 
 ### How to Run Migration
 ```bash
@@ -73,3 +76,34 @@ widget.filter_by_computer = True
 # Get current computer info
 print(widget.computer_info)  # {'computer_name': 'HOSTNAME', 'computer_id': '...', 'username': '...'}
 ```
+
+### Computer Binding Web UI (Phase 2)
+
+The web UI now supports full management of instrument instances and computer bindings.
+
+**Architecture (3-tier model):**
+```
+InstrumentDefinition (the code/class)
+    ↓ 1:many
+Instrument (a physical device using that code)
+    ↓ 1:many  
+ComputerBinding (which computer can access that device)
+```
+
+**New Routes:**
+- `GET/POST /instrument-definitions/<id>/instruments/new` - Create instrument instance
+- `POST /instrument-definitions/<id>/instruments/<inst_id>/delete` - Delete instance
+- `GET/POST /instruments/<id>/bindings/new` - Add computer binding
+- `POST /instruments/<id>/bindings/<binding_id>/delete` - Remove binding
+
+**Instrument Definition Detail Page now shows:**
+- List of instrument instances using this definition
+- Computer bindings for each instance (with adapter override support)
+- Buttons to add instances and bindings
+
+**Computer Identification (for bindings):**
+- **Primary**: Hostname (`computer_name`) - stable and human-readable
+- **Secondary**: MAC address (`computer_id`) - for disambiguation
+- **Optional**: Username - for per-user filtering
+
+The binding form pre-fills with the current computer's info using `get_computer_info()`.

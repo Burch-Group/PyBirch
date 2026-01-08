@@ -58,11 +58,16 @@
             </div>
             
             <div class="form-group">
-                <label for="pybirch_class">PyBirch Class</label>
-                <input type="text" id="pybirch_class" name="pybirch_class"
-                       value="{{ instrument.pybirch_class if instrument else '' }}"
-                       placeholder="e.g., Keithley2400">
-                <small class="form-hint">The Python class name used in PyBirch</small>
+                <label for="definition_id">Instrument Definition</label>
+                <select id="definition_id" name="definition_id" class="searchable-select">
+                    <option value="">-- No Definition --</option>
+                    {% for definition in definitions %}
+                    <option value="{{ definition.id }}" {% if instrument and instrument.definition_id == definition.id %}selected{% endif %}>
+                        {{ definition.display_name or definition.name }} ({{ definition.instrument_type }})
+                    </option>
+                    {% endfor %}
+                </select>
+                <small class="form-hint">Link to a database-stored instrument class definition <a href="{{ url_for('main.instrument_definitions') }}">Manage definitions →</a></small>
             </div>
             
             <div class="form-group">

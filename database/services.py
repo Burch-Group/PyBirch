@@ -1404,8 +1404,12 @@ class DatabaseService:
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
         """Get paginated list of instruments."""
+        from sqlalchemy.orm import joinedload
+        
         with self.session_scope() as session:
-            query = session.query(Instrument)
+            query = session.query(Instrument).options(
+                joinedload(Instrument.definition)
+            )
             
             if search:
                 search_term = f"%{search}%"
@@ -1435,16 +1439,25 @@ class DatabaseService:
     
     def get_instrument(self, instrument_id: int) -> Optional[Dict]:
         """Get a single instrument by ID."""
+        from sqlalchemy.orm import joinedload
+        
         with self.session_scope() as session:
-            instrument = session.query(Instrument).filter(Instrument.id == instrument_id).first()
+            instrument = session.query(Instrument).options(
+                joinedload(Instrument.definition)
+            ).filter(Instrument.id == instrument_id).first()
             return self._instrument_to_dict(instrument) if instrument else None
     
     def create_instrument(self, data: Dict[str, Any]) -> Dict:
         """Create new instrument."""
+        from sqlalchemy.orm import joinedload
+        
         with self.session_scope() as session:
             instrument = Instrument(**data)
             session.add(instrument)
             session.flush()
+            # Re-query to get the definition relationship loaded
+            if instrument.definition_id:
+                session.refresh(instrument)
             return self._instrument_to_dict(instrument)
     
     def update_instrument(self, instrument_id: int, data: Dict) -> Optional[Dict]:
@@ -1456,11 +1469,15 @@ class DatabaseService:
             
             for field in ['name', 'instrument_type', 'pybirch_class', 'manufacturer', 'model',
                           'serial_number', 'adapter', 'location', 'status', 'specifications',
-                          'calibration_date', 'next_calibration_date', 'lab_id', 'equipment_id']:
+                          'calibration_date', 'next_calibration_date', 'lab_id', 'equipment_id',
+                          'definition_id']:
                 if field in data:
                     setattr(instrument, field, data[field])
             
             session.flush()
+            # Refresh to get updated definition relationship
+            if instrument.definition_id:
+                session.refresh(instrument)
             return self._instrument_to_dict(instrument)
     
     def delete_instrument(self, instrument_id: int) -> bool:
@@ -1472,8 +1489,193 @@ class DatabaseService:
             session.delete(instrument)
             return True
     
+    def get_instruments_by_definition(
+        self,
+        definition_id: int,
+        include_bindings: bool = True,
+    ) -> List[Dict]:
+        """Get all instrument instances using a specific definition.
+        
+        Args:
+            definition_id: ID of the InstrumentDefinition
+            include_bindings: If True, include computer bindings for each instrument
+        
+        Returns:
+            List of instruments with optional binding info
+        """
+        from database.models import ComputerBinding
+        from sqlalchemy.orm import joinedload
+        
+        with self.session_scope() as session:
+            instruments = session.query(Instrument).options(
+                joinedload(Instrument.definition)
+            ).filter(
+                Instrument.definition_id == definition_id
+            ).order_by(Instrument.name).all()
+            
+            result = []
+            for instrument in instruments:
+                inst_dict = self._instrument_to_dict(instrument)
+                
+                if include_bindings:
+                    # Get computer bindings for this instrument with computer info
+                    bindings = session.query(ComputerBinding).options(
+                        joinedload(ComputerBinding.computer)
+                    ).filter(
+                        ComputerBinding.instrument_id == instrument.id
+                    ).all()
+                    inst_dict['computer_bindings'] = [
+                        self._computer_binding_to_dict(b) for b in bindings
+                    ]
+                
+                result.append(inst_dict)
+            
+            return result
+    
+    def get_instruments_without_definition(self) -> List[Dict]:
+        """Get all instruments that don't have a definition linked.
+        
+        Returns:
+            List of instruments without definition_id set
+        """
+        from sqlalchemy.orm import joinedload
+        
+        with self.session_scope() as session:
+            instruments = session.query(Instrument).options(
+                joinedload(Instrument.definition)
+            ).filter(
+                Instrument.definition_id.is_(None)
+            ).order_by(Instrument.name).all()
+            
+            return [self._instrument_to_dict(i) for i in instruments]
+    
+    def link_instrument_to_definition(
+        self,
+        instrument_id: int,
+        definition_id: int,
+    ) -> Optional[Dict]:
+        """Link an existing instrument to a definition.
+        
+        Args:
+            instrument_id: ID of the instrument to link
+            definition_id: ID of the definition to link to
+        
+        Returns:
+            Updated instrument as dictionary, or None if not found
+        """
+        from database.models import InstrumentDefinition
+        
+        with self.session_scope() as session:
+            instrument = session.query(Instrument).filter(
+                Instrument.id == instrument_id
+            ).first()
+            
+            if not instrument:
+                return None
+            
+            # Verify definition exists
+            definition = session.query(InstrumentDefinition).filter(
+                InstrumentDefinition.id == definition_id
+            ).first()
+            
+            if not definition:
+                return None
+            
+            # Update the instrument
+            instrument.definition_id = definition_id
+            # Also set pybirch_class to match for backwards compatibility
+            instrument.pybirch_class = definition.name
+            # Optionally sync instrument_type
+            instrument.instrument_type = definition.instrument_type
+            
+            session.flush()
+            session.refresh(instrument)
+            return self._instrument_to_dict(instrument)
+    
+    def unlink_instrument_from_definition(
+        self,
+        instrument_id: int,
+    ) -> Optional[Dict]:
+        """Unlink an instrument from its definition.
+        
+        Args:
+            instrument_id: ID of the instrument to unlink
+        
+        Returns:
+            Updated instrument as dictionary, or None if not found
+        """
+        with self.session_scope() as session:
+            instrument = session.query(Instrument).filter(
+                Instrument.id == instrument_id
+            ).first()
+            
+            if not instrument:
+                return None
+            
+            instrument.definition_id = None
+            session.flush()
+            return self._instrument_to_dict(instrument)
+    
+    def create_instrument_for_definition(
+        self,
+        definition_id: int,
+        data: Dict[str, Any],
+    ) -> Optional[Dict]:
+        """Create a new instrument instance linked to a definition.
+        
+        Args:
+            definition_id: ID of the InstrumentDefinition to link
+            data: Instrument data including:
+                - name: Display name for this instance (required)
+                - adapter: VISA address or connection string (optional)
+                - serial_number: Physical device serial (optional)
+                - location: Physical location (optional)
+                - manufacturer, model: Device info (optional)
+        
+        Returns:
+            Created instrument as dictionary, or None if definition not found
+        """
+        from database.models import InstrumentDefinition
+        
+        with self.session_scope() as session:
+            # Verify definition exists
+            definition = session.query(InstrumentDefinition).filter(
+                InstrumentDefinition.id == definition_id
+            ).first()
+            
+            if not definition:
+                return None
+            
+            # Create instrument linked to definition
+            instrument = Instrument(
+                name=data['name'],
+                instrument_type=definition.instrument_type,
+                pybirch_class=definition.name,
+                manufacturer=data.get('manufacturer') or definition.manufacturer,
+                model=data.get('model'),
+                serial_number=data.get('serial_number'),
+                adapter=data.get('adapter'),
+                location=data.get('location'),
+                status=data.get('status', 'available'),
+                lab_id=data.get('lab_id'),
+                definition_id=definition_id,
+            )
+            
+            session.add(instrument)
+            session.flush()
+            session.refresh(instrument)
+            
+            return self._instrument_to_dict(instrument)
+    
     def _instrument_to_dict(self, instrument: Instrument) -> Dict:
         """Convert Instrument model to dictionary."""
+        # Get definition info if linked
+        definition_name = None
+        definition_display_name = None
+        if instrument.definition_id and instrument.definition:
+            definition_name = instrument.definition.name
+            definition_display_name = instrument.definition.display_name
+        
         return {
             'id': instrument.id,
             'name': instrument.name,
@@ -1488,6 +1690,9 @@ class DatabaseService:
             'specifications': instrument.specifications,
             'lab_id': instrument.lab_id,
             'equipment_id': instrument.equipment_id,
+            'definition_id': instrument.definition_id,
+            'definition_name': definition_name,
+            'definition_display_name': definition_display_name,
             'calibration_date': instrument.calibration_date.isoformat() if instrument.calibration_date else None,
             'next_calibration_date': instrument.next_calibration_date.isoformat() if instrument.next_calibration_date else None,
             'created_at': instrument.created_at.isoformat() if instrument.created_at else None,
@@ -1771,10 +1976,12 @@ class DatabaseService:
         adapter: Optional[str] = None,
         adapter_type: Optional[str] = None,
         is_primary: bool = True,
+        nickname: Optional[str] = None,
     ) -> Dict:
         """Bind an instrument to a computer.
         
         Creates or updates a computer binding for the instrument.
+        Also creates/updates the Computer record with nickname.
         
         Args:
             instrument_id: ID of the instrument
@@ -1784,14 +1991,36 @@ class DatabaseService:
             adapter: VISA address or connection string
             adapter_type: 'GPIB', 'USB', 'Serial', 'TCP', etc.
             is_primary: Whether this is the primary computer for this instrument
+            nickname: Friendly name for the computer (optional) - stored on Computer, not binding
         
         Returns:
             Binding as dictionary
         """
-        from database.models import ComputerBinding
+        from database.models import ComputerBinding, Computer
         from datetime import datetime
         
         with self.session_scope() as session:
+            # Get or create Computer record
+            computer = session.query(Computer).filter(
+                Computer.computer_name == computer_name
+            ).first()
+            
+            if computer:
+                # Update existing computer
+                if computer_id:
+                    computer.computer_id = computer_id
+                if nickname is not None:
+                    computer.nickname = nickname
+            else:
+                # Create new computer
+                computer = Computer(
+                    computer_name=computer_name,
+                    computer_id=computer_id,
+                    nickname=nickname,
+                )
+                session.add(computer)
+                session.flush()
+            
             # Check if binding exists
             binding = session.query(ComputerBinding).filter(
                 ComputerBinding.instrument_id == instrument_id,
@@ -1799,7 +2028,7 @@ class DatabaseService:
             ).first()
             
             if binding:
-                # Update existing
+                # Update existing binding
                 if computer_id:
                     binding.computer_id = computer_id
                 if username:
@@ -1810,12 +2039,14 @@ class DatabaseService:
                     binding.adapter_type = adapter_type
                 binding.is_primary = is_primary
                 binding.last_connected = datetime.utcnow()
+                binding.computer_id_fk = computer.id
             else:
-                # Create new
+                # Create new binding
                 binding = ComputerBinding(
                     instrument_id=instrument_id,
                     computer_name=computer_name,
                     computer_id=computer_id,
+                    computer_id_fk=computer.id,
                     username=username,
                     adapter=adapter,
                     adapter_type=adapter_type,
@@ -1825,7 +2056,7 @@ class DatabaseService:
                 session.add(binding)
             
             session.flush()
-            return self._computer_binding_to_dict(binding)
+            return self._computer_binding_to_dict(binding, computer)
     
     def get_computer_bindings(
         self,
@@ -1842,9 +2073,12 @@ class DatabaseService:
             List of bindings with instrument details
         """
         from database.models import ComputerBinding, Instrument, InstrumentDefinition
+        from sqlalchemy.orm import joinedload
         
         with self.session_scope() as session:
-            query = session.query(ComputerBinding).join(Instrument)
+            query = session.query(ComputerBinding).options(
+                joinedload(ComputerBinding.computer)
+            ).join(Instrument)
             
             if computer_name:
                 query = query.filter(ComputerBinding.computer_name == computer_name)
@@ -1958,16 +2192,34 @@ class DatabaseService:
             
             return list(definition_ids)
     
-    def _computer_binding_to_dict(self, binding) -> Dict:
-        """Convert ComputerBinding model to dictionary."""
+    def _computer_binding_to_dict(self, binding, computer=None) -> Dict:
+        """Convert ComputerBinding model to dictionary.
+        
+        Args:
+            binding: ComputerBinding model instance
+            computer: Optional Computer model instance (if not provided, uses binding.computer relationship)
+        """
         if not binding:
             return {}
+        
+        # Get computer info - nickname comes from Computer, not binding
+        if computer is None:
+            computer = getattr(binding, 'computer', None)
+        
+        nickname = None
+        computer_location = None
+        if computer:
+            nickname = computer.nickname
+            computer_location = getattr(computer, 'location', None)
+        
         return {
             'id': binding.id,
             'instrument_id': binding.instrument_id,
             'computer_name': binding.computer_name,
             'computer_id': binding.computer_id,
             'username': binding.username,
+            'nickname': nickname,
+            'computer_location': computer_location,
             'adapter': binding.adapter,
             'adapter_type': binding.adapter_type,
             'is_primary': binding.is_primary,
@@ -1975,6 +2227,132 @@ class DatabaseService:
             'last_settings': binding.last_settings,
             'created_at': binding.created_at.isoformat() if binding.created_at else None,
             'updated_at': binding.updated_at.isoformat() if binding.updated_at else None,
+        }
+
+    # ==================== Computers ====================
+    
+    def get_computer(self, computer_name: str) -> Optional[Dict]:
+        """Get a computer by hostname.
+        
+        Args:
+            computer_name: The hostname of the computer
+            
+        Returns:
+            Computer as dictionary, or None if not found
+        """
+        from database.models import Computer
+        
+        with self.session_scope() as session:
+            computer = session.query(Computer).filter(
+                Computer.computer_name == computer_name
+            ).first()
+            
+            if not computer:
+                return None
+            
+            return self._computer_to_dict(computer)
+    
+    def get_computer_by_id(self, computer_id: int) -> Optional[Dict]:
+        """Get a computer by ID.
+        
+        Args:
+            computer_id: The database ID of the computer
+            
+        Returns:
+            Computer as dictionary, or None if not found
+        """
+        from database.models import Computer
+        
+        with self.session_scope() as session:
+            computer = session.query(Computer).filter(
+                Computer.id == computer_id
+            ).first()
+            
+            if not computer:
+                return None
+            
+            return self._computer_to_dict(computer)
+    
+    def get_computers_list(self, search: Optional[str] = None) -> List[Dict]:
+        """Get list of all computers.
+        
+        Args:
+            search: Optional search term to filter by name or nickname
+            
+        Returns:
+            List of computers as dictionaries
+        """
+        from database.models import Computer
+        from sqlalchemy import or_
+        
+        with self.session_scope() as session:
+            query = session.query(Computer)
+            
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        Computer.computer_name.ilike(search_term),
+                        Computer.nickname.ilike(search_term),
+                        Computer.location.ilike(search_term),
+                    )
+                )
+            
+            computers = query.order_by(Computer.computer_name).all()
+            return [self._computer_to_dict(c) for c in computers]
+    
+    def update_computer(
+        self,
+        computer_name: str,
+        nickname: Optional[str] = None,
+        location: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """Update a computer's information.
+        
+        Args:
+            computer_name: Hostname of the computer to update
+            nickname: New friendly name (None to keep existing)
+            location: Physical location (None to keep existing)
+            description: Additional notes (None to keep existing)
+            
+        Returns:
+            Updated computer as dictionary, or None if not found
+        """
+        from database.models import Computer
+        
+        with self.session_scope() as session:
+            computer = session.query(Computer).filter(
+                Computer.computer_name == computer_name
+            ).first()
+            
+            if not computer:
+                return None
+            
+            if nickname is not None:
+                computer.nickname = nickname
+            if location is not None:
+                computer.location = location
+            if description is not None:
+                computer.description = description
+            
+            session.flush()
+            return self._computer_to_dict(computer)
+    
+    def _computer_to_dict(self, computer) -> Dict:
+        """Convert Computer model to dictionary."""
+        if not computer:
+            return {}
+        
+        return {
+            'id': computer.id,
+            'computer_name': computer.computer_name,
+            'computer_id': computer.computer_id,
+            'nickname': computer.nickname,
+            'location': getattr(computer, 'location', None),
+            'description': getattr(computer, 'description', None),
+            'created_at': computer.created_at.isoformat() if computer.created_at else None,
+            'updated_at': computer.updated_at.isoformat() if computer.updated_at else None,
         }
 
     # ==================== Equipment (Large lab equipment) ====================

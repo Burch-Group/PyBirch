@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block title %}{{ form_title }} - PyBirch Database{% endblock %}
+
+{% block extra_head %}
+<style>
+    .form-container {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+    .form-section {
+        background: white;
+        padding: 24px;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        margin-bottom: 24px;
+    }
+    .form-section h3 {
+        margin-top: 0;
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .form-group {
+        margin-bottom: 16px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 500;
+        color: #374151;
+    }
+    .form-group label .required {
+        color: #dc2626;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 0.95rem;
+        box-sizing: border-box;
+    }
+    .form-group input:focus,
+    .form-group select:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    .form-group .help-text {
+        font-size: 0.8rem;
+        color: #6b7280;
+        margin-top: 4px;
+    }
+    .form-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid #e2e8f0;
+    }
+    .instrument-info {
+        background: #f8fafc;
+        padding: 16px;
+        border-radius: 8px;
+        margin-bottom: 24px;
+    }
+    .instrument-info h4 {
+        margin: 0 0 8px 0;
+        color: #374151;
+    }
+    .instrument-info code {
+        background: rgba(0,0,0,0.05);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.9rem;
+    }
+    .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .checkbox-group input[type="checkbox"] {
+        width: auto;
+    }
+    .info-banner {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 24px;
+        font-size: 0.9rem;
+        color: #1e40af;
+    }
+    .info-banner strong {
+        display: block;
+        margin-bottom: 4px;
+    }
+    .current-computer {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin-top: 4px;
+        font-size: 0.85rem;
+        color: #166534;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="breadcrumb">
+        {% if definition_id %}
+        <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / 
+        <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition_id) }}">Back</a> / 
+        {% else %}
+        <a href="{{ url_for('main.instruments') }}">Instruments</a> / 
+        {% endif %}
+        Bind to Computer
+    </div>
+    
+    <h1>{{ form_title }}</h1>
+    
+    <div class="instrument-info">
+        <h4>Binding instrument:</h4>
+        <strong>{{ instrument.name }}</strong>
+        {% if instrument.adapter %}
+        <code>{{ instrument.adapter }}</code>
+        {% endif %}
+    </div>
+    
+    <div class="info-banner">
+        <strong>What is a Computer Binding?</strong>
+        A binding connects an instrument to a specific computer by hostname. When PyBirch runs on that computer
+        with "Show bound instruments only" enabled, it will automatically discover instruments bound to it.
+        You can also specify a different adapter address per computer if needed.
+    </div>
+    
+    <form method="POST" action="{{ form_action }}">
+        <div class="form-section">
+            <h3>Computer Identification</h3>
+            
+            <div class="form-group">
+                <label for="computer_name">Computer Name (Hostname) <span class="required">*</span></label>
+                <input type="text" id="computer_name" name="computer_name" value="{{ binding.computer_name or '' }}" required placeholder="e.g., LABPC-01">
+                <p class="help-text">The hostname of the computer that will use this instrument. Run <code>hostname</code> in a terminal to find yours.</p>
+                {% if binding.computer_name %}
+                <div class="current-computer">✓ Pre-filled with your current computer: <strong>{{ binding.computer_name }}</strong></div>
+                {% endif %}
+            </div>
+            
+            <div class="form-group">
+                <label for="computer_id">MAC Address (optional)</label>
+                <input type="text" id="computer_id" name="computer_id" value="{{ binding.computer_id or '' }}" placeholder="e.g., 123456789012">
+                <p class="help-text">Secondary identifier for disambiguation if hostnames change. Auto-filled from your current computer.</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="username">Username (optional)</label>
+                <input type="text" id="username" name="username" value="{{ binding.username or '' }}" placeholder="e.g., labuser">
+                <p class="help-text">OS username for additional filtering. Leave blank to allow all users on this computer.</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="nickname">Computer Nickname (optional)</label>
+                <input type="text" id="nickname" name="nickname" value="{{ computer.nickname or '' if computer else '' }}" placeholder="e.g., Lab PC near window, Main AFM computer">
+                <p class="help-text">
+                    A friendly name for this computer. <strong>This nickname is shared across all instrument bindings</strong> for this computer.
+                    {% if computer and computer.nickname %}
+                    <br><span class="text-success">✓ This computer already has a nickname: <strong>{{ computer.nickname }}</strong></span>
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h3>Connection Settings</h3>
+            
+            <div class="form-group">
+                <label for="adapter">Adapter Override</label>
+                <input type="text" id="adapter" name="adapter" value="{{ binding.adapter or '' }}" placeholder="e.g., GPIB0::4::INSTR">
+                <p class="help-text">Override the instrument's default adapter for this computer. Leave blank to use the instrument's default.</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="adapter_type">Adapter Type</label>
+                <select id="adapter_type" name="adapter_type">
+                    <option value="">-- Select Type --</option>
+                    <option value="GPIB" {% if binding.adapter_type == 'GPIB' %}selected{% endif %}>GPIB</option>
+                    <option value="USB" {% if binding.adapter_type == 'USB' %}selected{% endif %}>USB</option>
+                    <option value="Serial" {% if binding.adapter_type == 'Serial' %}selected{% endif %}>Serial (COM)</option>
+                    <option value="TCP" {% if binding.adapter_type == 'TCP' %}selected{% endif %}>TCP/IP (Ethernet)</option>
+                    <option value="PXI" {% if binding.adapter_type == 'PXI' %}selected{% endif %}>PXI</option>
+                    <option value="VXI" {% if binding.adapter_type == 'VXI' %}selected{% endif %}>VXI</option>
+                    <option value="Simulated" {% if binding.adapter_type == 'Simulated' %}selected{% endif %}>Simulated</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="is_primary" name="is_primary" {% if binding.is_primary is not defined or binding.is_primary %}checked{% endif %}>
+                    <label for="is_primary" style="margin-bottom: 0; font-weight: normal;">Primary computer for this instrument</label>
+                </div>
+                <p class="help-text">Mark this as the primary/preferred computer for this instrument.</p>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            {% if definition_id %}
+            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition_id) }}" class="btn btn-secondary">Cancel</a>
+            {% else %}
+            <a href="{{ url_for('main.instruments') }}" class="btn btn-secondary">Cancel</a>
+            {% endif %}
+            <button type="submit" class="btn btn-primary">Create Binding</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

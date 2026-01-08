@@ -139,8 +139,16 @@
                 <dt>Type</dt>
                 <dd>{{ instrument.instrument_type or '-' }}</dd>
                 
-                <dt>PyBirch Class</dt>
-                <dd><code>{{ instrument.pybirch_class or '-' }}</code></dd>
+                <dt>Instrument Definition</dt>
+                <dd>
+                    {% if instrument.definition_id %}
+                    <a href="{{ url_for('main.instrument_definition_detail', definition_id=instrument.definition_id) }}">
+                        {{ instrument.definition_display_name or instrument.definition_name or ('Definition #' ~ instrument.definition_id) }}
+                    </a>
+                    {% else %}
+                    <span class="text-muted">No definition linked</span>
+                    {% endif %}
+                </dd>
                 
                 <dt>Manufacturer</dt>
                 <dd>{{ instrument.manufacturer or '-' }}</dd>

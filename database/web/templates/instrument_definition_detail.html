@@ -143,6 +143,88 @@
         padding: 4px 8px;
         border-radius: 4px;
     }
+    /* Instrument instances section */
+    .instances-section {
+        margin-top: 32px;
+    }
+    .instances-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+    .instances-header h3 {
+        margin: 0;
+    }
+    .instance-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+        background: white;
+    }
+    .instance-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 12px;
+    }
+    .instance-name {
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+    .instance-adapter {
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+        color: #64748b;
+        margin-top: 4px;
+    }
+    .instance-meta {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        font-size: 0.85rem;
+        color: #64748b;
+        margin-bottom: 12px;
+    }
+    .bindings-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+    }
+    .bindings-table th, .bindings-table td {
+        padding: 8px 12px;
+        text-align: left;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .bindings-table th {
+        background: #f8fafc;
+        font-weight: 500;
+        color: #64748b;
+    }
+    .bindings-table tr:last-child td {
+        border-bottom: none;
+    }
+    .primary-badge {
+        background: rgba(16, 185, 129, 0.1);
+        color: #10b981;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+    .no-bindings {
+        color: #94a3b8;
+        font-style: italic;
+        padding: 8px 0;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 32px;
+        color: #64748b;
+        border: 1px dashed #e2e8f0;
+        border-radius: 8px;
+    }
 </style>
 {% endblock %}
 
@@ -238,6 +320,108 @@
         </div>
     </div>
     {% endif %}
+    
+    <!-- Instrument Instances Section -->
+    <div class="instances-section">
+        <div class="instances-header">
+            <h3>Instrument Instances ({{ instruments|length if instruments else 0 }})</h3>
+            {% if current_user %}
+            <div class="btn-group">
+                <a href="{{ url_for('main.instrument_definition_new_instance', definition_id=definition.id) }}" class="btn btn-primary">+ Create New</a>
+                <a href="{{ url_for('main.instrument_definition_link_instrument', definition_id=definition.id) }}" class="btn btn-secondary">Link Existing</a>
+            </div>
+            {% endif %}
+        </div>
+        
+        {% if instruments and instruments|length > 0 %}
+            {% for inst in instruments %}
+            <div class="instance-card">
+                <div class="instance-header">
+                    <div>
+                        <div class="instance-name">
+                            <a href="{{ url_for('main.instrument_detail', instrument_id=inst.id) }}">{{ inst.name }}</a>
+                        </div>
+                        {% if inst.adapter %}
+                        <div class="instance-adapter">{{ inst.adapter }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="action-buttons">
+                        {% if current_user %}
+                        <a href="{{ url_for('main.instrument_binding_new', instrument_id=inst.id) }}" class="btn btn-sm btn-secondary">+ Add Binding</a>
+                        <form method="POST" action="{{ url_for('main.instrument_definition_unlink_instrument', definition_id=definition.id, instrument_id=inst.id) }}" style="display: inline;" onsubmit="return confirm('Unlink this instrument from the definition? The instrument will not be deleted.');">
+                            <button type="submit" class="btn btn-sm btn-outline-warning">Unlink</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('main.instrument_definition_delete_instance', definition_id=definition.id, instrument_id=inst.id) }}" style="display: inline;" onsubmit="return confirm('Delete this instrument instance?');">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="instance-meta">
+                    {% if inst.serial_number %}<span>S/N: {{ inst.serial_number }}</span>{% endif %}
+                    {% if inst.location %}<span>📍 {{ inst.location }}</span>{% endif %}
+                    {% if inst.manufacturer %}<span>{{ inst.manufacturer }}{% if inst.model %} {{ inst.model }}{% endif %}</span>{% endif %}
+                    <span class="status-badge status-{{ inst.status }}">{{ inst.status }}</span>
+                </div>
+                
+                <!-- Computer Bindings for this instrument -->
+                {% if inst.computer_bindings and inst.computer_bindings|length > 0 %}
+                <table class="bindings-table">
+                    <thead>
+                        <tr>
+                            <th>Computer</th>
+                            <th>Adapter Override</th>
+                            <th>User</th>
+                            <th>Last Connected</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for binding in inst.computer_bindings %}
+                        <tr>
+                            <td>
+                                <strong>{{ binding.computer_name }}</strong>
+                                {% if binding.nickname %}<br><small class="text-muted">{{ binding.nickname }}</small>{% endif %}
+                                {% if binding.is_primary %}<span class="primary-badge">Primary</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if binding.adapter %}
+                                <code>{{ binding.adapter }}</code>
+                                {% if binding.adapter_type %}<small>({{ binding.adapter_type }})</small>{% endif %}
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ binding.username or '—' }}</td>
+                            <td>{{ binding.last_connected[:10] if binding.last_connected else 'Never' }}</td>
+                            <td>
+                                {% if current_user %}
+                                <form method="POST" action="{{ url_for('main.instrument_binding_delete', instrument_id=inst.id, binding_id=binding.id) }}" style="display: inline;" onsubmit="return confirm('Remove this binding?');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="no-bindings">No computer bindings configured. <a href="{{ url_for('main.instrument_binding_new', instrument_id=inst.id) }}">Add one</a> to enable auto-discovery.</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+        <div class="empty-state">
+            <p>No instrument instances yet.</p>
+            <p>Create an instance to represent a physical device using this instrument definition, or link an existing instrument.</p>
+            {% if current_user %}
+            <a href="{{ url_for('main.instrument_definition_new_instance', definition_id=definition.id) }}" class="btn btn-primary">Create New Instance</a>
+            <a href="{{ url_for('main.instrument_definition_link_instrument', definition_id=definition.id) }}" class="btn btn-secondary">Link Existing Instrument</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
     
     {% if current_user %}
     <div class="danger-zone">

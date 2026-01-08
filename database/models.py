@@ -529,6 +529,38 @@ class InstrumentDefinitionVersion(Base):
         return f"<InstrumentDefinitionVersion(id={self.id}, definition_id={self.definition_id}, version={self.version})>"
 
 
+class Computer(Base):
+    """
+    Represents a physical computer that can have instruments bound to it.
+    Stores computer identification info and a user-friendly nickname.
+    """
+    __tablename__ = "computers"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Computer identification
+    computer_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)  # hostname
+    computer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # MAC address or UUID
+    nickname: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Friendly name for searching
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Additional notes about this computer
+    location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Physical location
+    
+    # Audit
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    bindings: Mapped[List["ComputerBinding"]] = relationship("ComputerBinding", back_populates="computer")
+    
+    __table_args__ = (
+        Index('idx_computer_name', 'computer_name'),
+        Index('idx_computer_nickname', 'nickname'),
+    )
+    
+    def __repr__(self):
+        return f"<Computer(id={self.id}, name='{self.computer_name}', nickname='{self.nickname}')>"
+
+
 class ComputerBinding(Base):
     """
     Binds instrument instances to specific computers.
@@ -539,8 +571,9 @@ class ComputerBinding(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     instrument_id: Mapped[int] = mapped_column(Integer, ForeignKey('instruments.id'), nullable=False)
+    computer_id_fk: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('computers.id'), nullable=True)
     
-    # Computer identification
+    # Computer identification (kept for backward compatibility, will be synced from Computer)
     computer_name: Mapped[str] = mapped_column(String(255), nullable=False)  # hostname
     computer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # MAC address or UUID
     username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # OS username
@@ -560,6 +593,7 @@ class ComputerBinding(Base):
     
     # Relationships
     instrument: Mapped["Instrument"] = relationship("Instrument", back_populates="computer_bindings")
+    computer: Mapped[Optional["Computer"]] = relationship("Computer", back_populates="bindings")
     
     __table_args__ = (
         UniqueConstraint('instrument_id', 'computer_name', name='uq_instrument_computer'),
