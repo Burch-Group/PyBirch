@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from database.models import (
     Template, Equipment, Instrument, Precursor, PrecursorInventory,
     Procedure, Sample, SamplePrecursor,
-    Queue, QueueLog, Scan, MeasurementObject, MeasurementDataPoint,
+    Queue, QueueLog, Scan, ScanLog, MeasurementObject, MeasurementDataPoint,
     Tag, EntityTag, FabricationRun,
     Lab, LabMember, Project, ProjectMember, ItemGuest,
     User, UserPin, Issue, EntityImage,
@@ -485,6 +485,18 @@ class DatabaseService:
                 return True
             return False
     
+    def clear_sample_precursors(self, sample_id: int) -> int:
+        """Remove all precursors from a sample.
+        
+        Returns:
+            Number of precursors removed
+        """
+        with self.session_scope() as session:
+            count = session.query(SamplePrecursor).filter(
+                SamplePrecursor.sample_id == sample_id
+            ).delete()
+            return count
+    
     def get_sample_precursors(self, sample_id: int) -> List[Dict]:
         """Get all precursors for a sample."""
         with self.session_scope() as session:
@@ -572,12 +584,13 @@ class DatabaseService:
             return [self._scan_to_dict(s) for s in scans], total
     
     def get_scan(self, scan_id: int) -> Optional[Dict]:
-        """Get a single scan by ID with measurement data and parent queue."""
+        """Get a single scan by ID with measurement data, parent queue, and logs."""
         with self.session_scope() as session:
             scan = session.query(Scan).options(
                 joinedload(Scan.sample),
                 joinedload(Scan.measurement_objects),
                 joinedload(Scan.queue),
+                joinedload(Scan.logs),
             ).filter(Scan.id == scan_id).first()
             
             if not scan:
@@ -590,6 +603,7 @@ class DatabaseService:
                 self._measurement_object_to_dict(mo) 
                 for mo in scan.measurement_objects
             ]
+            result['logs'] = [self._scan_log_to_dict(log) for log in scan.logs]
             return result
     
     def get_scan_data_points(self, scan_id: int, measurement_name: Optional[str] = None) -> List[Dict]:
@@ -1165,11 +1179,12 @@ class DatabaseService:
             return [self._queue_to_dict(q) for q in queues], total
     
     def get_queue(self, queue_id: int) -> Optional[Dict]:
-        """Get a single queue by ID with related scans."""
+        """Get a single queue by ID with related scans and logs."""
         with self.session_scope() as session:
             queue = session.query(Queue).options(
                 joinedload(Queue.sample),
                 joinedload(Queue.scans),
+                joinedload(Queue.logs),
             ).filter(Queue.id == queue_id).first()
             
             if not queue:
@@ -1178,6 +1193,7 @@ class DatabaseService:
             result = self._queue_to_dict(queue)
             result['sample'] = self._sample_to_dict(queue.sample) if queue.sample else None
             result['scans'] = [self._scan_to_dict(s) for s in queue.scans]
+            result['logs'] = [self._queue_log_to_dict(log) for log in queue.logs]
             return result
     
     def _queue_to_dict(self, queue: Queue) -> Dict:
@@ -1200,6 +1216,31 @@ class DatabaseService:
             'pybirch_uri': f"pybirch://queue/{queue.id}",
             'lab_id': queue.lab_id,
             'project_id': queue.project_id,
+        }
+    
+    def _queue_log_to_dict(self, log: QueueLog) -> Dict:
+        """Convert QueueLog model to dictionary."""
+        return {
+            'id': log.id,
+            'queue_id': log.queue_id,
+            'scan_id': log.scan_id,
+            'level': log.level,
+            'message': log.message,
+            'timestamp': log.timestamp.isoformat() if log.timestamp else None,
+            'extra_data': log.extra_data,
+        }
+    
+    def _scan_log_to_dict(self, log: ScanLog) -> Dict:
+        """Convert ScanLog model to dictionary."""
+        return {
+            'id': log.id,
+            'scan_id': log.scan_id,
+            'phase': log.phase,
+            'level': log.level,
+            'message': log.message,
+            'timestamp': log.timestamp.isoformat() if log.timestamp else None,
+            'progress': float(log.progress) if log.progress is not None else None,
+            'extra_data': log.extra_data,
         }
     
     def create_queue(self, data: Dict[str, Any]) -> Dict:
@@ -1378,6 +1419,71 @@ class DatabaseService:
                 }
                 for log in logs
             ]
+    
+    def create_scan_log(
+        self,
+        scan_id: int,
+        level: str,
+        message: str,
+        phase: Optional[str] = None,
+        progress: Optional[float] = None,
+        extra_data: Optional[Dict] = None,
+    ) -> Dict:
+        """Create a log entry for a scan.
+        
+        Args:
+            scan_id: Database scan ID
+            level: Log level ('DEBUG', 'INFO', 'WARNING', 'ERROR')
+            message: Log message
+            phase: Scan phase ('setup', 'running', 'cleanup', 'analysis')
+            progress: Progress percentage (0-100)
+            extra_data: Additional data (optional)
+            
+        Returns:
+            Created log entry as dictionary
+        """
+        with self.session_scope() as session:
+            log = ScanLog(
+                scan_id=scan_id,
+                level=level,
+                message=message,
+                phase=phase,
+                progress=progress,
+                extra_data=extra_data,
+            )
+            session.add(log)
+            session.flush()
+            return self._scan_log_to_dict(log)
+    
+    def get_scan_logs(
+        self,
+        scan_id: int,
+        level: Optional[str] = None,
+        phase: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Dict]:
+        """Get log entries for a scan.
+        
+        Args:
+            scan_id: Database scan ID
+            level: Filter by level (optional)
+            phase: Filter by phase (optional)
+            limit: Maximum number of entries to return
+            
+        Returns:
+            List of log entries as dictionaries (oldest first)
+        """
+        with self.session_scope() as session:
+            query = session.query(ScanLog).filter(ScanLog.scan_id == scan_id)
+            
+            if level:
+                query = query.filter(ScanLog.level == level)
+            if phase:
+                query = query.filter(ScanLog.phase == phase)
+            
+            logs = query.order_by(ScanLog.timestamp).limit(limit).all()
+            
+            return [self._scan_log_to_dict(log) for log in logs]
     
     def get_instrument_by_name(self, name: str) -> Optional[Dict]:
         """Get instrument by name.
@@ -2968,7 +3074,7 @@ class DatabaseService:
                 run_number=data.get('run_number'),
                 started_at=data.get('started_at'),
                 status=data.get('status', 'pending'),
-                operator=data.get('operator'),
+                created_by=data.get('operator') or data.get('created_by'),
                 actual_parameters=data.get('actual_parameters'),
                 notes=data.get('notes'),
                 weather_conditions=weather,

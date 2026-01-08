@@ -19,6 +19,8 @@ class ScanRealtimeManager {
         this.maxDataPoints = chartConfig.maxDataPoints || 1000;
         this.startTime = null;
         this.elapsedTimeInterval = null;
+        this.logContainer = null;
+        this.maxLogEntries = 200;  // More entries for detailed scan logs
         
         if (this.realtime) {
             this._setupHandlers();
@@ -52,6 +54,13 @@ class ScanRealtimeManager {
         this.realtime.onDataPoint((data) => {
             if (data.scan_id === this.scanId) {
                 this.addDataPoint(data.measurement, data.data, data.sequence_index);
+            }
+        });
+        
+        // Scan log entries
+        this.realtime.onScanLog((data) => {
+            if (String(data.scan_id) === this.scanId) {
+                this.appendLog(data.level, data.message, data.timestamp, data.phase, data.progress);
             }
         });
     }
@@ -315,6 +324,46 @@ class ScanRealtimeManager {
             this.chart.data.datasets = [];
             this.chart.update();
         }
+    }
+    
+    /**
+     * Set log container element
+     */
+    setLogContainer(element) {
+        this.logContainer = element;
+    }
+    
+    /**
+     * Append a log entry to the log panel
+     */
+    appendLog(level, message, timestamp, phase, progress) {
+        if (!this.logContainer) {
+            this.logContainer = document.getElementById('scan-log-panel');
+        }
+        
+        if (!this.logContainer) return;
+        
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${level}`;
+        
+        const time = formatTimestamp(timestamp);
+        const phaseInfo = phase ? `<span class="log-phase">[${escapeHtml(phase)}]</span>` : '';
+        const levelInfo = `<span class="log-level">[${level}]</span>`;
+        const progressInfo = progress !== undefined && progress !== null 
+            ? `<span class="log-progress">(${progress.toFixed(1)}%)</span>` 
+            : '';
+        
+        entry.innerHTML = `<span class="log-timestamp">${time}</span>${phaseInfo}${levelInfo}${progressInfo} ${escapeHtml(message)}`;
+        
+        this.logContainer.appendChild(entry);
+        
+        // Limit entries
+        while (this.logContainer.children.length > this.maxLogEntries) {
+            this.logContainer.removeChild(this.logContainer.firstChild);
+        }
+        
+        // Auto-scroll to bottom
+        this.logContainer.scrollTop = this.logContainer.scrollHeight;
     }
     
     /**

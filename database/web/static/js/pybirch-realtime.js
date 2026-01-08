@@ -43,6 +43,7 @@ class PyBirchRealtime {
             instrumentStatus: [],
             instrumentPosition: [],
             queueLog: [],
+            scanLog: [],
             error: []
         };
         
@@ -140,6 +141,10 @@ class PyBirchRealtime {
         
         this.socket.on('queue_log', (data) => {
             this._triggerCallbacks('queueLog', data);
+        });
+        
+        this.socket.on('scan_log', (data) => {
+            this._triggerCallbacks('scanLog', data);
         });
         
         // Subscription confirmations
@@ -413,6 +418,14 @@ class PyBirchRealtime {
      */
     onQueueLog(callback) {
         this.callbacks.queueLog.push(callback);
+        return this;
+    }
+    
+    /**
+     * Register callback for scan log entries
+     */
+    onScanLog(callback) {
+        this.callbacks.scanLog.push(callback);
         return this;
     }
     

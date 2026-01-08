@@ -2203,3 +2203,75 @@ tr.pinned-row:hover {
 .text-muted {
     color: var(--color-text-secondary);
 }
+/* ==================== Log Panel ==================== */
+.log-panel {
+    background: #1e1e1e;
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.log-entry {
+    padding: 0.25rem 0;
+    line-height: 1.4;
+    color: #d4d4d4;
+    border-bottom: 1px solid #333;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-timestamp {
+    color: #808080;
+    margin-right: 0.5rem;
+}
+
+.log-scan {
+    color: #569cd6;
+    margin-right: 0.5rem;
+}
+
+.log-level {
+    font-weight: 600;
+    margin-right: 0.5rem;
+}
+
+.log-entry.DEBUG .log-level {
+    color: #808080;
+}
+
+.log-entry.INFO .log-level {
+    color: #4ec9b0;
+}
+
+.log-entry.WARNING .log-level {
+    color: #dcdcaa;
+}
+
+.log-entry.ERROR .log-level {
+    color: #f14c4c;
+}
+
+.log-entry.ERROR {
+    background: rgba(241, 76, 76, 0.1);
+}
+
+.log-entry.WARNING {
+    background: rgba(220, 220, 170, 0.1);
+}
+
+.log-phase {
+    color: #c586c0;
+    margin-right: 0.5rem;
+    font-weight: 500;
+}
+
+.log-progress {
+    color: #4ec9b0;
+    margin-right: 0.5rem;
+    font-size: 0.9em;
+}

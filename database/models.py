@@ -1224,6 +1224,37 @@ class QueueLog(Base):
         return f"<QueueLog(id={self.id}, queue_id={self.queue_id}, level='{self.level}')>"
 
 
+class ScanLog(Base):
+    """
+    Log entries for individual scan execution.
+    Captures events, warnings, and errors during scan operation.
+    More fine-grained than queue logs - tracks scan phases, instrument operations, etc.
+    """
+    __tablename__ = "scan_logs"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scan_id: Mapped[int] = mapped_column(Integer, ForeignKey('scans.id'), nullable=False)
+    phase: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # 'setup', 'running', 'cleanup', 'analysis'
+    level: Mapped[str] = mapped_column(String(20), default='INFO')  # 'DEBUG', 'INFO', 'WARNING', 'ERROR'
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    progress: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)  # 0-100 percentage
+    extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    # Relationships
+    scan: Mapped["Scan"] = relationship("Scan", back_populates="logs")
+    
+    __table_args__ = (
+        Index('idx_scan_logs_scan', 'scan_id'),
+        Index('idx_scan_logs_level', 'level'),
+        Index('idx_scan_logs_phase', 'phase'),
+        Index('idx_scan_logs_timestamp', 'timestamp'),
+    )
+    
+    def __repr__(self):
+        return f"<ScanLog(id={self.id}, scan_id={self.scan_id}, level='{self.level}')>"
+
+
 class Scan(Base):
     """
     Executed scan records.
@@ -1273,6 +1304,7 @@ class Scan(Base):
     scan_template: Mapped[Optional["ScanTemplate"]] = relationship("ScanTemplate", back_populates="scans")
     measurement_objects: Mapped[List["MeasurementObject"]] = relationship("MeasurementObject", back_populates="scan", cascade="all, delete-orphan")
     analysis_inputs: Mapped[List["AnalysisInput"]] = relationship("AnalysisInput", back_populates="scan")
+    logs: Mapped[List["ScanLog"]] = relationship("ScanLog", back_populates="scan", order_by="ScanLog.timestamp", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('idx_scans_status', 'status'),

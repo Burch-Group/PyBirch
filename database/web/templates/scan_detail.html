@@ -660,6 +660,29 @@
         <p class="empty-state">No measurement data available for this scan.</p>
     </div>
     {% endif %}
+    
+    <!-- Scan Log Panel -->
+    <div class="related-section">
+        <div class="section-header">
+            <h2>📋 Scan Log</h2>
+            <button class="btn btn-sm btn-secondary" id="clear-scan-log-btn">Clear</button>
+        </div>
+        <div class="log-panel" id="scan-log-panel">
+            {% if scan.logs %}
+                {% for log in scan.logs %}
+                <div class="log-entry {{ log.level }}">
+                    <span class="log-timestamp">{{ log.timestamp[:19] if log.timestamp else '--:--:--' }}</span>
+                    {% if log.phase %}<span class="log-phase">[{{ log.phase }}]</span>{% endif %}
+                    <span class="log-level">[{{ log.level }}]</span>
+                    {% if log.progress is not none %}<span class="log-progress">({{ "%.1f" | format(log.progress) }}%)</span>{% endif %}
+                    {{ log.message }}
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="log-entry INFO"><span class="log-timestamp">--:--:--</span> No log entries yet</div>
+            {% endif %}
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -1745,6 +1768,22 @@
         // Initialize scan realtime manager
         const scanId = '{{ scan.scan_id or scan.id }}';
         window.scanManager = new ScanRealtimeManager(scanId);
+        
+        // Set up log panel
+        const logPanel = document.getElementById('scan-log-panel');
+        if (logPanel) {
+            window.scanManager.setLogContainer(logPanel);
+        }
+        
+        // Clear log button handler
+        const clearLogBtn = document.getElementById('clear-scan-log-btn');
+        if (clearLogBtn) {
+            clearLogBtn.addEventListener('click', function() {
+                if (logPanel) {
+                    logPanel.innerHTML = '<div class="log-entry INFO"><span class="log-timestamp">--:--:--</span> Log cleared</div>';
+                }
+            });
+        }
         
         {% if scan.status == 'running' %}
         // For running scans, set up live chart

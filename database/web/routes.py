@@ -365,6 +365,28 @@ def sample_edit(sample_id):
         }
         try:
             db.update_sample(sample_id, data)
+            
+            # Handle precursors - clear existing and re-add from form
+            db.clear_sample_precursors(sample_id)
+            
+            precursor_ids = request.form.getlist('precursor_id[]')
+            precursor_roles = request.form.getlist('precursor_role[]')
+            precursor_quantities = request.form.getlist('precursor_quantity[]')
+            precursor_units = request.form.getlist('precursor_unit[]')
+            
+            for i, prec_id in enumerate(precursor_ids):
+                if prec_id:
+                    role = precursor_roles[i] if i < len(precursor_roles) else None
+                    quantity = float(precursor_quantities[i]) if i < len(precursor_quantities) and precursor_quantities[i] else None
+                    unit = precursor_units[i] if i < len(precursor_units) else None
+                    db.add_sample_precursor(
+                        sample_id=sample_id,
+                        precursor_id=int(prec_id),
+                        quantity_used=quantity,
+                        quantity_unit=unit,
+                        role=role
+                    )
+            
             flash('Sample updated successfully', 'success')
             return redirect(url_for('main.sample_detail', sample_id=sample_id))
         except Exception as e:

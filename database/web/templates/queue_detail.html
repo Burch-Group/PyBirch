@@ -108,14 +108,25 @@
     </div>
     {% endif %}
     
-    <!-- Live Log Panel -->
+    <!-- Log Panel -->
     <div class="related-section">
         <div class="section-header">
             <h2>📋 Queue Log</h2>
             <button class="btn btn-sm btn-secondary" id="clear-log-btn">Clear</button>
         </div>
         <div class="log-panel" id="queue-log-panel">
-            <div class="log-entry INFO"><span class="log-timestamp">--:--:--</span> Waiting for log events...</div>
+            {% if queue.logs %}
+                {% for log in queue.logs %}
+                <div class="log-entry {{ log.level }}">
+                    <span class="log-timestamp">{{ log.timestamp[:19] if log.timestamp else '--:--:--' }}</span>
+                    {% if log.scan_id %}<span class="log-scan">[{{ log.scan_id }}]</span>{% endif %}
+                    <span class="log-level">[{{ log.level }}]</span>
+                    {{ log.message }}
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="log-entry INFO"><span class="log-timestamp">--:--:--</span> No log entries yet</div>
+            {% endif %}
         </div>
     </div>
 </div>

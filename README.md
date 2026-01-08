@@ -68,3 +68,5 @@ Items:
 - [ ] **GUI-Database Integration** (see [docs/GUI_DATABASE_INTEGRATION.md](docs/GUI_DATABASE_INTEGRATION.md))
 - [ ] Maybe: Autogenerate Acquisition, Movement objects from PyMeasure instruments
 - [ ] Maybe: Autofind devices using 2D scans, add folder for data passing between scans...
+
+Create scan logs. They should populate live and also from historical data when the scan is not running (aborted, paused, completed etc.) They should be a bit more fine-grained than the queue logs, so users can understand the scan process (but not too detailed, as to be overwhelming for long scans.)
