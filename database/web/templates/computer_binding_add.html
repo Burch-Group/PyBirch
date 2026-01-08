@@ -22,7 +22,7 @@
                 
                 <div class="form-group">
                     <label for="instrument_id">Instrument <span class="required">*</span></label>
-                    <select id="instrument_id" name="instrument_id" required>
+                    <select id="instrument_id" name="instrument_id" class="searchable-select" required>
                         <option value="">-- Select an instrument --</option>
                         {% for instrument in instruments %}
                         <option value="{{ instrument.id }}">{{ instrument.display }}</option>
