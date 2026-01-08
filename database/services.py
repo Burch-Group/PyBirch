@@ -19,7 +19,7 @@ from database.models import (
     Lab, LabMember, Project, ProjectMember, ItemGuest,
     User, UserPin, Issue, EntityImage,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
-    InstrumentDefinitionIssue
+    InstrumentDefinitionIssue, Location, ObjectLocation
 )
 from database.session import get_session, init_db
 
@@ -80,6 +80,11 @@ class DatabaseService:
                 'equipment': {
                     'total': session.query(func.count(Equipment.id)).scalar() or 0,
                     'operational': session.query(func.count(Equipment.id)).filter(Equipment.status == 'operational').scalar() or 0,
+                    'available': session.query(func.count(Equipment.id)).filter(Equipment.status == 'operational').scalar() or 0,
+                },
+                'locations': {
+                    'total': session.query(func.count(Location.id)).filter(Location.is_active == True).scalar() or 0,
+                    'with_objects': session.query(func.count(func.distinct(ObjectLocation.location_id))).filter(ObjectLocation.is_current == True).scalar() or 0,
                 },
                 'precursors': {
                     'total': session.query(func.count(Precursor.id)).scalar() or 0,
@@ -385,7 +390,6 @@ class DatabaseService:
             'substrate': sample.substrate,
             'dimensions': sample.dimensions,
             'status': sample.status,
-            'storage_location': sample.storage_location,
             'description': sample.description,
             'additional_tags': sample.additional_tags,
             'extra_data': sample.extra_data,
@@ -1812,7 +1816,6 @@ class DatabaseService:
             'manufacturer': instrument.manufacturer,
             'model': instrument.model,
             'serial_number': instrument.serial_number,
-            'location': instrument.location,
             'status': instrument.status,
             'specifications': instrument.specifications,
             'lab_id': instrument.lab_id,
@@ -2836,8 +2839,6 @@ class DatabaseService:
             'manufacturer': equipment.manufacturer,
             'model': equipment.model,
             'serial_number': equipment.serial_number,
-            'location': equipment.location,
-            'room': equipment.room,
             'status': equipment.status,
             'owner_id': equipment.owner_id,
             'owner_name': owner_name,
@@ -4096,7 +4097,8 @@ class DatabaseService:
                 return None
             
             allowed_fields = ['name', 'code', 'university', 'department', 'description',
-                            'address', 'website', 'email', 'phone', 'logo_path', 'settings', 'is_active']
+                            'address', 'website', 'email', 'phone', 'logo_path', 'settings', 'is_active',
+                            'location_types', 'equipment_types']
             for field in allowed_fields:
                 if field in data:
                     setattr(lab, field, data[field])
@@ -4128,6 +4130,8 @@ class DatabaseService:
             'phone': lab.phone,
             'logo_path': lab.logo_path,
             'is_active': lab.is_active,
+            'location_types': lab.location_types or ['room', 'cabinet', 'shelf', 'drawer', 'fridge', 'freezer', 'bench', 'other'],
+            'equipment_types': lab.equipment_types or ['glovebox', 'chamber', 'lithography', 'furnace', 'other'],
             'created_at': lab.created_at.isoformat() if lab.created_at else None,
         }
     
@@ -5716,7 +5720,7 @@ class DatabaseService:
                 fields = {
                     'sample_id': s.sample_id, 'name': s.name, 'material': s.material,
                     'substrate': s.substrate, 'description': s.description,
-                    'storage_location': s.storage_location, 'sample_type': s.sample_type,
+                    'sample_type': s.sample_type,
                     'created_by': s.created_by, 'lab': lab_name, 'project': proj_name
                 }
                 if matches_all_terms(fields):
@@ -5833,6 +5837,381 @@ class DatabaseService:
                         break
         
         return results
+
+    # ==================== Locations ====================
+    
+    def get_locations_list(
+        self,
+        search: Optional[str] = None,
+        location_type: Optional[str] = None,
+        lab_id: Optional[int] = None,
+        parent_id: Optional[int] = None,
+        include_inactive: bool = False,
+        page: int = 1,
+        per_page: int = 20
+    ) -> Tuple[List[Dict], int]:
+        """Get paginated list of locations."""
+        with self.session_scope() as session:
+            query = session.query(Location)
+            
+            if not include_inactive:
+                query = query.filter(Location.is_active == True)
+            
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        Location.name.ilike(search_term),
+                        Location.description.ilike(search_term),
+                        Location.room_number.ilike(search_term),
+                        Location.building.ilike(search_term)
+                    )
+                )
+            
+            if location_type:
+                query = query.filter(Location.location_type == location_type)
+            
+            if lab_id:
+                query = query.filter(Location.lab_id == lab_id)
+            
+            if parent_id is not None:
+                if parent_id == 0:  # Top-level locations only
+                    query = query.filter(Location.parent_location_id == None)
+                else:
+                    query = query.filter(Location.parent_location_id == parent_id)
+            
+            total = query.count()
+            offset = (page - 1) * per_page
+            locations = query.order_by(Location.name).offset(offset).limit(per_page).all()
+            
+            return [self._location_to_dict(loc, session) for loc in locations], total
+    
+    def get_locations_simple_list(self, lab_id: Optional[int] = None) -> List[Dict]:
+        """Get simple list of locations for dropdowns."""
+        with self.session_scope() as session:
+            query = session.query(Location).filter(Location.is_active == True)
+            if lab_id:
+                query = query.filter(Location.lab_id == lab_id)
+            locations = query.order_by(Location.name).all()
+            return [{'id': loc.id, 'name': loc.name, 'location_type': loc.location_type, 
+                     'parent_id': loc.parent_location_id, 'lab_id': loc.lab_id} for loc in locations]
+    
+    def get_location(self, location_id: int) -> Optional[Dict]:
+        """Get a single location by ID with full details."""
+        with self.session_scope() as session:
+            location = session.query(Location).filter(Location.id == location_id).first()
+            if not location:
+                return None
+            
+            result = self._location_to_dict(location, session)
+            
+            # Get child locations
+            children = session.query(Location).filter(
+                Location.parent_location_id == location_id,
+                Location.is_active == True
+            ).order_by(Location.name).all()
+            result['child_locations'] = [{'id': c.id, 'name': c.name, 'location_type': c.location_type} for c in children]
+            
+            # Get objects at this location
+            result['objects'] = self._get_objects_at_location(session, location_id)
+            
+            return result
+    
+    def create_location(self, data: Dict[str, Any]) -> Dict:
+        """Create a new location."""
+        with self.session_scope() as session:
+            location = Location(
+                lab_id=data['lab_id'],
+                parent_location_id=data.get('parent_location_id'),
+                name=data['name'],
+                location_type=data.get('location_type'),
+                description=data.get('description'),
+                room_number=data.get('room_number'),
+                building=data.get('building'),
+                floor=data.get('floor'),
+                capacity=data.get('capacity'),
+                conditions=data.get('conditions'),
+                access_notes=data.get('access_notes'),
+                is_active=data.get('is_active', True),
+                extra_data=data.get('extra_data'),
+                created_by=data.get('created_by'),
+            )
+            session.add(location)
+            session.flush()
+            return self._location_to_dict(location, session)
+    
+    def update_location(self, location_id: int, data: Dict) -> Optional[Dict]:
+        """Update an existing location."""
+        with self.session_scope() as session:
+            location = session.query(Location).filter(Location.id == location_id).first()
+            if not location:
+                return None
+            
+            for field in ['name', 'location_type', 'description', 'room_number', 'building',
+                          'floor', 'capacity', 'conditions', 'access_notes', 'is_active',
+                          'extra_data', 'lab_id', 'parent_location_id']:
+                if field in data:
+                    setattr(location, field, data[field])
+            
+            session.flush()
+            return self._location_to_dict(location, session)
+    
+    def delete_location(self, location_id: int) -> bool:
+        """Delete a location (soft delete by marking inactive)."""
+        with self.session_scope() as session:
+            location = session.query(Location).filter(Location.id == location_id).first()
+            if not location:
+                return False
+            
+            # Check for child locations
+            children_count = session.query(Location).filter(
+                Location.parent_location_id == location_id,
+                Location.is_active == True
+            ).count()
+            if children_count > 0:
+                raise ValueError(f"Cannot delete location with {children_count} child location(s)")
+            
+            # Mark as inactive (soft delete)
+            location.is_active = False
+            return True
+    
+    def _location_to_dict(self, location: Location, session: Session) -> Dict:
+        """Convert Location model to dictionary."""
+        parent_name = None
+        parent_path = []
+        if location.parent_location_id:
+            parent = session.query(Location).filter(Location.id == location.parent_location_id).first()
+            if parent:
+                parent_name = parent.name
+                # Build path to root
+                current = parent
+                while current:
+                    parent_path.insert(0, {'id': current.id, 'name': current.name})
+                    if current.parent_location_id:
+                        current = session.query(Location).filter(Location.id == current.parent_location_id).first()
+                    else:
+                        current = None
+        
+        lab_name = None
+        if location.lab_id:
+            lab = session.query(Lab).filter(Lab.id == location.lab_id).first()
+            if lab:
+                lab_name = lab.name
+        
+        return {
+            'id': location.id,
+            'lab_id': location.lab_id,
+            'lab_name': lab_name,
+            'parent_location_id': location.parent_location_id,
+            'parent_name': parent_name,
+            'parent_path': parent_path,
+            'name': location.name,
+            'location_type': location.location_type,
+            'description': location.description,
+            'room_number': location.room_number,
+            'building': location.building,
+            'floor': location.floor,
+            'capacity': location.capacity,
+            'conditions': location.conditions,
+            'access_notes': location.access_notes,
+            'is_active': location.is_active,
+            'extra_data': location.extra_data,
+            'created_at': location.created_at.isoformat() if location.created_at else None,
+            'updated_at': location.updated_at.isoformat() if location.updated_at else None,
+            'created_by': location.created_by,
+        }
+    
+    def _get_objects_at_location(self, session: Session, location_id: int) -> Dict[str, List[Dict]]:
+        """Get all objects currently at a location."""
+        objects = {'equipment': [], 'instruments': [], 'samples': [], 'precursors': [], 'computers': []}
+        
+        obj_locs = session.query(ObjectLocation).filter(
+            ObjectLocation.location_id == location_id,
+            ObjectLocation.is_current == True
+        ).all()
+        
+        for ol in obj_locs:
+            obj_info = {'id': ol.object_id, 'notes': ol.notes, 'placed_at': ol.placed_at.isoformat() if ol.placed_at else None}
+            
+            if ol.object_type == 'equipment':
+                eq = session.query(Equipment).filter(Equipment.id == ol.object_id).first()
+                if eq:
+                    obj_info['name'] = eq.name
+                    obj_info['type'] = eq.equipment_type
+                    objects['equipment'].append(obj_info)
+            elif ol.object_type == 'instrument':
+                inst = session.query(Instrument).filter(Instrument.id == ol.object_id).first()
+                if inst:
+                    obj_info['name'] = inst.name
+                    obj_info['type'] = inst.instrument_type
+                    objects['instruments'].append(obj_info)
+            elif ol.object_type == 'sample':
+                sample = session.query(Sample).filter(Sample.id == ol.object_id).first()
+                if sample:
+                    obj_info['name'] = sample.name or sample.sample_id
+                    obj_info['sample_id'] = sample.sample_id
+                    objects['samples'].append(obj_info)
+            elif ol.object_type == 'precursor':
+                prec = session.query(Precursor).filter(Precursor.id == ol.object_id).first()
+                if prec:
+                    obj_info['name'] = prec.name
+                    obj_info['chemical_formula'] = prec.chemical_formula
+                    objects['precursors'].append(obj_info)
+            elif ol.object_type == 'computer':
+                from database.models import Computer
+                comp = session.query(Computer).filter(Computer.id == ol.object_id).first()
+                if comp:
+                    obj_info['name'] = comp.nickname or comp.computer_name
+                    obj_info['computer_name'] = comp.computer_name
+                    objects['computers'].append(obj_info)
+        
+        return objects
+    
+    # ==================== Object Locations (linking objects to locations) ====================
+    
+    def add_object_to_location(
+        self,
+        location_id: int,
+        object_type: str,
+        object_id: int,
+        notes: Optional[str] = None,
+        placed_by: Optional[str] = None
+    ) -> Dict:
+        """Add an object to a location (creates a new ObjectLocation record)."""
+        with self.session_scope() as session:
+            # Mark any existing current placement as not current
+            existing = session.query(ObjectLocation).filter(
+                ObjectLocation.object_type == object_type,
+                ObjectLocation.object_id == object_id,
+                ObjectLocation.is_current == True
+            ).all()
+            for e in existing:
+                e.is_current = False
+            
+            # Create new placement
+            obj_loc = ObjectLocation(
+                location_id=location_id,
+                object_type=object_type,
+                object_id=object_id,
+                notes=notes,
+                placed_by=placed_by,
+                is_current=True
+            )
+            session.add(obj_loc)
+            session.flush()
+            
+            return {
+                'id': obj_loc.id,
+                'location_id': obj_loc.location_id,
+                'object_type': obj_loc.object_type,
+                'object_id': obj_loc.object_id,
+                'notes': obj_loc.notes,
+                'placed_at': obj_loc.placed_at.isoformat() if obj_loc.placed_at else None,
+                'placed_by': obj_loc.placed_by,
+                'is_current': obj_loc.is_current
+            }
+    
+    def remove_object_from_location(self, object_type: str, object_id: int) -> bool:
+        """Remove an object from its current location (marks placement as not current)."""
+        with self.session_scope() as session:
+            existing = session.query(ObjectLocation).filter(
+                ObjectLocation.object_type == object_type,
+                ObjectLocation.object_id == object_id,
+                ObjectLocation.is_current == True
+            ).all()
+            
+            if not existing:
+                return False
+            
+            for e in existing:
+                e.is_current = False
+            return True
+    
+    def get_object_location(self, object_type: str, object_id: int) -> Optional[Dict]:
+        """Get the current location of an object."""
+        with self.session_scope() as session:
+            obj_loc = session.query(ObjectLocation).filter(
+                ObjectLocation.object_type == object_type,
+                ObjectLocation.object_id == object_id,
+                ObjectLocation.is_current == True
+            ).first()
+            
+            if not obj_loc:
+                return None
+            
+            location = session.query(Location).filter(Location.id == obj_loc.location_id).first()
+            
+            return {
+                'id': obj_loc.id,
+                'location_id': obj_loc.location_id,
+                'location_name': location.name if location else None,
+                'location_type': location.location_type if location else None,
+                'object_type': obj_loc.object_type,
+                'object_id': obj_loc.object_id,
+                'notes': obj_loc.notes,
+                'placed_at': obj_loc.placed_at.isoformat() if obj_loc.placed_at else None,
+                'placed_by': obj_loc.placed_by,
+            }
+    
+    def get_object_location_history(self, object_type: str, object_id: int) -> List[Dict]:
+        """Get the location history of an object."""
+        with self.session_scope() as session:
+            obj_locs = session.query(ObjectLocation).filter(
+                ObjectLocation.object_type == object_type,
+                ObjectLocation.object_id == object_id
+            ).order_by(desc(ObjectLocation.placed_at)).all()
+            
+            result = []
+            for ol in obj_locs:
+                location = session.query(Location).filter(Location.id == ol.location_id).first()
+                result.append({
+                    'id': ol.id,
+                    'location_id': ol.location_id,
+                    'location_name': location.name if location else None,
+                    'notes': ol.notes,
+                    'placed_at': ol.placed_at.isoformat() if ol.placed_at else None,
+                    'placed_by': ol.placed_by,
+                    'is_current': ol.is_current
+                })
+            
+            return result
+    
+    def update_object_location_notes(self, object_location_id: int, notes: str) -> Optional[Dict]:
+        """Update the notes for an object-location link."""
+        with self.session_scope() as session:
+            obj_loc = session.query(ObjectLocation).filter(ObjectLocation.id == object_location_id).first()
+            if not obj_loc:
+                return None
+            
+            obj_loc.notes = notes
+            session.flush()
+            
+            return {
+                'id': obj_loc.id,
+                'notes': obj_loc.notes
+            }
+    
+    def get_location_stats(self) -> Dict[str, Any]:
+        """Get statistics for locations."""
+        with self.session_scope() as session:
+            total = session.query(Location).filter(Location.is_active == True).count()
+            
+            # Count by type
+            types = session.query(
+                Location.location_type,
+                func.count(Location.id)
+            ).filter(Location.is_active == True).group_by(Location.location_type).all()
+            
+            type_counts = {t[0] or 'unspecified': t[1] for t in types}
+            
+            # Count objects at locations
+            objects_placed = session.query(ObjectLocation).filter(ObjectLocation.is_current == True).count()
+            
+            return {
+                'total': total,
+                'by_type': type_counts,
+                'objects_placed': objects_placed
+            }
 
 
 # Singleton instance for easy import

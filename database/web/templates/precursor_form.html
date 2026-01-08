@@ -140,6 +140,32 @@
             </div>
         </div>
         
+        <div class="form-section">
+            <h3>Location</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="db_location_id">Database Location</label>
+                    <select id="db_location_id" name="db_location_id" class="searchable-select">
+                        <option value="">(No tracked location)</option>
+                        {% for loc in locations %}
+                        <option value="{{ loc.id }}" {% if precursor and precursor.current_location_id == loc.id %}selected{% endif %}>
+                            {{ loc.name }} ({{ loc.location_type }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-hint">Track this precursor in a database location</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="location_notes">Location Notes</label>
+                    <input type="text" id="location_notes" name="location_notes"
+                           value="{{ precursor.current_location_notes if precursor else '' }}"
+                           placeholder="e.g., 'in the blue bottle', 'second shelf'">
+                    <small class="form-hint">Optional directions within the location</small>
+                </div>
+            </div>
+        </div>
+        
         <div class="form-group form-group-full">
             <label for="storage_conditions">Storage Conditions</label>
             <textarea id="storage_conditions" name="storage_conditions" rows="3"

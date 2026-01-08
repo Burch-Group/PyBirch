@@ -89,6 +89,15 @@
         </div>
         
         <div class="stat-card">
+            <div class="stat-title">Locations</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.locations.total }}</div>
+                <div class="stat-detail">{{ stats.locations.with_objects }} with objects</div>
+            </div>
+            <a href="{{ url_for('main.locations') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
             <div class="stat-title">Instruments</div>
             <div class="stat-content">
                 <div class="stat-value">{{ stats.instruments.total }}</div>

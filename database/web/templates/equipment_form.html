@@ -25,14 +25,11 @@
                 
                 <div class="form-group">
                     <label for="equipment_type">Type</label>
-                    <select id="equipment_type" name="equipment_type">
+                    <select id="equipment_type" name="equipment_type" class="searchable-select" data-current-value="{{ equipment.equipment_type if equipment and equipment.equipment_type else '' }}">
                         <option value="">Select type...</option>
-                        <option value="glovebox" {% if equipment and equipment.equipment_type == 'glovebox' %}selected{% endif %}>Glovebox</option>
-                        <option value="chamber" {% if equipment and equipment.equipment_type == 'chamber' %}selected{% endif %}>Chamber</option>
-                        <option value="lithography" {% if equipment and equipment.equipment_type == 'lithography' %}selected{% endif %}>Lithography</option>
-                        <option value="furnace" {% if equipment and equipment.equipment_type == 'furnace' %}selected{% endif %}>Furnace</option>
-                        <option value="other" {% if equipment and equipment.equipment_type == 'other' %}selected{% endif %}>Other</option>
+                        <!-- Options loaded dynamically based on selected lab -->
                     </select>
+                    <small class="form-hint">Types are configured per lab</small>
                 </div>
                 
                 <div class="form-group">
@@ -108,17 +105,24 @@
             <h2>Location</h2>
             <div class="form-grid">
                 <div class="form-group">
-                    <label for="location">Location</label>
-                    <input type="text" id="location" name="location"
-                           value="{{ equipment.location if equipment else '' }}"
-                           placeholder="e.g., Building A">
+                    <label for="db_location_id">Database Location</label>
+                    <select id="db_location_id" name="db_location_id" class="searchable-select">
+                        <option value="">(No tracked location)</option>
+                        {% for loc in locations %}
+                        <option value="{{ loc.id }}" {% if equipment and equipment.current_location_id == loc.id %}selected{% endif %}>
+                            {{ loc.name }} ({{ loc.location_type }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-hint">Track this equipment in a database location</small>
                 </div>
                 
                 <div class="form-group">
-                    <label for="room">Room</label>
-                    <input type="text" id="room" name="room"
-                           value="{{ equipment.room if equipment else '' }}"
-                           placeholder="e.g., 101">
+                    <label for="location_notes">Location Notes</label>
+                    <input type="text" id="location_notes" name="location_notes"
+                           value="{{ equipment.current_location_notes if equipment else '' }}"
+                           placeholder="e.g., 'on the top shelf'">
+                    <small class="form-hint">Optional directions within the location</small>
                 </div>
             </div>
         </div>
@@ -199,4 +203,105 @@
     grid-column: 1 / -1;
 }
 </style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const labSelect = document.getElementById('lab_id');
+    const typeSelect = document.getElementById('equipment_type');
+    const currentValue = typeSelect.dataset.currentValue || '';
+    
+    // Default types (fallback if no lab selected or API fails)
+    const defaultTypes = ['glovebox', 'chamber', 'lithography', 'furnace', 'other'];
+    
+    function updateTypeOptions(types, selectedValue) {
+        // Clear existing options except the first placeholder
+        typeSelect.innerHTML = '<option value="">Select type...</option>';
+        
+        // Add new options
+        types.forEach(function(type) {
+            const option = document.createElement('option');
+            option.value = type;
+            option.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+            if (type === selectedValue) {
+                option.selected = true;
+            }
+            typeSelect.appendChild(option);
+        });
+        
+        // Re-render the searchable-select wrapper if initialized
+        const wrapper = typeSelect.closest('.searchable-select-wrapper');
+        if (wrapper) {
+            const selectedText = wrapper.querySelector('.selected-text');
+            const optionsList = wrapper.querySelector('.searchable-select-options');
+            const selectedOption = typeSelect.options[typeSelect.selectedIndex];
+            
+            if (selectedText) {
+                selectedText.textContent = selectedOption ? selectedOption.text : 'Select type...';
+            }
+            
+            if (optionsList) {
+                optionsList.innerHTML = '';
+                Array.from(typeSelect.options).forEach(function(opt) {
+                    const optionDiv = document.createElement('div');
+                    optionDiv.className = 'searchable-option';
+                    optionDiv.dataset.value = opt.value;
+                    optionDiv.textContent = opt.text;
+                    
+                    if (opt.value === typeSelect.value) {
+                        optionDiv.classList.add('selected');
+                    }
+                    
+                    optionDiv.addEventListener('click', function() {
+                        typeSelect.value = opt.value;
+                        typeSelect.dispatchEvent(new Event('change'));
+                        selectedText.textContent = opt.text;
+                        wrapper.classList.remove('open');
+                        // Update selected state
+                        optionsList.querySelectorAll('.searchable-option').forEach(function(o) {
+                            o.classList.toggle('selected', o.dataset.value === opt.value);
+                        });
+                    });
+                    
+                    optionsList.appendChild(optionDiv);
+                });
+            }
+        }
+    }
+    
+    function loadLabTypes(labId) {
+        if (!labId) {
+            updateTypeOptions(defaultTypes, currentValue);
+            return;
+        }
+        
+        fetch('/labs/' + labId + '/types')
+            .then(function(response) {
+                if (!response.ok) throw new Error('Failed to load types');
+                return response.json();
+            })
+            .then(function(data) {
+                const types = data.equipment_types || defaultTypes;
+                updateTypeOptions(types, currentValue);
+            })
+            .catch(function(error) {
+                console.error('Error loading lab types:', error);
+                updateTypeOptions(defaultTypes, currentValue);
+            });
+    }
+    
+    // Load types when lab changes
+    labSelect.addEventListener('change', function() {
+        loadLabTypes(this.value);
+    });
+    
+    // Load initial types if lab is already selected
+    if (labSelect.value) {
+        loadLabTypes(labSelect.value);
+    } else {
+        updateTypeOptions(defaultTypes, currentValue);
+    }
+});
+</script>
 {% endblock %}

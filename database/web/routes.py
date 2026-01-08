@@ -261,7 +261,6 @@ def sample_new():
             'sample_type': request.form.get('sample_type'),
             'substrate': request.form.get('substrate'),
             'status': request.form.get('status', 'active'),
-            'storage_location': request.form.get('storage_location'),
             'description': request.form.get('description'),
             'created_by': request.form.get('created_by'),
             'lab_id': lab_id,
@@ -290,6 +289,18 @@ def sample_new():
                         role=role
                     )
             
+            # Handle database location assignment
+            db_location_id = request.form.get('db_location_id')
+            location_notes = request.form.get('location_notes')
+            if db_location_id:
+                db.add_object_to_location(
+                    location_id=int(db_location_id),
+                    object_type='sample',
+                    object_id=sample['id'],
+                    notes=location_notes,
+                    placed_by=g.current_user.get('username') if g.current_user else None
+                )
+            
             flash(f'Sample {sample["sample_id"]} created successfully', 'success')
             return redirect(url_for('main.sample_detail', sample_id=sample['id']))
         except Exception as e:
@@ -300,6 +311,7 @@ def sample_new():
     projects = db.get_projects_simple_list()
     samples_list = db.get_samples_simple_list()
     precursors = db.get_precursors_simple_list()
+    locations = db.get_locations_simple_list()
     
     # Get user defaults
     default_lab_id = None
@@ -324,6 +336,7 @@ def sample_new():
                           projects=projects,
                           samples_list=samples_list,
                           precursors=precursors,
+                          locations=locations,
                           sample_precursors=[],
                           template=template,
                           default_lab_id=default_lab_id,
@@ -357,7 +370,6 @@ def sample_edit(sample_id):
             'sample_type': request.form.get('sample_type'),
             'substrate': request.form.get('substrate'),
             'status': request.form.get('status'),
-            'storage_location': request.form.get('storage_location'),
             'description': request.form.get('description'),
             'lab_id': lab_id,
             'project_id': project_id,
@@ -387,6 +399,21 @@ def sample_edit(sample_id):
                         role=role
                     )
             
+            # Handle database location assignment
+            db_location_id = request.form.get('db_location_id')
+            location_notes = request.form.get('location_notes')
+            if db_location_id:
+                db.add_object_to_location(
+                    location_id=int(db_location_id),
+                    object_type='sample',
+                    object_id=sample_id,
+                    notes=location_notes,
+                    placed_by=g.current_user.get('username') if g.current_user else None
+                )
+            else:
+                # Remove from any current location if no location selected
+                db.remove_object_from_location('sample', sample_id)
+            
             flash('Sample updated successfully', 'success')
             return redirect(url_for('main.sample_detail', sample_id=sample_id))
         except Exception as e:
@@ -397,7 +424,14 @@ def sample_edit(sample_id):
     projects = db.get_projects_simple_list()
     samples_list = db.get_samples_simple_list(exclude_id=sample_id)  # Exclude self
     precursors = db.get_precursors_simple_list()
+    locations = db.get_locations_simple_list()
     sample_precursors = db.get_sample_precursors(sample_id)
+    
+    # Get current location for this sample
+    current_location = db.get_object_location('sample', sample_id)
+    if current_location:
+        sample['current_location_id'] = current_location['location_id']
+        sample['current_location_notes'] = current_location.get('notes', '')
     
     return render_template('sample_form.html', 
                           sample=sample, 
@@ -406,6 +440,7 @@ def sample_edit(sample_id):
                           projects=projects,
                           samples_list=samples_list,
                           precursors=precursors,
+                          locations=locations,
                           sample_precursors=sample_precursors)
 
 
@@ -438,7 +473,6 @@ def sample_duplicate(sample_id):
             'sample_type': request.form.get('sample_type'),
             'substrate': request.form.get('substrate'),
             'status': request.form.get('status', 'active'),
-            'storage_location': request.form.get('storage_location'),
             'description': request.form.get('description'),
             'created_by': g.current_user.get('username') if g.current_user else None,
             'lab_id': lab_id,
@@ -1149,6 +1183,9 @@ def equipment_new():
     
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
+        db_location_id = request.form.get('db_location_id')
+        location_notes = request.form.get('location_notes')
+        
         data = {
             'name': request.form.get('name'),
             'equipment_type': request.form.get('equipment_type'),
@@ -1156,12 +1193,22 @@ def equipment_new():
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
-            'location': request.form.get('location'),
             'status': request.form.get('status', 'available'),
             'lab_id': int(lab_id) if lab_id else None,
         }
         try:
             item = db.create_equipment(data)
+            
+            # Handle database location assignment
+            if db_location_id:
+                db.add_object_to_location(
+                    location_id=int(db_location_id),
+                    object_type='equipment',
+                    object_id=item['id'],
+                    notes=location_notes,
+                    placed_by=g.current_user.get('username') if g.current_user else None
+                )
+            
             flash(f'Equipment {item["name"]} created successfully', 'success')
             return redirect(url_for('main.equipment_detail', equipment_id=item['id']))
         except Exception as e:
@@ -1170,13 +1217,19 @@ def equipment_new():
     # Get labs for dropdown
     labs = db.get_labs_simple_list()
     
+    # Get locations for dropdown
+    locations = db.get_locations_simple_list()
+    
+    # Get users for owner dropdown
+    users, _ = db.get_users(per_page=1000)
+    
     # Get user defaults
     default_lab_id = None
     if g.current_user:
         user_prefs = db.get_user_preferences(g.current_user['id'])
         default_lab_id = user_prefs.get('default_lab_id')
     
-    return render_template('equipment_form.html', equipment=prefilled, action='Create', template=template, labs=labs, default_lab_id=default_lab_id)
+    return render_template('equipment_form.html', equipment=prefilled, action='Create', template=template, labs=labs, locations=locations, users=users, default_lab_id=default_lab_id)
 
 
 @main_bp.route('/equipment/<int:equipment_id>/edit', methods=['GET', 'POST'])
@@ -1191,6 +1244,9 @@ def equipment_edit(equipment_id):
     
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
+        db_location_id = request.form.get('db_location_id')
+        location_notes = request.form.get('location_notes')
+        
         data = {
             'name': request.form.get('name'),
             'equipment_type': request.form.get('equipment_type'),
@@ -1198,12 +1254,25 @@ def equipment_edit(equipment_id):
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
-            'location': request.form.get('location'),
             'status': request.form.get('status', 'available'),
             'lab_id': int(lab_id) if lab_id else None,
         }
         try:
             updated = db.update_equipment(equipment_id, data)
+            
+            # Handle database location assignment
+            if db_location_id:
+                db.add_object_to_location(
+                    location_id=int(db_location_id),
+                    object_type='equipment',
+                    object_id=equipment_id,
+                    notes=location_notes,
+                    placed_by=g.current_user.get('username') if g.current_user else None
+                )
+            else:
+                # Remove from any current location if no location selected
+                db.remove_object_from_location('equipment', equipment_id)
+            
             flash(f'Equipment "{updated["name"]}" updated successfully', 'success')
             return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
         except Exception as e:
@@ -1212,7 +1281,19 @@ def equipment_edit(equipment_id):
     # Get labs for dropdown
     labs = db.get_labs_simple_list()
     
-    return render_template('equipment_form.html', equipment=equipment, action='Edit', labs=labs)
+    # Get locations for dropdown
+    locations = db.get_locations_simple_list()
+    
+    # Get users for owner dropdown
+    users, _ = db.get_users(per_page=1000)
+    
+    # Get current location for this equipment
+    current_location = db.get_object_location('equipment', equipment_id)
+    if current_location:
+        equipment['current_location_id'] = current_location['location_id']
+        equipment['current_location_notes'] = current_location.get('notes', '')
+    
+    return render_template('equipment_form.html', equipment=equipment, action='Edit', labs=labs, locations=locations, users=users)
 
 
 @main_bp.route('/equipment/<int:equipment_id>/duplicate', methods=['GET', 'POST'])
@@ -1235,7 +1316,6 @@ def equipment_duplicate(equipment_id):
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
-            'location': request.form.get('location'),
             'status': request.form.get('status', 'available'),
             'lab_id': int(lab_id) if lab_id else None,
         }
@@ -1546,6 +1626,259 @@ def all_equipment_issues():
     )
 
 
+# -------------------- Locations --------------------
+
+@main_bp.route('/locations')
+def locations():
+    """Locations list page."""
+    page = request.args.get('page', 1, type=int)
+    search = request.args.get('search', '')
+    location_type = request.args.get('type', '')
+    parent_id = request.args.get('parent_id', type=int)
+    
+    db = get_db_service()
+    locations_list, total = db.get_locations_list(
+        search=search if search else None,
+        location_type=location_type if location_type else None,
+        parent_id=parent_id,
+        page=page
+    )
+    
+    total_pages = (total + 19) // 20
+    
+    # Get pinned IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'location')
+    
+    return render_template('locations.html',
+        locations=locations_list,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        search=search,
+        location_type=location_type,
+        parent_id=parent_id,
+        pinned_ids=pinned_ids
+    )
+
+
+@main_bp.route('/locations/<int:location_id>')
+def location_detail(location_id):
+    """Location detail page."""
+    db = get_db_service()
+    location = db.get_location(location_id)
+    if not location:
+        flash('Location not found', 'error')
+        return redirect(url_for('main.locations'))
+    
+    # Get all locations for moving objects
+    all_locations = db.get_locations_simple_list()
+    
+    # Get lists for adding objects
+    equipment_list = db.get_equipment_simple_list()
+    instruments_list = db.get_instruments_simple_list()
+    samples_list = db.get_samples_simple_list()
+    precursors_list = db.get_precursors_simple_list()
+    computers_list = db.get_computers_list()
+    
+    return render_template('location_detail.html', 
+                          location=location, 
+                          all_locations=all_locations,
+                          equipment_list=equipment_list,
+                          instruments_list=instruments_list,
+                          samples_list=samples_list,
+                          precursors_list=precursors_list,
+                          computers_list=computers_list)
+
+
+@main_bp.route('/locations/new', methods=['GET', 'POST'])
+@login_required
+def location_new():
+    """Create new location page."""
+    db = get_db_service()
+    
+    # Check if parent_id was provided
+    parent_id = request.args.get('parent_id', type=int)
+    parent_location = None
+    if parent_id:
+        parent_location = db.get_location(parent_id)
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        parent_location_id = request.form.get('parent_location_id')
+        
+        data = {
+            'name': request.form.get('name'),
+            'location_type': request.form.get('location_type'),
+            'description': request.form.get('description'),
+            'room_number': request.form.get('room_number'),
+            'building': request.form.get('building'),
+            'floor': request.form.get('floor'),
+            'capacity': request.form.get('capacity'),
+            'conditions': request.form.get('conditions'),
+            'access_notes': request.form.get('access_notes'),
+            'lab_id': int(lab_id) if lab_id else None,
+            'parent_location_id': int(parent_location_id) if parent_location_id else None,
+            'created_by': g.current_user.get('username') if g.current_user else None,
+        }
+        
+        if not data['lab_id']:
+            flash('Lab is required', 'error')
+        elif not data['name']:
+            flash('Name is required', 'error')
+        else:
+            try:
+                location = db.create_location(data)
+                flash(f'Location "{data["name"]}" created successfully', 'success')
+                return redirect(url_for('main.location_detail', location_id=location['id']))
+            except Exception as e:
+                flash(f'Error creating location: {str(e)}', 'error')
+    
+    # Get dropdown data
+    labs = db.get_labs_simple_list()
+    all_locations = db.get_locations_simple_list()
+    
+    # Get user defaults
+    default_lab_id = None
+    if g.current_user:
+        user_prefs = db.get_user_preferences(g.current_user['id'])
+        default_lab_id = user_prefs.get('default_lab_id')
+    
+    return render_template('location_form.html',
+        action='New',
+        location=None,
+        parent_location=parent_location,
+        labs=labs,
+        all_locations=all_locations,
+        default_lab_id=default_lab_id,
+    )
+
+
+@main_bp.route('/locations/<int:location_id>/edit', methods=['GET', 'POST'])
+@login_required
+def location_edit(location_id):
+    """Edit location page."""
+    db = get_db_service()
+    location = db.get_location(location_id)
+    
+    if not location:
+        flash('Location not found', 'error')
+        return redirect(url_for('main.locations'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        parent_location_id = request.form.get('parent_location_id')
+        
+        # Prevent setting self as parent
+        if parent_location_id and int(parent_location_id) == location_id:
+            flash('A location cannot be its own parent', 'error')
+        else:
+            data = {
+                'name': request.form.get('name'),
+                'location_type': request.form.get('location_type'),
+                'description': request.form.get('description'),
+                'room_number': request.form.get('room_number'),
+                'building': request.form.get('building'),
+                'floor': request.form.get('floor'),
+                'capacity': request.form.get('capacity'),
+                'conditions': request.form.get('conditions'),
+                'access_notes': request.form.get('access_notes'),
+                'lab_id': int(lab_id) if lab_id else None,
+                'parent_location_id': int(parent_location_id) if parent_location_id else None,
+            }
+            
+            try:
+                updated = db.update_location(location_id, data)
+                flash(f'Location "{updated["name"]}" updated successfully', 'success')
+                return redirect(url_for('main.location_detail', location_id=location_id))
+            except Exception as e:
+                flash(f'Error updating location: {str(e)}', 'error')
+    
+    # Get dropdown data
+    labs = db.get_labs_simple_list()
+    # Exclude this location and its children from parent options
+    all_locations = [loc for loc in db.get_locations_simple_list() if loc['id'] != location_id]
+    
+    return render_template('location_form.html',
+        action='Edit',
+        location=location,
+        labs=labs,
+        all_locations=all_locations,
+    )
+
+
+@main_bp.route('/locations/<int:location_id>/delete', methods=['POST'])
+@login_required
+def location_delete(location_id):
+    """Delete a location."""
+    db = get_db_service()
+    
+    try:
+        success = db.delete_location(location_id)
+        if success:
+            flash('Location deleted successfully', 'success')
+        else:
+            flash('Location not found', 'error')
+    except ValueError as e:
+        flash(str(e), 'error')
+    except Exception as e:
+        flash(f'Error deleting location: {str(e)}', 'error')
+    
+    return redirect(url_for('main.locations'))
+
+
+@main_bp.route('/locations/<int:location_id>/add-object', methods=['POST'])
+@login_required
+def location_add_object(location_id):
+    """Add an object to a location."""
+    db = get_db_service()
+    
+    object_type = request.form.get('object_type')
+    object_id = request.form.get('object_id')
+    notes = request.form.get('notes')
+    
+    if not object_type or not object_id:
+        flash('Object type and ID are required', 'error')
+        return redirect(url_for('main.location_detail', location_id=location_id))
+    
+    try:
+        db.add_object_to_location(
+            location_id=location_id,
+            object_type=object_type,
+            object_id=int(object_id),
+            notes=notes,
+            placed_by=g.current_user.get('username') if g.current_user else None
+        )
+        flash('Object added to location successfully', 'success')
+    except Exception as e:
+        flash(f'Error adding object: {str(e)}', 'error')
+    
+    return redirect(url_for('main.location_detail', location_id=location_id))
+
+
+@main_bp.route('/locations/<int:location_id>/remove-object', methods=['POST'])
+@login_required
+def location_remove_object(location_id):
+    """Remove an object from a location."""
+    db = get_db_service()
+    
+    object_type = request.form.get('object_type')
+    object_id = request.form.get('object_id')
+    
+    if not object_type or not object_id:
+        flash('Object type and ID are required', 'error')
+        return redirect(url_for('main.location_detail', location_id=location_id))
+    
+    try:
+        db.remove_object_from_location(object_type=object_type, object_id=int(object_id))
+        flash('Object removed from location', 'success')
+    except Exception as e:
+        flash(f'Error removing object: {str(e)}', 'error')
+    
+    return redirect(url_for('main.location_detail', location_id=location_id))
+
+
 # -------------------- Precursors --------------------
 
 @main_bp.route('/precursors')
@@ -1631,6 +1964,19 @@ def precursor_new():
         }
         try:
             item = db.create_precursor(data)
+            
+            # Handle database location assignment
+            db_location_id = request.form.get('db_location_id')
+            location_notes = request.form.get('location_notes')
+            if db_location_id:
+                db.add_object_to_location(
+                    location_id=int(db_location_id),
+                    object_type='precursor',
+                    object_id=item['id'],
+                    notes=location_notes,
+                    placed_by=g.current_user.get('username') if g.current_user else None
+                )
+            
             flash(f'Precursor {item["name"]} created successfully', 'success')
             return redirect(url_for('main.precursor_detail', precursor_id=item['id']))
         except Exception as e:
@@ -1639,13 +1985,16 @@ def precursor_new():
     # Get labs for dropdown
     labs = db.get_labs_simple_list()
     
+    # Get locations for dropdown
+    locations = db.get_locations_simple_list()
+    
     # Get user defaults
     default_lab_id = None
     if g.current_user:
         user_prefs = db.get_user_preferences(g.current_user['id'])
         default_lab_id = user_prefs.get('default_lab_id')
     
-    return render_template('precursor_form.html', precursor=prefilled, action='Create', template=template, labs=labs, default_lab_id=default_lab_id)
+    return render_template('precursor_form.html', precursor=prefilled, action='Create', template=template, labs=labs, locations=locations, default_lab_id=default_lab_id)
 
 
 @main_bp.route('/precursors/<int:precursor_id>/edit', methods=['GET', 'POST'])
@@ -1674,6 +2023,22 @@ def precursor_edit(precursor_id):
         }
         try:
             updated = db.update_precursor(precursor_id, data)
+            
+            # Handle database location assignment
+            db_location_id = request.form.get('db_location_id')
+            location_notes = request.form.get('location_notes')
+            if db_location_id:
+                db.add_object_to_location(
+                    location_id=int(db_location_id),
+                    object_type='precursor',
+                    object_id=precursor_id,
+                    notes=location_notes,
+                    placed_by=g.current_user.get('username') if g.current_user else None
+                )
+            else:
+                # Remove from any current location if no location selected
+                db.remove_object_from_location('precursor', precursor_id)
+            
             flash(f'Precursor "{updated["name"]}" updated successfully', 'success')
             return redirect(url_for('main.precursor_detail', precursor_id=precursor_id))
         except Exception as e:
@@ -1682,7 +2047,16 @@ def precursor_edit(precursor_id):
     # Get labs for dropdown
     labs = db.get_labs_simple_list()
     
-    return render_template('precursor_form.html', precursor=precursor, action='Edit', labs=labs)
+    # Get locations for dropdown
+    locations = db.get_locations_simple_list()
+    
+    # Get current location for this precursor
+    current_location = db.get_object_location('precursor', precursor_id)
+    if current_location:
+        precursor['current_location_id'] = current_location['location_id']
+        precursor['current_location_notes'] = current_location.get('notes', '')
+    
+    return render_template('precursor_form.html', precursor=precursor, action='Edit', labs=labs, locations=locations)
 
 
 @main_bp.route('/precursors/<int:precursor_id>/duplicate', methods=['GET', 'POST'])
@@ -2215,6 +2589,13 @@ def lab_new():
     """Create new lab page."""
     if request.method == 'POST':
         db = get_db_service()
+        
+        # Parse comma-separated type lists into arrays
+        location_types_str = request.form.get('location_types', '')
+        equipment_types_str = request.form.get('equipment_types', '')
+        location_types = [t.strip() for t in location_types_str.split(',') if t.strip()] or None
+        equipment_types = [t.strip() for t in equipment_types_str.split(',') if t.strip()] or None
+        
         data = {
             'name': request.form.get('name'),
             'code': request.form.get('code') or None,
@@ -2225,6 +2606,8 @@ def lab_new():
             'website': request.form.get('website'),
             'email': request.form.get('email'),
             'phone': request.form.get('phone'),
+            'location_types': location_types,
+            'equipment_types': equipment_types,
         }
         try:
             lab = db.create_lab(data)
@@ -2247,6 +2630,12 @@ def lab_edit(lab_id):
         return redirect(url_for('main.labs'))
     
     if request.method == 'POST':
+        # Parse comma-separated type lists into arrays
+        location_types_str = request.form.get('location_types', '')
+        equipment_types_str = request.form.get('equipment_types', '')
+        location_types = [t.strip() for t in location_types_str.split(',') if t.strip()] or None
+        equipment_types = [t.strip() for t in equipment_types_str.split(',') if t.strip()] or None
+        
         data = {
             'name': request.form.get('name'),
             'code': request.form.get('code') or None,
@@ -2257,6 +2646,8 @@ def lab_edit(lab_id):
             'website': request.form.get('website'),
             'email': request.form.get('email'),
             'phone': request.form.get('phone'),
+            'location_types': location_types,
+            'equipment_types': equipment_types,
         }
         try:
             updated = db.update_lab(lab_id, data)
@@ -2362,6 +2753,21 @@ def lab_delete(lab_id):
         flash(f'Cannot delete lab: {str(e)}', 'error')
     
     return redirect(url_for('main.labs'))
+
+
+@main_bp.route('/labs/<int:lab_id>/types')
+def lab_types(lab_id):
+    """Get lab-specific location and equipment types (JSON API)."""
+    db = get_db_service()
+    lab = db.get_lab(lab_id)
+    
+    if not lab:
+        return jsonify({'error': 'Lab not found'}), 404
+    
+    return jsonify({
+        'location_types': lab.get('location_types', ['room', 'cabinet', 'shelf', 'drawer', 'fridge', 'freezer', 'bench', 'other']),
+        'equipment_types': lab.get('equipment_types', ['glovebox', 'chamber', 'lithography', 'furnace', 'other'])
+    })
 
 
 # -------------------- Projects --------------------
@@ -4488,7 +4894,6 @@ def instrument_new():
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
-            'location': request.form.get('location'),
             'status': request.form.get('status', 'available'),
             'lab_id': lab_id,
             'equipment_id': equipment_id,
@@ -4546,7 +4951,6 @@ def instrument_edit(instrument_id):
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
-            'location': request.form.get('location'),
             'status': request.form.get('status', 'available'),
             'lab_id': lab_id,
             'equipment_id': equipment_id,

@@ -253,6 +253,10 @@
                 <img src="{{ url_for('static', filename='images/equipment.svg') }}" class="nav-icon" alt="">
                 <span>Equipment</span>
             </a>
+            <a href="{{ url_for('main.locations') }}" class="nav-drawer-link {% if request.endpoint and 'location' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/locations.svg') }}" class="nav-icon" alt="">
+                <span>Locations</span>
+            </a>
             <a href="{{ url_for('main.precursors') }}" class="nav-drawer-link {% if request.endpoint and 'precursor' in request.endpoint %}active{% endif %}">
                 <img src="{{ url_for('static', filename='images/precursors.svg') }}" class="nav-icon" alt="">
                 <span>Precursors</span>

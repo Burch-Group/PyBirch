@@ -76,6 +76,27 @@
                       placeholder="Brief description of the lab's research focus and capabilities">{{ lab.description if lab else '' }}</textarea>
         </div>
         
+        <div class="form-section">
+            <h2>Configurable Types</h2>
+            <p class="form-hint">Define the types available in dropdowns for this lab. Enter comma-separated values.</p>
+            
+            <div class="form-group form-group-full">
+                <label for="location_types">Location Types</label>
+                <input type="text" id="location_types" name="location_types"
+                       value="{{ (lab.location_types or ['room', 'cabinet', 'shelf', 'drawer', 'fridge', 'freezer', 'bench', 'other']) | join(', ') if lab else 'room, cabinet, shelf, drawer, fridge, freezer, bench, other' }}"
+                       placeholder="room, cabinet, shelf, drawer, fridge, freezer, bench, other">
+                <small class="form-hint">Types available when creating locations (e.g., room, cabinet, shelf, drawer)</small>
+            </div>
+            
+            <div class="form-group form-group-full">
+                <label for="equipment_types">Equipment Types</label>
+                <input type="text" id="equipment_types" name="equipment_types"
+                       value="{{ (lab.equipment_types or ['glovebox', 'chamber', 'lithography', 'furnace', 'other']) | join(', ') if lab else 'glovebox, chamber, lithography, furnace, other' }}"
+                       placeholder="glovebox, chamber, lithography, furnace, other">
+                <small class="form-hint">Types available when creating equipment (e.g., glovebox, chamber, furnace)</small>
+            </div>
+        </div>
+        
         <div class="form-actions">
             <a href="{{ url_for('main.labs') }}" class="btn btn-link">Cancel</a>
             <button type="submit" class="btn btn-primary">{{ action }} Lab</button>

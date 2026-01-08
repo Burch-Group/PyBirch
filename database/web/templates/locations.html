@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Locations - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Locations</h1>
+        <div class="header-actions">
+            <a href="{{ url_for('main.location_new') }}" class="btn btn-primary">+ New Location</a>
+        </div>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search locations..." 
+                   value="{{ search }}" class="filter-input">
+            <select name="type" class="filter-select">
+                <option value="">All Types</option>
+                <option value="room" {% if location_type == 'room' %}selected{% endif %}>Room</option>
+                <option value="cabinet" {% if location_type == 'cabinet' %}selected{% endif %}>Cabinet</option>
+                <option value="shelf" {% if location_type == 'shelf' %}selected{% endif %}>Shelf</option>
+                <option value="drawer" {% if location_type == 'drawer' %}selected{% endif %}>Drawer</option>
+                <option value="fridge" {% if location_type == 'fridge' %}selected{% endif %}>Fridge</option>
+                <option value="freezer" {% if location_type == 'freezer' %}selected{% endif %}>Freezer</option>
+                <option value="bench" {% if location_type == 'bench' %}selected{% endif %}>Bench</option>
+                <option value="other" {% if location_type == 'other' %}selected{% endif %}>Other</option>
+            </select>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search or location_type %}
+                <a href="{{ url_for('main.locations') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} location(s) found</p>
+    
+    {% if locations %}
+        {# Separate pinned and unpinned items #}
+        {% set pinned_items = locations | selectattr('id', 'in', pinned_ids) | list %}
+        {% set unpinned_items = locations | rejectattr('id', 'in', pinned_ids) | list %}
+        
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 30px;"></th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Parent Location</th>
+                    <th>Lab</th>
+                    <th>Building/Floor</th>
+                    <th>Objects</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {# Pinned items first #}
+                {% for item in pinned_items %}
+                <tr class="pinned-row">
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn pinned" data-entity-type="location" data-entity-id="{{ item.id }}" title="Unpin">📌</button>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('main.location_detail', location_id=item.id) }}">{{ item.name }}</a></td>
+                    <td><span class="type-badge">{{ item.location_type or '-' }}</span></td>
+                    <td>
+                        {% if item.parent_name %}
+                        <a href="{{ url_for('main.location_detail', location_id=item.parent_location_id) }}">{{ item.parent_name }}</a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>{{ item.lab_name or '-' }}</td>
+                    <td>
+                        {% if item.building or item.floor %}
+                            {{ item.building or '' }}{% if item.building and item.floor %}, {% endif %}{{ 'Floor ' + item.floor if item.floor else '' }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>{{ item.object_count or 0 }}</td>
+                    <td>
+                        <a href="{{ url_for('main.location_detail', location_id=item.id) }}" class="btn btn-sm">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {# Unpinned items #}
+                {% for item in unpinned_items %}
+                <tr>
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn" data-entity-type="location" data-entity-id="{{ item.id }}" title="Pin">📍</button>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('main.location_detail', location_id=item.id) }}">{{ item.name }}</a></td>
+                    <td><span class="type-badge">{{ item.location_type or '-' }}</span></td>
+                    <td>
+                        {% if item.parent_name %}
+                        <a href="{{ url_for('main.location_detail', location_id=item.parent_location_id) }}">{{ item.parent_name }}</a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>{{ item.lab_name or '-' }}</td>
+                    <td>
+                        {% if item.building or item.floor %}
+                            {{ item.building or '' }}{% if item.building and item.floor %}, {% endif %}{{ 'Floor ' + item.floor if item.floor else '' }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>{{ item.object_count or 0 }}</td>
+                    <td>
+                        <a href="{{ url_for('main.location_detail', location_id=item.id) }}" class="btn btn-sm">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="{{ url_for('main.locations', page=page-1, search=search, type=location_type) }}" class="btn btn-sm">← Previous</a>
+            {% endif %}
+            <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}
+                <a href="{{ url_for('main.locations', page=page+1, search=search, type=location_type) }}" class="btn btn-sm">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>No locations found.</p>
+            <a href="{{ url_for('main.location_new') }}" class="btn btn-primary">Add your first location</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

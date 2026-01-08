@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Location - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.locations') }}">Locations</a> / {{ action }}
+        </div>
+    </div>
+    
+    <h1>{{ action }} Location</h1>
+    
+    <form method="POST" class="entity-form">
+        <div class="form-section">
+            <h2>Basic Information</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="name">Name *</label>
+                    <input type="text" id="name" name="name" required
+                           value="{{ location.name if location else '' }}"
+                           placeholder="e.g., Main Lab Cabinet A">
+                </div>
+                
+                <div class="form-group">
+                    <label for="location_type">Type *</label>
+                    <select id="location_type" name="location_type" class="searchable-select" required data-current-value="{{ location.location_type if location and location.location_type else '' }}">
+                        <option value="">Select type...</option>
+                        <!-- Options loaded dynamically based on selected lab -->
+                    </select>
+                    <small class="form-hint">Types are configured per lab</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="lab_id">Lab *</label>
+                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab" required>
+                        <option value="">-- Select Lab --</option>
+                        {% for lab in labs %}
+                        <option value="{{ lab.id }}" 
+                                {% if location and location.lab_id == lab.id %}selected
+                                {% elif parent_location and parent_location.lab_id == lab.id %}selected
+                                {% elif default_lab_id == lab.id and not location and not parent_location %}selected{% endif %}>
+                            {{ lab.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small>Associate this location with a lab <a href="#" class="set-default-link" data-field="default_lab_id" data-source="lab_id">Set as default</a></small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="parent_location_id">Parent Location</label>
+                    <select id="parent_location_id" name="parent_location_id" class="searchable-select">
+                        <option value="">(Top-level location)</option>
+                        {% for loc in all_locations %}
+                        <option value="{{ loc.id }}" 
+                                {% if location and location.parent_location_id == loc.id %}selected
+                                {% elif parent_location and parent_location.id == loc.id %}selected{% endif %}>
+                            {{ loc.name }} ({{ loc.location_type }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-hint">Optional: Nest this inside another location (e.g., drawer inside a cabinet)</small>
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" rows="3"
+                              placeholder="Brief description of this location">{{ location.description if location else '' }}</textarea>
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Physical Location</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="building">Building</label>
+                    <input type="text" id="building" name="building"
+                           value="{{ location.building if location else '' }}"
+                           placeholder="e.g., Engineering Building">
+                </div>
+                
+                <div class="form-group">
+                    <label for="floor">Floor</label>
+                    <input type="text" id="floor" name="floor"
+                           value="{{ location.floor if location else '' }}"
+                           placeholder="e.g., 2">
+                </div>
+                
+                <div class="form-group">
+                    <label for="room_number">Room Number</label>
+                    <input type="text" id="room_number" name="room_number"
+                           value="{{ location.room_number if location else '' }}"
+                           placeholder="e.g., 201A">
+                </div>
+                
+                <div class="form-group">
+                    <label for="capacity">Capacity</label>
+                    <input type="text" id="capacity" name="capacity"
+                           value="{{ location.capacity if location else '' }}"
+                           placeholder="e.g., 50 samples, 10 bottles">
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Conditions & Access</h2>
+            <div class="form-grid">
+                <div class="form-group full-width">
+                    <label for="conditions">Environmental Conditions</label>
+                    <textarea id="conditions" name="conditions" rows="2"
+                              placeholder="e.g., Temperature controlled, -20°C freezer, humidity controlled">{{ location.conditions if location else '' }}</textarea>
+                    <small class="form-hint">Describe any special environmental conditions</small>
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="access_notes">Access Notes</label>
+                    <textarea id="access_notes" name="access_notes" rows="2"
+                              placeholder="e.g., Key required, ask Dr. Smith for access, card access only">{{ location.access_notes if location else '' }}</textarea>
+                    <small class="form-hint">Notes about access restrictions or requirements</small>
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save Location</button>
+            <a href="{{ url_for('main.locations') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const labSelect = document.getElementById('lab_id');
+    const typeSelect = document.getElementById('location_type');
+    const currentValue = typeSelect.dataset.currentValue || '';
+    
+    // Default types (fallback if no lab selected or API fails)
+    const defaultTypes = ['room', 'cabinet', 'shelf', 'drawer', 'fridge', 'freezer', 'bench', 'other'];
+    
+    function updateTypeOptions(types, selectedValue) {
+        // Clear existing options except the first placeholder
+        typeSelect.innerHTML = '<option value="">Select type...</option>';
+        
+        // Add new options
+        types.forEach(function(type) {
+            const option = document.createElement('option');
+            option.value = type;
+            option.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+            if (type === selectedValue) {
+                option.selected = true;
+            }
+            typeSelect.appendChild(option);
+        });
+        
+        // Re-render the searchable-select wrapper if initialized
+        const wrapper = typeSelect.closest('.searchable-select-wrapper');
+        if (wrapper) {
+            const selectedText = wrapper.querySelector('.selected-text');
+            const optionsList = wrapper.querySelector('.searchable-select-options');
+            const selectedOption = typeSelect.options[typeSelect.selectedIndex];
+            
+            if (selectedText) {
+                selectedText.textContent = selectedOption ? selectedOption.text : 'Select type...';
+            }
+            
+            if (optionsList) {
+                optionsList.innerHTML = '';
+                Array.from(typeSelect.options).forEach(function(opt) {
+                    const optionDiv = document.createElement('div');
+                    optionDiv.className = 'searchable-option';
+                    optionDiv.dataset.value = opt.value;
+                    optionDiv.textContent = opt.text;
+                    
+                    if (opt.value === typeSelect.value) {
+                        optionDiv.classList.add('selected');
+                    }
+                    
+                    optionDiv.addEventListener('click', function() {
+                        typeSelect.value = opt.value;
+                        typeSelect.dispatchEvent(new Event('change'));
+                        selectedText.textContent = opt.text;
+                        wrapper.classList.remove('open');
+                        // Update selected state
+                        optionsList.querySelectorAll('.searchable-option').forEach(function(o) {
+                            o.classList.toggle('selected', o.dataset.value === opt.value);
+                        });
+                    });
+                    
+                    optionsList.appendChild(optionDiv);
+                });
+            }
+        }
+    }
+    
+    function loadLabTypes(labId) {
+        if (!labId) {
+            updateTypeOptions(defaultTypes, currentValue);
+            return;
+        }
+        
+        fetch('/labs/' + labId + '/types')
+            .then(function(response) {
+                if (!response.ok) throw new Error('Failed to load types');
+                return response.json();
+            })
+            .then(function(data) {
+                const types = data.location_types || defaultTypes;
+                updateTypeOptions(types, currentValue);
+            })
+            .catch(function(error) {
+                console.error('Error loading lab types:', error);
+                updateTypeOptions(defaultTypes, currentValue);
+            });
+    }
+    
+    // Load types when lab changes
+    labSelect.addEventListener('change', function() {
+        loadLabTypes(this.value);
+    });
+    
+    // Load initial types if lab is already selected
+    if (labSelect.value) {
+        loadLabTypes(labSelect.value);
+    } else {
+        updateTypeOptions(defaultTypes, currentValue);
+    }
+});
+</script>
+{% endblock %}

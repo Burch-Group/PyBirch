@@ -84,6 +84,9 @@ class Lab(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     logo_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Lab-specific settings
+    # Configurable type options for this lab
+    location_types: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # ['room', 'cabinet', 'shelf', ...]
+    equipment_types: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # ['glovebox', 'chamber', ...]
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -94,6 +97,7 @@ class Lab(Base):
     equipment: Mapped[List["Equipment"]] = relationship("Equipment", back_populates="lab")
     instruments: Mapped[List["Instrument"]] = relationship("Instrument", back_populates="lab")
     samples: Mapped[List["Sample"]] = relationship("Sample", back_populates="lab")
+    locations: Mapped[List["Location"]] = relationship("Location", back_populates="lab", foreign_keys="Location.lab_id")
     
     __table_args__ = (
         Index('idx_labs_university', 'university'),
@@ -380,7 +384,6 @@ class Instrument(Base):
     manufacturer: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     serial_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default='available')  # 'available', 'in_use', 'maintenance', 'retired'
     specifications: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Technical specs
     extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Additional metadata
@@ -672,13 +675,11 @@ class Equipment(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    equipment_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'glovebox', 'chamber', 'lithography', 'furnace', 'other'
+    equipment_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Configurable per lab
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     manufacturer: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     serial_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    room: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Room number
     status: Mapped[str] = mapped_column(String(50), default='operational')  # 'operational', 'maintenance', 'offline', 'retired'
     owner_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)  # Responsible person
     purchase_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
@@ -951,7 +952,6 @@ class Sample(Base):
     substrate: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     dimensions: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # {"length": 10, "width": 10, "unit": "mm"}
     status: Mapped[str] = mapped_column(String(50), default='active')  # 'active', 'consumed', 'archived'
-    storage_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     parent_sample_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('samples.id'), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     additional_tags: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # Maps to PyBirch Sample.additional_tags
@@ -1683,6 +1683,79 @@ class Attachment(Base):
     
     def __repr__(self):
         return f"<Attachment(id={self.id}, filename='{self.filename}')>"
+
+
+# ============================================================
+# LOCATIONS - Physical locations in the lab
+# ============================================================
+
+class Location(Base):
+    """
+    Physical locations in the lab (rooms, cabinets, shelves, drawers, etc.).
+    Supports hierarchical organization via parent_location_id.
+    """
+    __tablename__ = "locations"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
+    parent_location_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('locations.id'), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    location_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'room', 'cabinet', 'shelf', 'drawer', 'fridge', 'freezer', 'bench', 'other'
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    room_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    building: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    floor: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    capacity: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g., "20 samples", "5 drawers"
+    conditions: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # e.g., "Room temp", "-20°C", "N2 atmosphere"
+    access_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Instructions for accessing
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    # Relationships
+    lab: Mapped["Lab"] = relationship("Lab", back_populates="locations", foreign_keys=[lab_id])
+    parent_location: Mapped[Optional["Location"]] = relationship("Location", remote_side=[id], backref="child_locations")
+    object_locations: Mapped[List["ObjectLocation"]] = relationship("ObjectLocation", back_populates="location", cascade="all, delete-orphan")
+    
+    __table_args__ = (
+        Index('idx_location_lab', 'lab_id'),
+        Index('idx_location_parent', 'parent_location_id'),
+        Index('idx_location_type', 'location_type'),
+    )
+    
+    def __repr__(self):
+        return f"<Location(id={self.id}, name='{self.name}', type='{self.location_type}')>"
+
+
+class ObjectLocation(Base):
+    """
+    Links physical objects to their locations with optional notes/directions.
+    Supports Equipment, Instruments, Samples, Precursors, and Computers.
+    """
+    __tablename__ = "object_locations"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    location_id: Mapped[int] = mapped_column(Integer, ForeignKey('locations.id'), nullable=False)
+    object_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'equipment', 'instrument', 'sample', 'precursor', 'computer'
+    object_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # e.g., "in the blue bottle", "top shelf on the left"
+    placed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    placed_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True)  # False for historical placements
+    
+    # Relationships
+    location: Mapped["Location"] = relationship("Location", back_populates="object_locations")
+    
+    __table_args__ = (
+        Index('idx_object_location_location', 'location_id'),
+        Index('idx_object_location_object', 'object_type', 'object_id'),
+        Index('idx_object_location_current', 'is_current'),
+    )
+    
+    def __repr__(self):
+        return f"<ObjectLocation(id={self.id}, location={self.location_id}, object='{self.object_type}:{self.object_id}')>"
 
 
 # ============================================================
