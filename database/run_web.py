@@ -75,6 +75,7 @@ def main():
     
     # Import and create the Flask app
     from database.web import create_app
+    from database.web.app import socketio
     app = create_app(db_path=db_path)
     
     # Open browser (only if not in debug mode's second process)
@@ -83,12 +84,22 @@ def main():
         print(f"  Opening browser to {url}...")
         webbrowser.open(url)
     
-    # Run the server
-    app.run(
-        host=args.host,
-        port=args.port,
-        debug=args.debug
-    )
+    # Run the server with SocketIO if available, otherwise use standard Flask
+    if socketio is not None:
+        print("  WebSocket support: Enabled")
+        socketio.run(
+            app,
+            host=args.host,
+            port=args.port,
+            debug=args.debug
+        )
+    else:
+        print("  WebSocket support: Disabled (flask-socketio not installed)")
+        app.run(
+            host=args.host,
+            port=args.port,
+            debug=args.debug
+        )
 
 
 if __name__ == '__main__':

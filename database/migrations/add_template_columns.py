@@ -1,17 +1,26 @@
 """
 Script to add lab_id, project_id, and status columns to the templates table.
+
+Works with both SQLite and PostgreSQL.
 """
 
 from database.session import DatabaseManager
-from sqlalchemy import text
+from sqlalchemy import text, inspect
+
+
+def column_exists(inspector, table_name: str, column_name: str) -> bool:
+    """Check if a column exists in a table (database-agnostic)."""
+    columns = [col['name'] for col in inspector.get_columns(table_name)]
+    return column_name in columns
+
 
 def migrate():
     db = DatabaseManager()
+    inspector = inspect(db.engine)
     
     with db.session() as session:
-        # Check existing columns
-        result = session.execute(text("PRAGMA table_info(templates)"))
-        columns = [row[1] for row in result.fetchall()]
+        # Check existing columns using SQLAlchemy inspector (database-agnostic)
+        columns = [col['name'] for col in inspector.get_columns('templates')]
         print(f"Existing columns: {columns}")
         
         # Add lab_id if not exists
@@ -37,6 +46,7 @@ def migrate():
         
         session.commit()
         print("Migration complete!")
+
 
 if __name__ == "__main__":
     migrate()

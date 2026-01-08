@@ -332,6 +332,16 @@ class InstrumentsPage(QtWidgets.QWidget):
     def set_auto_save(self, enabled: bool):
         """Enable or disable auto-save functionality."""
         self._auto_save_enabled = enabled
+    
+    def set_database_service(self, db_service):
+        """Set the database service for loading database-stored instruments.
+        
+        Args:
+            db_service: DatabaseService instance or None
+        """
+        # Pass to the instrument selector widget
+        if hasattr(self.instrument_selector, 'set_database_service'):
+            self.instrument_selector.set_database_service(db_service)
 
 
 def main():

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}{{ definition.display_name }} v{{ version_data.version }} - PyBirch Database{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<style>
+    .version-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 24px;
+    }
+    .version-title {
+        margin: 0;
+    }
+    .version-meta {
+        color: #64748b;
+        margin-top: 8px;
+    }
+    .source-code-container {
+        margin: 24px 0;
+    }
+    .source-code {
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .source-code pre {
+        margin: 0;
+        padding: 16px;
+        max-height: 600px;
+        overflow: auto;
+    }
+    .source-code code {
+        font-family: 'Courier New', Consolas, monospace;
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+    .version-nav {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+    .version-select {
+        padding: 6px 12px;
+        border-radius: 6px;
+        border: 1px solid #d1d5db;
+    }
+    .not-current-warning {
+        background: rgba(245, 158, 11, 0.1);
+        border: 1px solid #fbbf24;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .not-current-warning span {
+        color: #d97706;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="breadcrumb">
+        <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> /
+        <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> /
+        Version {{ version_data.version }}
+    </div>
+    
+    <div class="version-header">
+        <div>
+            <h1 class="version-title">{{ definition.display_name }} <span style="color: #64748b;">v{{ version_data.version }}</span></h1>
+            <div class="version-meta">
+                {% if version_data.change_summary %}
+                <div><strong>Changes:</strong> {{ version_data.change_summary }}</div>
+                {% endif %}
+                <div>
+                    Created {{ version_data.created_at[:10] if version_data.created_at else 'Unknown date' }}
+                    {% if version_data.created_by %} by {{ version_data.created_by }}{% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="version-nav">
+            <label>View version:</label>
+            <select class="version-select" onchange="window.location.href=this.value">
+                {% for v in all_versions %}
+                <option value="{{ url_for('main.instrument_definition_version', definition_id=definition.id, version=v.version) }}"
+                        {% if v.version == version_data.version %}selected{% endif %}>
+                    v{{ v.version }}{% if v.version == definition.version %} (current){% endif %}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+    
+    {% if version_data.version != definition.version %}
+    <div class="not-current-warning">
+        <span>⚠️</span>
+        <div>
+            <strong>This is not the current version.</strong>
+            The current version is v{{ definition.version }}.
+            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">View current version</a>
+        </div>
+    </div>
+    {% endif %}
+    
+    <div class="source-code-container">
+        <h3>Source Code</h3>
+        <div class="source-code">
+            <pre><code class="language-python">{{ version_data.source_code }}</code></pre>
+        </div>
+    </div>
+    
+    <div style="margin-top: 24px;">
+        <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}" class="btn btn-secondary">← Back to Definition</a>
+    </div>
+</div>
+
+<script>
+    hljs.highlightAll();
+</script>
+{% endblock %}

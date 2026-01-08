@@ -71,6 +71,17 @@ class ScanHandle:
     error: Optional[Exception] = None
     progress: float = 0.0  # 0.0 to 1.0
     
+    def __getstate__(self):
+        """Get state for pickling - exclude unpickleable thread/future."""
+        state = self.__dict__.copy()
+        state['thread'] = None
+        state['future'] = None
+        return state
+    
+    def __setstate__(self, state):
+        """Set state when unpickling."""
+        self.__dict__.update(state)
+    
     @property
     def scan_id(self) -> str:
         return f"{self.scan.scan_settings.project_name}_{self.scan.scan_settings.scan_name}"
@@ -134,6 +145,40 @@ class Queue:
         if scans:
             for scan in scans:
                 self.enqueue(scan)
+    
+    def __getstate__(self):
+        """Get state for pickling - exclude unpickleable objects."""
+        state = self.__dict__.copy()
+        # Clear callbacks as they may contain unpickleable objects (locks, sockets)
+        state['_log_callbacks'] = []
+        state['_progress_callbacks'] = []
+        state['_state_callbacks'] = []
+        # Clear threading objects
+        state['_executor'] = None
+        state['_execution_thread'] = None
+        state['_lock'] = None
+        state['_log_queue'] = None
+        state['_stop_event'] = None
+        state['_pause_event'] = None
+        return state
+    
+    def __setstate__(self, state):
+        """Set state when unpickling."""
+        self.__dict__.update(state)
+        # Reinitialize threading objects
+        import threading
+        import queue as queue_module
+        self._lock = threading.RLock()
+        self._log_queue = queue_module.Queue()
+        self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
+        # Ensure callback lists exist
+        if '_log_callbacks' not in self.__dict__:
+            self._log_callbacks = []
+        if '_progress_callbacks' not in self.__dict__:
+            self._progress_callbacks = []
+        if '_state_callbacks' not in self.__dict__:
+            self._state_callbacks = []
 
     # ==================== Core Queue Operations ====================
 
@@ -220,6 +265,32 @@ class Queue:
                 raise IndexError("to_index out of range")
             handle = self._scan_handles.pop(from_index)
             self._scan_handles.insert(to_index, handle)
+
+    def replace_scan(self, index: int, scan: Scan) -> ScanHandle:
+        """Replace a scan at a specific index with a new scan.
+        
+        Args:
+            index: The index of the scan to replace
+            scan: The new Scan object to use
+            
+        Returns:
+            The updated ScanHandle
+            
+        Raises:
+            IndexError: If index is out of range
+            RuntimeError: If the scan at that index is currently running
+        """
+        with self._lock:
+            if index < 0 or index >= len(self._scan_handles):
+                raise IndexError("Queue index out of range")
+            handle = self._scan_handles[index]
+            if handle.state == ScanState.RUNNING:
+                raise RuntimeError("Cannot replace a running scan")
+            # Update the scan reference in the handle
+            handle.scan = scan
+            self._log(handle.scan_id, scan.scan_settings.scan_name, "INFO",
+                     f"Scan replaced: {scan.scan_settings.scan_name}")
+            return handle
 
     # ==================== Execution Control ====================
 
@@ -662,7 +733,7 @@ class Queue:
                     {
                         "scan_settings": h.scan.scan_settings.serialize(),
                         "owner": h.scan.owner,
-                        "sample_ID": h.scan.sample_ID,
+                        "sample_id": h.scan.sample_id,
                         "state": h.state.name,
                         "progress": h.progress
                     }

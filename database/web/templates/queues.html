@@ -5,7 +5,7 @@
 {% block content %}
 <div class="list-page">
     <div class="page-header">
-        <h1>Queues</h1>
+        <h1>Queues <span id="connection-status" class="connection-status connecting" title="Connecting..."></span></h1>
     </div>
     
     <div class="filters">
@@ -30,9 +30,14 @@
     <p class="result-count">{{ total }} queue(s) found</p>
     
     {% if queues %}
+        {# Separate pinned and unpinned items #}
+        {% set pinned_items = queues | selectattr('id', 'in', pinned_ids) | list %}
+        {% set unpinned_items = queues | rejectattr('id', 'in', pinned_ids) | list %}
+        
         <table class="data-table">
             <thead>
                 <tr>
+                    <th style="width: 30px;"></th>
                     <th>Queue Name</th>
                     <th>Status</th>
                     <th>Mode</th>
@@ -42,8 +47,14 @@
                 </tr>
             </thead>
             <tbody>
-                {% for queue in queues %}
-                <tr>
+                {# Pinned items first #}
+                {% for queue in pinned_items %}
+                <tr class="pinned-row">
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn pinned" data-entity-type="queue" data-entity-id="{{ queue.id }}" title="Unpin">📌</button>
+                        {% endif %}
+                    </td>
                     <td><a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}">{{ queue.name or queue.queue_id }}</a></td>
                     <td><span class="status-badge status-{{ queue.status }}">{{ queue.status }}</span></td>
                     <td>{{ queue.execution_mode or '-' }}</td>
@@ -51,7 +62,26 @@
                     <td>{{ queue.created_at[:10] if queue.created_at else '-' }}</td>
                     <td>
                         <a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ queue.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">🚀</a>
+                        <a href="{{ queue.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {# Unpinned items #}
+                {% for queue in unpinned_items %}
+                <tr>
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn" data-entity-type="queue" data-entity-id="{{ queue.id }}" title="Pin">📍</button>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}">{{ queue.name or queue.queue_id }}</a></td>
+                    <td><span class="status-badge status-{{ queue.status }}">{{ queue.status }}</span></td>
+                    <td>{{ queue.execution_mode or '-' }}</td>
+                    <td>{{ queue.completed_scans or 0 }} / {{ queue.total_scans or 0 }}</td>
+                    <td>{{ queue.created_at[:10] if queue.created_at else '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ queue.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -76,4 +106,8 @@
         </div>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/queue-realtime.js') }}"></script>
 {% endblock %}

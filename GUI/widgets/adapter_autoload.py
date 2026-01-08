@@ -106,8 +106,8 @@ class InstrumentManager(QtWidgets.QWidget):
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         
-        # Set fixed row height to prevent combobox from expanding rows
-        self.table.verticalHeader().setDefaultSectionSize(48)
+        # Set fixed row height (50% taller than default for better readability)
+        self.table.verticalHeader().setDefaultSectionSize(72)
         self.table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
         
         # Set column resize modes

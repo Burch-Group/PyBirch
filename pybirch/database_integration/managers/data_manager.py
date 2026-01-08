@@ -81,20 +81,21 @@ class DataManager:
         
         # Check if already exists
         if key in self._measurement_objects:
-            return self.db.get_measurement_object(self._measurement_objects[key])
+            return self.db.get_measurement_object(scan_id, name)
         
-        data = {
-            'scan_id': scan_id,
-            'name': name,
-            'instrument_name': instrument_name,
-            'columns': columns,
-            'unit': unit,
-            'data_type': data_type,
-        }
-        
-        mo = self.db.create_measurement_object(data)
+        # Call service method with keyword args (not dict)
+        mo = self.db.create_measurement_object(
+            scan_id=scan_id,
+            name=name,
+            instrument_name=instrument_name,
+            columns=columns,
+            unit=unit,
+            data_type=data_type,
+        )
         self._measurement_objects[key] = mo['id']
         self._sequence_counters[key] = 0
+        
+        print(f"[DataManager] Created measurement object: {name} (ID: {mo['id']}) for scan {scan_id}")
         
         return mo
     
@@ -136,7 +137,7 @@ class DataManager:
             'measurement_object_id': self._measurement_objects[key],
             'sequence_index': self._sequence_counters[key],
             'values': values,
-            'timestamp': (timestamp or datetime.now()).isoformat(),
+            'timestamp': timestamp or datetime.now(),  # Use datetime object, not string
         }
         
         self._buffers[scan_id][measurement_name].append(data_point)
@@ -278,13 +279,25 @@ class DataManager:
         if not data_points:
             return
         
-        # Bulk insert
+        # Get measurement_object_id from the first data point
+        key = (scan_id, measurement_name)
+        measurement_id = self._measurement_objects.get(key)
+        if not measurement_id and data_points:
+            measurement_id = data_points[0].get('measurement_object_id')
+        
+        if not measurement_id:
+            print(f"[DataManager] ERROR: No measurement_id for {measurement_name}")
+            return
+        
+        # Bulk insert - service expects (measurement_id, data_points)
         if hasattr(self.db, 'bulk_create_data_points'):
-            self.db.bulk_create_data_points(data_points)
+            count = self.db.bulk_create_data_points(measurement_id, data_points)
+            print(f"[DataManager] Flushed {count} data points for {measurement_name}")
         else:
             # Fallback to individual inserts
             for dp in data_points:
                 self.db.create_measurement_data_point(dp)
+            print(f"[DataManager] Flushed {len(data_points)} data points (individual) for {measurement_name}")
         
         # Clear buffer
         self._buffers[scan_id][measurement_name] = []

@@ -1,26 +1,42 @@
+"""
+PyBirch Scan Module
+
+This module provides the core Scan class for running instrument scans with
+arbitrary tree traversal, parallel execution, and pause/abort/restart functionality.
+"""
+
+from __future__ import annotations
+import logging
+import os
+import pickle
+import sys
+import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import compress
+from threading import Event, Lock
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
-import sys
-import os
-import time
+
+# Add project root to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+
 from pybirch.scan.movements import Movement, MovementItem
 from pybirch.scan.measurements import Measurement, MeasurementItem
 from pybirch.extensions.scan_extensions import ScanExtension
-from GUI.widgets.scan_tree.treeitem import InstrumentTreeItem
-from GUI.widgets.scan_tree.treemodel import ScanTreeModel
-import wandb
-import os
-import pickle
-from itertools import compress
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from collections import deque
-from threading import Lock, Event
-from typing import List, Dict, Any, Optional, Tuple
+
+# Optional GUI imports - only needed when using GUI
+if TYPE_CHECKING:
+    from GUI.widgets.scan_tree.treemodel import ScanTreeModel
+    from GUI.widgets.scan_tree.treeitem import InstrumentTreeItem
+
+logger = logging.getLogger(__name__)
 
 class ScanSettings:
     """A class to hold scan settings, including movement and measurement dictionaries."""
-    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, ScanTree: ScanTreeModel, extensions: list[ScanExtension] = [], additional_tags: list[str] = [], status: str = "Queued", user_fields: dict | None = None):
+    def __init__(self, project_name: str, scan_name: str, scan_type: str, job_type: str, ScanTree: Optional[ScanTreeModel | Any], extensions: list[ScanExtension] = [], additional_tags: list[str] = [], status: str = "Queued", user_fields: dict | None = None):
         
         # Name of the project, e.g. 'rare_earth_tritellurides', 'trilayer_twisted_graphene', etc.
         self.project_name = project_name
@@ -109,7 +125,7 @@ class ScanSettings:
 
 class Scan():
     """Base class for scans in the PyBirch framework."""
-    def __init__(self, scan_settings: ScanSettings, owner: str, master_index: int = 0, indices: np.ndarray = np.array([]), buffer_size: int = 1000, max_workers: int = 2):
+    def __init__(self, scan_settings: ScanSettings, owner: str, sample_id: Optional[str] = None, master_index: int = 0, indices: np.ndarray = np.array([]), buffer_size: int = 1000, max_workers: int = 2):
 
         # scan settings
         self.scan_settings = scan_settings
@@ -120,6 +136,9 @@ class Scan():
 
         # e.g. 'piyush_sakrikar'
         self.owner = owner
+
+        # Sample ID for database integration
+        self.sample_id = sample_id
 
         self.current_item = None
         
@@ -140,7 +159,7 @@ class Scan():
             self._data_buffer[item.unique_id()] = []
 
     def startup(self):
-
+        """Initialize scan, extensions, and prepare for execution."""
         # Initialize all scan extensions
         # Pass scan reference to extensions that support it (e.g., DatabaseExtension)
         for extension in self.extensions:
@@ -148,30 +167,9 @@ class Scan():
                 extension.set_scan_reference(self)
             extension.startup()
 
-        print(f"Starting up scan: {self.scan_settings.scan_name} owned by {self.owner}")
+        logger.info(f"Starting up scan: {self.scan_settings.scan_name} owned by {self.owner}")
 
         self.scan_settings.start_date = time.strftime("%H:%M:%S", time.localtime())
-
-        # Initialize wandb run, add tags and metadata (MOVE TO EXTENSIONS)
-        wandb.login()
-        tags = [self.scan_settings.scan_type, *self.scan_settings.additional_tags]
-        tags = [tag for tag in tags if tag]  # Remove empty tags
-        self.run = wandb.init(project=self.project_name, 
-                   name=self.scan_settings.scan_name, 
-                   job_type=self.scan_settings.job_type,
-                   tags=tags, 
-                   config={
-                        "scan_name": self.scan_settings.scan_name,
-                        "scan_type": self.scan_settings.scan_type,
-                        "job_type": self.scan_settings.job_type,
-                        "owner": self.owner,
-                        "scan_settings": self.scan_settings.serialize()
-                })
-        
-        # Create a wandb table for each measurement tool
-        self.wandb_tables = {}
-        for item in self.scan_settings.scan_tree.get_measurement_items():
-            self.wandb_tables[item.unique_id()] = wandb.Table(columns=[*item.instrument_object.instrument.columns().tolist(), *[f"{m.instrument_object.instrument.position_column} M({m.instrument_object.instrument.position_units})" for m in self.scan_settings.scan_tree.get_movement_items()]], log_mode="INCREMENTAL")
 
     def save_data(self, data: pd.DataFrame, measurement_name: str):
         """Save data to the buffer for asynchronous processing.
@@ -208,7 +206,7 @@ class Scan():
             return
             
         # Submit the save task to the thread pool
-        print(f"Flushing buffer for {measurement_name} with {len(data_to_save)} rows.")
+        logger.debug(f"Flushing buffer for {measurement_name} with {len(data_to_save)} rows.")
         future = self._executor.submit(
             self._save_data_async,
             data_to_save,
@@ -217,24 +215,15 @@ class Scan():
         self._pending_futures.append(future)
         
     def _save_data_async(self, data: List[Dict], measurement_name: str):
-        """Background task to save data to wandb and extensions."""
+        """Background task to save data via extensions."""
         try:
-            # Log to wandb
-            for row in data:
-                self.run.log({measurement_name: row})
-                
-            # Add to wandb table
-            table = self.wandb_tables[measurement_name]
-            for row in data:
-                table.add_data(*[row.get(col, None) for col in table.columns])
-                
             # Save to extensions
             df = pd.DataFrame(data)
             for extension in self.extensions:
                 extension.save_data(df, measurement_name)
                 
         except Exception as e:
-            print(f"Error saving data for {measurement_name}: {str(e)}")
+            logger.error(f"Error saving data for {measurement_name}: {str(e)}")
             # Re-raise to be handled by the future
             raise
             
@@ -250,7 +239,7 @@ class Scan():
             try:
                 future.result(timeout=30)  # 30 second timeout per future
             except Exception as e:
-                print(f"Error during save operation: {str(e)}")
+                logger.error(f"Error during save operation: {str(e)}")
                 
     def __del__(self):
         """Ensure all data is saved when the scan is destroyed."""
@@ -258,8 +247,18 @@ class Scan():
 
     def execute(self):
         """Execute the scan procedure using the FastForward traversal and move_next functionality."""
-        print(f"Starting scan: {self.scan_settings.scan_name} owned by {self.owner}")
+        print(f"\n[Scan.execute] ========== SCAN EXECUTION START ==========")
+        print(f"[Scan.execute] Scan name: {self.scan_settings.scan_name}")
+        print(f"[Scan.execute] Owner: {self.owner}")
+        logger.info(f"Starting scan: {self.scan_settings.scan_name} owned by {self.owner}")
         root_item = self.scan_settings.scan_tree.root_item
+        
+        # Debug: Check scan tree state
+        child_count = len(root_item.child_items) if hasattr(root_item, 'child_items') else 0
+        print(f"[Scan.execute] Scan tree has {child_count} top-level items")
+        if child_count == 0:
+            print(f"[Scan.execute] CRITICAL: Scan tree is EMPTY! No instruments to execute!")
+        
         # Initialize all extensions
         for extension in self.extensions:
             extension.execute()
@@ -267,24 +266,40 @@ class Scan():
         current_item = self.current_item if self.current_item else root_item
 
         # Connect to all instruments in the scan tree
-        print("Connecting to instruments...")
+        print(f"[Scan.execute] Connecting to instruments...")
+        logger.info("Connecting to instruments...")
         connected_instruments = set()
         
         def connect_instrument(item):
+            item_name = getattr(item, 'name', 'unknown')
+            has_instr_obj = hasattr(item, 'instrument_object')
+            instr_obj_val = getattr(item, 'instrument_object', None) if has_instr_obj else None
+            print(f"[Scan.execute] connect_instrument: item='{item_name}', has_instrument_object={has_instr_obj}, is_not_none={instr_obj_val is not None}")
+            
             if hasattr(item, 'instrument_object') and item.instrument_object is not None:
                 # Get the actual instrument object
                 instr = item.instrument_object.instrument
+                print(f"[Scan.execute]   -> Instrument type: {type(instr).__name__}")
                     
                 # Only connect once per unique instrument
                 if instr not in connected_instruments:
                     try:
                         if hasattr(instr, 'connect') and callable(instr.connect):
                             instr.connect()
-                            print(f"Connected to {instr.name}" if hasattr(instr, 'name') else f"Connected to {instr.__class__.__name__}")
+                            instr_name = getattr(instr, 'name', instr.__class__.__name__)
+                            print(f"[Scan.execute]   -> Connected to {instr_name}")
+                            logger.info(f"Connected to {instr_name}")
                             connected_instruments.add(instr)
+                        else:
+                            print(f"[Scan.execute]   -> Instrument has no connect method")
                     except Exception as e:
-                        print(f"Error connecting to instrument {instr}: {str(e)}")
+                        print(f"[Scan.execute]   -> ERROR connecting: {str(e)}")
+                        logger.error(f"Error connecting to instrument {instr}: {str(e)}")
                         raise
+                else:
+                    print(f"[Scan.execute]   -> Already connected")
+            else:
+                print(f"[Scan.execute]   -> NO INSTRUMENT OBJECT! Item will not execute!")
 
         def initialize_instrument_if_IMR_start(item):
             if hasattr(item, 'instrument_object') and item.instrument_object is not None:
@@ -296,9 +311,10 @@ class Scan():
                     if item._runtime_initialized and hasattr(instr, 'initialize') and callable(instr.initialize):
                         instr.initialize()
                         instr.settings = item._runtime_settings
-                        print(f"Initialized {instr.name}" if hasattr(instr, 'name') else f"Initialized {instr.__class__.__name__}")
+                        instr_name = getattr(instr, 'name', instr.__class__.__name__)
+                        logger.info(f"Initialized {instr_name}")
                 except Exception as e:
-                    print(f"Error initializing instrument {instr}: {str(e)}")
+                    logger.error(f"Error initializing instrument {instr}: {str(e)}")
                     raise
 
         def save_settings(item):
@@ -309,6 +325,7 @@ class Scan():
                     item._runtime_settings = instr.settings
 
         # Traverse the tree and connect to all instruments, initializing instruments if starting in the middle of a scan
+        print(f"[Scan.execute] Starting instrument connection traversal...")
         def traverse_and_connect(item):
             connect_instrument(item)
             initialize_instrument_if_IMR_start(item)
@@ -323,15 +340,21 @@ class Scan():
         
         # Start traversal from root item
         traverse_and_connect(root_item)
-        print(f"Successfully connected to {len(connected_instruments)} instruments")
-        print("All instruments connected. Starting scan...")
+        logger.info(f"Successfully connected to {len(connected_instruments)} instruments")
+        logger.info("All instruments connected. Starting scan...")
 
         first_iteration = True
+        iteration_count = 0
 
         # Main scan loop
+        print(f"[Scan.execute] Starting main scan loop...")
         while True:
+            iteration_count += 1
+            print(f"\n[Scan.execute] === Loop iteration {iteration_count} ===")
+            print(f"[Scan.execute] current_item: name='{getattr(current_item, 'name', 'N/A')}', has_instrument_object={current_item.instrument_object is not None if hasattr(current_item, 'instrument_object') else 'N/A'}")
+            
             if hasattr(self, '_stop_event') and self._stop_event.is_set():
-                print("Scan stopped by user")
+                logger.info("Scan stopped by user")
 
                 # save current position in scan, in case it is necessary to continue
                 self.current_item = current_item
@@ -343,15 +366,21 @@ class Scan():
             # Use FastForward to get the next item to process
             ff = InstrumentTreeItem.FastForward(current_item)
             ff = ff.new_item(current_item)
+            print(f"[Scan.execute] FastForward created from current_item")
 
             while not ff.done and ff.current_item is not None:
+                print(f"[Scan.execute] Propagating from item: '{getattr(ff.current_item, 'name', 'N/A')}'")
                 ff = ff.current_item.propagate(ff)
                 if ff.done:
+                    print(f"[Scan.execute] FastForward done after propagate")
                     break
 
+            print(f"[Scan.execute] FastForward result: done={ff.done}, stack_size={len(ff.stack) if ff.stack else 0}, final_item={getattr(ff.final_item, 'name', None) if ff.final_item else None}")
+            
             # Process the stack of items in parallel
             if ff.stack:
-                print(f"Processing items in parallel: {[item.unique_id() for item in ff.stack]}")
+                print(f"[Scan.execute] Processing stack with {len(ff.stack)} items: {[getattr(item, 'name', 'N/A') for item in ff.stack]}")
+                logger.debug(f"Processing items in parallel: {[item.unique_id() for item in ff.stack]}")
                 
                 with ThreadPoolExecutor(max_workers=min(len(ff.stack),self._max_workers)) as executor:
                     # Submit all move_next tasks
@@ -370,33 +399,47 @@ class Scan():
                                 # Add movement positions to the result, including only the relevant, ancestral movements
                                 for movement_item in self.scan_settings.scan_tree.get_movement_items():
                                     if movement_item.is_ancestor_of(item):
-                                        movement_instr = movement_item.instrument_object.instrument
-                                        position_col = f"{movement_instr.position_column} M({movement_instr.position_units})"
-                                        result[position_col] = movement_instr.position
+                                        if movement_item.instrument_object is not None:
+                                            movement_instr = movement_item.instrument_object.instrument
+                                            if movement_instr is not None:
+                                                position_col = f"{movement_instr.position_column} M({movement_instr.position_units})"
+                                                result[position_col] = movement_instr.position
 
                                 # Save the measurement data
                                 self.save_data(result, item.unique_id())
                         except Exception as exc:
-                            print(f"{item.unique_id()} generated an exception: {exc}")
+                            logger.error(f"{item.unique_id()} generated an exception: {exc}")
                             # Optionally re-raise if you want the scan to stop on error
                             # raise
 
             # Check if we've completed all movements
-            if all(item.finished() for item in self.scan_settings.scan_tree.get_all_instrument_items()):
-                print("All movements completed")
+            all_items = list(self.scan_settings.scan_tree.get_all_instrument_items())
+            print(f"[Scan.execute] Checking completion: {len(all_items)} total instrument items")
+            for item in all_items:
+                item_name = getattr(item, 'name', 'N/A')
+                is_finished = item.finished()
+                has_instr = item.instrument_object is not None if hasattr(item, 'instrument_object') else False
+                print(f"[Scan.execute]   Item '{item_name}': finished={is_finished}, has_instrument_object={has_instr}")
+            
+            if all(item.finished() for item in all_items):
+                logger.info("All movements completed")
+                print(f"[Scan.execute] All movements completed - exiting loop")
                 break
 
             # Get the next item to process
             if ff.final_item is None:
+                print(f"[Scan.execute] final_item is None - exiting loop")
                 break
             current_item = ff.final_item
+            print(f"[Scan.execute] Moving to next item: '{getattr(current_item, 'name', 'N/A')}'")
 
         # Final flush of any remaining data
         self.flush()
-        print("Scan ended successfully")
+        logger.info("Scan ended successfully")
 
     
     def shutdown(self):
+        """Shutdown scan, extensions, and instruments."""
         for extension in self.extensions:
             extension.shutdown()
 
@@ -406,12 +449,10 @@ class Scan():
                 try:
                     if hasattr(item.instrument_object.instrument, 'shutdown') and callable(item.instrument_object.instrument.shutdown):
                         item.instrument_object.instrument.shutdown()
-                        print(f"Shutdown {item.instrument_object.instrument.name}" if hasattr(item.instrument_object.instrument, 'name') else f"Shutdown {item.instrument_object.instrument.__class__.__name__}")
+                        instr_name = getattr(item.instrument_object.instrument, 'name', item.instrument_object.instrument.__class__.__name__)
+                        logger.info(f"Shutdown {instr_name}")
                 except Exception as e:
-                    print(f"Error shutting down instrument {item.instrument_object.instrument}: {str(e)}")
-
-        # Finish the wandb run
-        wandb.finish()
+                    logger.error(f"Error shutting down instrument {item.instrument_object.instrument}: {str(e)}")
 
         self.scan_settings.end_date = time.strftime("%H:%M:%S", time.localtime())
 
@@ -428,8 +469,6 @@ class Scan():
         state.pop('_buffer_lock', None)
         state.pop('_stop_event', None)
         state.pop('_pending_futures', None)
-        state.pop('run', None)  # wandb run object
-        state.pop('wandb_tables', None)  # wandb tables
         return state
     
     def __setstate__(self, state):
@@ -440,9 +479,6 @@ class Scan():
         self._stop_event = Event()
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='save_worker_')
         self._pending_futures = deque(maxlen=100)
-        # Initialize empty wandb references (will be set on startup)
-        self.run = None
-        self.wandb_tables = {}
 
     def __repr__(self):
         return f"Scan(project_name={self.project_name}, scan_settings={self.scan_settings}, owner={self.owner})"

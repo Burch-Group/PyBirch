@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Instrument - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.instruments') }}">Instruments</a> / {{ action }}
+        </div>
+    </div>
+    
+    <h1>{{ action }} Instrument</h1>
+    
+    {% if template %}
+    <div class="template-notice">
+        <span class="template-badge">Using Template</span>
+        <strong>{{ template.name }}</strong>
+        {% if template.lab_name or (template.template_data and template.template_data.lab_name) %}
+         - {{ template.lab_name or template.template_data.lab_name }}
+        {% endif %}
+        <p class="template-hint">Fields have been pre-filled from the template. You can modify them as needed.</p>
+    </div>
+    {% endif %}
+    
+    <form method="POST" class="entity-form">
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="name">Name *</label>
+                <input type="text" id="name" name="name" required
+                       value="{{ instrument.name if instrument else '' }}"
+                       placeholder="e.g., Keithley 2400 Sourcemeter">
+            </div>
+            
+            <div class="form-group">
+                <label for="instrument_type">Type</label>
+                <select id="instrument_type" name="instrument_type">
+                    <option value="">Select type...</option>
+                    <option value="movement" {% if instrument and instrument.instrument_type == 'movement' %}selected{% endif %}>Movement</option>
+                    <option value="measurement" {% if instrument and instrument.instrument_type == 'measurement' %}selected{% endif %}>Measurement</option>
+                    <option value="fabrication" {% if instrument and instrument.instrument_type == 'fabrication' %}selected{% endif %}>Fabrication</option>
+                    <option value="other" {% if instrument and instrument.instrument_type == 'other' %}selected{% endif %}>Other</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="lab_id">Lab</label>
+                <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab">
+                    <option value="">-- No Lab --</option>
+                    {% for lab in labs %}
+                    <option value="{{ lab.id }}" 
+                            {% if (instrument and instrument.lab_id and instrument.lab_id == lab.id) or (default_lab_id == lab.id and (not instrument or not instrument.lab_id)) %}selected{% endif %}>
+                        {{ lab.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small class="form-hint">Associate this instrument with a lab <a href="#" class="set-default-link" data-field="default_lab_id" data-source="lab_id">Set as default</a></small>
+            </div>
+            
+            <div class="form-group">
+                <label for="pybirch_class">PyBirch Class</label>
+                <input type="text" id="pybirch_class" name="pybirch_class"
+                       value="{{ instrument.pybirch_class if instrument else '' }}"
+                       placeholder="e.g., Keithley2400">
+                <small class="form-hint">The Python class name used in PyBirch</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="adapter">Adapter / Connection String</label>
+                <input type="text" id="adapter" name="adapter"
+                       value="{{ instrument.adapter if instrument else '' }}"
+                       placeholder="e.g., GPIB0::24::INSTR">
+                <small class="form-hint">VISA address or connection string</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="manufacturer">Manufacturer</label>
+                <input type="text" id="manufacturer" name="manufacturer"
+                       value="{{ instrument.manufacturer if instrument else '' }}">
+            </div>
+            
+            <div class="form-group">
+                <label for="model">Model</label>
+                <input type="text" id="model" name="model"
+                       value="{{ instrument.model if instrument else '' }}">
+            </div>
+            
+            <div class="form-group">
+                <label for="serial_number">Serial Number</label>
+                <input type="text" id="serial_number" name="serial_number"
+                       value="{{ instrument.serial_number if instrument else '' }}">
+            </div>
+            
+            <div class="form-group">
+                <label for="location">Location</label>
+                <input type="text" id="location" name="location"
+                       value="{{ instrument.location if instrument else '' }}"
+                       placeholder="e.g., Lab 101">
+            </div>
+            
+            <div class="form-group">
+                <label for="equipment_id">Parent Equipment</label>
+                <select id="equipment_id" name="equipment_id" class="searchable-select">
+                    <option value="">None (standalone)</option>
+                    {% for eq in equipment_list %}
+                    <option value="{{ eq.id }}" {% if instrument and instrument.equipment_id == eq.id %}selected{% endif %}>
+                        {{ eq.display }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small class="form-hint">If this instrument is part of a larger piece of equipment</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="status">Status</label>
+                <select id="status" name="status">
+                    <option value="available" {% if instrument and instrument.status == 'available' %}selected{% endif %}>Available</option>
+                    <option value="in_use" {% if instrument and instrument.status == 'in_use' %}selected{% endif %}>In Use</option>
+                    <option value="maintenance" {% if instrument and instrument.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                    <option value="retired" {% if instrument and instrument.status == 'retired' %}selected{% endif %}>Retired</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.instruments') }}" class="btn btn-link">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ action }} Instrument</button>
+        </div>
+    </form>
+</div>
+
+<style>
+.template-notice {
+    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+    border: 1px solid #81c784;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.template-badge {
+    background: #4caf50;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+}
+.template-notice strong { color: #2e7d32; }
+.template-hint {
+    margin: 0.5rem 0 0 0;
+    font-size: 0.9rem;
+    color: #558b2f;
+}
+.form-hint {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.85rem;
+    color: #666;
+}
+</style>
+{% endblock %}

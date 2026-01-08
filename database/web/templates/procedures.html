@@ -36,10 +36,15 @@
 </div>
 
 {% if procedures %}
+{# Separate pinned and unpinned items #}
+{% set pinned_items = procedures | selectattr('id', 'in', pinned_ids) | list %}
+{% set unpinned_items = procedures | rejectattr('id', 'in', pinned_ids) | list %}
+
 <div class="table-container">
     <table class="data-table">
         <thead>
             <tr>
+                <th style="width: 30px;"></th>
                 <th>Name</th>
                 <th>Type</th>
                 <th>Version</th>
@@ -49,8 +54,51 @@
             </tr>
         </thead>
         <tbody>
-            {% for procedure in procedures %}
+            {# Pinned items first #}
+            {% for procedure in pinned_items %}
+            <tr class="pinned-row">
+                <td>
+                    {% if current_user %}
+                    <button class="pin-btn pinned" data-entity-type="procedure" data-entity-id="{{ procedure.id }}" title="Unpin">📌</button>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{{ url_for('main.procedure_detail', procedure_id=procedure.id) }}">
+                        {{ procedure.name }}
+                    </a>
+                </td>
+                <td>
+                    {% if procedure.procedure_type %}
+                    <span class="badge badge-{{ procedure.procedure_type }}">{{ procedure.procedure_type }}</span>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>v{{ procedure.version }}</td>
+                <td>
+                    {% if procedure.estimated_duration_minutes %}
+                    {{ procedure.estimated_duration_minutes }} min
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>{{ procedure.created_by or '—' }}</td>
+                <td>
+                    <a href="{{ url_for('main.procedure_detail', procedure_id=procedure.id) }}" 
+                       class="btn btn-small">View</a>
+                    <a href="{{ url_for('main.procedure_edit', procedure_id=procedure.id) }}" 
+                       class="btn btn-small btn-secondary">Edit</a>
+                </td>
+            </tr>
+            {% endfor %}
+            {# Unpinned items #}
+            {% for procedure in unpinned_items %}
             <tr>
+                <td>
+                    {% if current_user %}
+                    <button class="pin-btn" data-entity-type="procedure" data-entity-id="{{ procedure.id }}" title="Pin">📍</button>
+                    {% endif %}
+                </td>
                 <td>
                     <a href="{{ url_for('main.procedure_detail', procedure_id=procedure.id) }}">
                         {{ procedure.name }}

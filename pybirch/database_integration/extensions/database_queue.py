@@ -91,6 +91,7 @@ class DatabaseQueue(Queue):
         max_parallel_scans: int = 4,
         auto_create_db_record: bool = True,
         buffer_size: int = 100,
+        update_server: Optional[Any] = None,
     ):
         """
         Initialize DatabaseQueue.
@@ -105,6 +106,7 @@ class DatabaseQueue(Queue):
             max_parallel_scans: Maximum parallel scan execution
             auto_create_db_record: If True, create DB record immediately
             buffer_size: Data buffer size for scan extensions
+            update_server: Optional ScanUpdateServer for WebSocket broadcasts
         """
         # Initialize parent Queue
         super().__init__(QID=QID, scans=None, max_parallel_scans=max_parallel_scans)
@@ -121,6 +123,10 @@ class DatabaseQueue(Queue):
         self.operator = operator
         self.buffer_size = buffer_size
         
+        # WebSocket integration
+        self.update_server = update_server
+        self._websocket_bridge = None
+        
         # Database state
         self._db_queue: Optional[Dict] = None
         self._db_lock = Lock()
@@ -128,6 +134,10 @@ class DatabaseQueue(Queue):
         
         # Setup callbacks to track state changes
         self._setup_db_callbacks()
+        
+        # Setup WebSocket integration if server provided
+        if update_server:
+            self._setup_websocket_integration()
         
         # Create database record if requested
         if auto_create_db_record:
@@ -170,6 +180,42 @@ class DatabaseQueue(Queue):
         
         # Add progress callback (optional, for fine-grained tracking)
         self.add_progress_callback(self._on_scan_progress)
+    
+    def _setup_websocket_integration(self):
+        """Setup WebSocket integration for real-time broadcasts."""
+        if not self.update_server:
+            return
+        
+        try:
+            from ..sync.websocket_integration import WebSocketQueueBridge
+            self._websocket_bridge = WebSocketQueueBridge(
+                queue=self,
+                update_server=self.update_server,
+                queue_id=self.db_queue_uuid or self.QID
+            )
+            print(f"[DB Queue] WebSocket integration enabled for {self.QID}")
+        except ImportError as e:
+            print(f"[DB Queue] Warning: Could not setup WebSocket integration: {e}")
+        except Exception as e:
+            print(f"[DB Queue] Warning: WebSocket integration failed: {e}")
+    
+    def enable_websocket_integration(self, update_server):
+        """
+        Enable WebSocket integration after queue creation.
+        
+        Args:
+            update_server: ScanUpdateServer for WebSocket broadcasts
+        """
+        self.update_server = update_server
+        self._setup_websocket_integration()
+    
+    def disable_websocket_integration(self):
+        """Disable WebSocket integration and unregister callbacks."""
+        if self._websocket_bridge:
+            self._websocket_bridge.unregister()
+            self._websocket_bridge = None
+            self.update_server = None
+            print(f"[DB Queue] WebSocket integration disabled for {self.QID}")
     
     def _on_log_entry(self, entry: LogEntry):
         """Callback for log entries - persists to database."""

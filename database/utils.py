@@ -99,7 +99,7 @@ def get_sample_scan_history(sample_id: str) -> List[Dict[str, Any]]:
                 'started_at': scan.started_at,
                 'completed_at': scan.completed_at,
                 'duration_seconds': scan.duration_seconds,
-                'owner': scan.owner,
+                'created_by': scan.created_by,
                 'wandb_link': scan.wandb_link
             })
     

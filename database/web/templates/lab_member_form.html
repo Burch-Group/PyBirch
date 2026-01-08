@@ -13,6 +13,7 @@
     </div>
     
     <h1>{{ action }} Lab Member</h1>
+    <p class="subtitle">Add a member to {{ lab.name }}. Personal details (phone, ORCID, office) are managed in each user's profile.</p>
     
     <form method="POST" class="entity-form">
         <div class="form-grid">
@@ -28,6 +29,7 @@
                 <input type="email" id="email" name="email"
                        value="{{ member.email if member else '' }}"
                        placeholder="email@university.edu">
+                <small>Used to link with their user account</small>
             </div>
             
             <div class="form-group">
@@ -46,27 +48,7 @@
                 <input type="text" id="title" name="title"
                        value="{{ member.title if member else '' }}"
                        placeholder="e.g., Professor, PhD Student, Postdoc">
-            </div>
-            
-            <div class="form-group">
-                <label for="orcid">ORCID</label>
-                <input type="text" id="orcid" name="orcid"
-                       value="{{ member.orcid if member else '' }}"
-                       placeholder="0000-0000-0000-0000">
-            </div>
-            
-            <div class="form-group">
-                <label for="phone">Phone</label>
-                <input type="text" id="phone" name="phone"
-                       value="{{ member.phone if member else '' }}"
-                       placeholder="+1 (555) 123-4567">
-            </div>
-            
-            <div class="form-group">
-                <label for="office_location">Office Location</label>
-                <input type="text" id="office_location" name="office_location"
-                       value="{{ member.office_location if member else '' }}"
-                       placeholder="Building, Room">
+                <small>Their position or title within the lab</small>
             </div>
         </div>
         

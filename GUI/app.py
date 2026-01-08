@@ -45,14 +45,11 @@ def main():
     # Create a new queue or load from database if available
     queue = Queue(QID="NewQueue")
     
-    # Try to initialize database service if available
+    # Database service is initialized via the Extensions page toggle
+    # When enabled, ExtensionsPage creates DatabaseService and propagates it
+    # via signals to QueuePage and other components that need it.
+    # See: GUI/main/pages/extensions_page.py for database integration setup
     db_service = None
-    try:
-        from database.services import DatabaseService
-        # TODO: Configure database path from settings
-        # db_service = DatabaseService('pybirch.db')
-    except ImportError:
-        pass
     
     # Create and show main window
     main_window = MainWindow(queue=queue, db_service=db_service)

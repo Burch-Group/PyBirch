@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import sys
 import os
+import logging
 from typing import Optional, List
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 # Add path to parent directories for imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -37,7 +41,7 @@ class ScanTreeFrame(QFrame):
 
 # Import the required widgets
 from widgets.scan_title_bar import ScanTitleBar
-from widgets.scan_tree.mainwindow import MainWindow as ScanTreeMainWindow
+from widgets.scan_tree.mainwindow import ScanTreeWidget as ScanTreeMainWindow
 from widgets.movement_positions import MovementPositionsWidget
 from pybirch.scan.scan import Scan, get_empty_scan
 from pybirch.scan.movements import Movement, VisaMovement
@@ -325,17 +329,117 @@ class ScanPage(QWidget):
         self.save_all_widget_settings()
         # Then save the tree state
         self.scan.tree_state = self.scan_tree.save_tree_state()
-        print(f"[DEBUG] save_tree_to_scan: Saved tree_state with {len(self.scan.tree_state)} items")
+        logger.debug("save_tree_to_scan: Saved tree_state with %d items", len(self.scan.tree_state))
         for item in self.scan.tree_state:
-            print(f"[DEBUG]   Item: {item.get('name')}, movement_entries: {item.get('movement_entries')}")
+            logger.debug("  Item: %s, movement_entries: %s", item.get('name'), item.get('movement_entries'))
+        
+        # Also sync to scan_settings.scan_tree for execution
+        self.sync_tree_to_scan_settings()
+    
+    def sync_tree_to_scan_settings(self):
+        """
+        Sync the GUI tree state to scan_settings.scan_tree for scan execution.
+        
+        This builds the ScanTreeModel with InstrumentTreeItem objects that have
+        actual instrument instances attached.
+        """
+        from GUI.widgets.scan_tree.treemodel import ScanTreeModel
+        from GUI.widgets.scan_tree.treeitem import InstrumentTreeItem
+        from pybirch.scan.movements import MovementItem
+        from pybirch.scan.measurements import MeasurementItem
+        from pybirch.scan.protocols import is_movement
+        import numpy as np
+        
+        logger.debug("sync_tree_to_scan_settings: Starting sync")
+        
+        # Create a new ScanTreeModel
+        scan_tree_model = ScanTreeModel()
+        
+        def build_tree_item(item_data: dict, parent: InstrumentTreeItem | None = None) -> InstrumentTreeItem:
+            """Build InstrumentTreeItem from GUI tree state dict."""
+            # Get instrument info
+            instr_name = item_data.get('instrument_name', item_data.get('name', ''))
+            instr_nickname = item_data.get('instrument_nickname', item_data.get('name', ''))
+            instr_adapter = item_data.get('instrument_adapter', item_data.get('adapter', ''))
+            instr_type = item_data.get('type', '')
+            
+            # Find matching configured instrument
+            instrument_object = None
+            for inst_config in self.available_instruments:
+                config_name = inst_config.get('name', '')
+                config_nickname = inst_config.get('nickname', '')
+                config_adapter = inst_config.get('adapter', '')
+                
+                # Match by name, nickname, or adapter
+                if (config_name == instr_name or 
+                    config_nickname == instr_name or
+                    config_name == instr_nickname or
+                    config_nickname == instr_nickname or
+                    (config_adapter and config_adapter == instr_adapter)):
+                    
+                    instance = inst_config.get('instance')
+                    if instance:
+                        # Create wrapper based on instrument type
+                        settings = item_data.get('movement_entries', {}).get('settings', {})
+                        
+                        if is_movement(instance):
+                            positions = item_data.get('movement_positions', [])
+                            if isinstance(positions, list):
+                                positions = np.array(positions)
+                            instrument_object = MovementItem(instance, positions=positions, settings=settings)
+                            
+                            # Also set final_indices based on positions
+                            if len(positions) > 0:
+                                final_indices = [len(positions) - 1]
+                            else:
+                                final_indices = []
+                        else:
+                            instrument_object = MeasurementItem(instance, settings=settings)
+                            final_indices = [0]
+                        
+                        logger.debug(f"  Matched '{instr_name}' to {type(instance).__name__}")
+                        break
+            
+            # Create InstrumentTreeItem
+            tree_item = InstrumentTreeItem(
+                parent=parent,
+                instrument_object=instrument_object,
+                indices=[0] if instrument_object else [],
+                final_indices=final_indices if instrument_object else [],
+                semaphore=item_data.get('semaphore', '')
+            )
+            tree_item.name = instr_nickname or instr_name
+            tree_item.type = instr_type
+            tree_item.adapter = instr_adapter
+            tree_item.movement_positions = item_data.get('movement_positions', [])
+            tree_item.movement_entries = item_data.get('movement_entries', {})
+            tree_item.checked = item_data.get('check_state', 0) == 2  # Qt.Checked = 2
+            
+            # Build children
+            for child_data in item_data.get('children', []):
+                child_item = build_tree_item(child_data, tree_item)
+                tree_item.child_items.append(child_item)
+            
+            return tree_item
+        
+        # Build tree from state
+        if hasattr(self.scan, 'tree_state') and self.scan.tree_state:
+            for item_data in self.scan.tree_state:
+                child_item = build_tree_item(item_data, scan_tree_model.root_item)
+                scan_tree_model.root_item.child_items.append(child_item)
+        
+        # Update scan_settings.scan_tree
+        self.scan.scan_settings.scan_tree = scan_tree_model
+        
+        logger.debug(f"sync_tree_to_scan_settings: Built tree with {len(scan_tree_model.root_item.child_items)} top-level items")
     
     def save_all_widget_settings(self):
         """Save settings from all movement widgets to their respective tree items."""
-        print(f"[DEBUG] save_all_widget_settings: {len(self.movement_widgets)} widgets to save")
+        logger.debug("save_all_widget_settings: %d widgets to save", len(self.movement_widgets))
         for unique_id, widget in self.movement_widgets.items():
             tree_item = getattr(widget, 'tree_item', None)
             if tree_item:
-                print(f"[DEBUG]   Saving widget {unique_id}")
+                logger.debug("  Saving widget %s", unique_id)
                 self.save_movement_settings_to_tree_item(tree_item, widget)
         
     def update_movement_positions(self):
@@ -500,12 +604,15 @@ class ScanPage(QWidget):
             # Save current widget state
             positions = widget.get_positions()
             entries = widget.get_entries()
-            print(f"[DEBUG] save_movement_settings_to_tree_item: entries={entries}")
+            print(f"[ScanPage] save_movement_settings_to_tree_item: name={tree_item.text(0)}")
+            print(f"[ScanPage]   positions count: {len(positions)}")
+            print(f"[ScanPage]   entries: {entries}")
+            logger.debug("save_movement_settings_to_tree_item: entries=%s", entries)
             
             if instrument_tree_item:
                 instrument_tree_item.movement_positions = positions
                 instrument_tree_item.movement_entries = entries
-                print(f"[DEBUG]   Saved to existing instrument_tree_item")
+                logger.debug("  Saved to existing instrument_tree_item")
             else:
                 # Try to create one if it doesn't exist
                 instrument_obj = tree_item.data(0, Qt.ItemDataRole.UserRole)
@@ -532,20 +639,20 @@ class ScanPage(QWidget):
                     
                     tree_item.setData(0, Qt.ItemDataRole.UserRole + 1, instrument_tree_item)
         except Exception as e:
-            print(f"Error saving movement settings: {e}")  # Debug
+            logger.warning("Error saving movement settings: %s", e)
             
     def restore_movement_settings_from_tree_item(self, tree_item, widget):
         """Restore movement position settings from the InstrumentTreeItem"""
         try:
             # Get the InstrumentTreeItem object from the QTreeWidgetItem
             instrument_tree_item = tree_item.data(0, Qt.ItemDataRole.UserRole + 1)
-            print(f"[DEBUG] restore_movement_settings: instrument_tree_item={instrument_tree_item}")
+            logger.debug("restore_movement_settings: instrument_tree_item=%s", instrument_tree_item)
             
             if instrument_tree_item:
                 # Restore settings if they exist
-                print(f"[DEBUG]   movement_entries: {getattr(instrument_tree_item, 'movement_entries', None)}")
+                logger.debug("  movement_entries: %s", getattr(instrument_tree_item, 'movement_entries', None))
                 if hasattr(instrument_tree_item, 'movement_entries') and instrument_tree_item.movement_entries:
-                    print(f"[DEBUG]   Calling widget.set_entries with: {instrument_tree_item.movement_entries}")
+                    logger.debug("  Calling widget.set_entries with: %s", instrument_tree_item.movement_entries)
                     widget.set_entries(instrument_tree_item.movement_entries)
             else:
                 # Try to create one if it doesn't exist

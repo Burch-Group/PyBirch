@@ -181,16 +181,13 @@ def create_scan(name: str, project: str, measurement, movement=None,
         measurement: Measurement instrument
         movement: Optional movement instrument
         positions: Positions for movement
-        sample_id: Sample identifier
-        sample_dir: Directory for samples
+        sample_id: Sample identifier for database integration
+        sample_dir: Unused, kept for backward compatibility
         owner: Owner name
         
     Returns:
         Configured Scan object
     """
-    if sample_dir is None:
-        sample_dir = tempfile.mkdtemp()
-    
     scan_tree = create_simple_scan_tree(measurement, movement, positions)
     
     settings = ScanSettings(
@@ -207,8 +204,7 @@ def create_scan(name: str, project: str, measurement, movement=None,
     return Scan(
         scan_settings=settings,
         owner=owner,
-        sample_ID=sample_id,
-        sample_directory=sample_dir
+        sample_id=sample_id
     )
 
 

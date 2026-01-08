@@ -57,9 +57,13 @@ class QueueBar(QtWidgets.QWidget):
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(8)
         
-        # Queue button
-        self.queue_button = QtWidgets.QPushButton("Q")
-        self.queue_button.setFont(QtGui.QFont("Arial", 36, QtGui.QFont.Bold))
+        # Define consistent icon font for VS Code-like appearance
+        icon_font = QtGui.QFont("Segoe MDL2 Assets", 20)  # Windows icon font
+        fallback_font = QtGui.QFont("Arial", 18)
+        
+        # Queue button - list/queue icon
+        self.queue_button = QtWidgets.QPushButton("☰")  # Hamburger menu / list icon
+        self.queue_button.setFont(QtGui.QFont("Segoe UI Symbol", 28))
         self.queue_button.setToolTip("Show queue")
         self.queue_button.setFixedSize(64, 64)
         if Theme:
@@ -79,10 +83,9 @@ class QueueBar(QtWidgets.QWidget):
             """)
         layout.addWidget(self.queue_button)
 
-        # Info button
-        self.info_button = QtWidgets.QPushButton()
-        self.info_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_MessageBoxInformation))
-        self.info_button.setIconSize(QtCore.QSize(24, 24))
+        # Info button - information circle icon
+        self.info_button = QtWidgets.QPushButton("ℹ")  # Info symbol
+        self.info_button.setFont(QtGui.QFont("Segoe UI Symbol", 28))
         self.info_button.setToolTip("Show queue information")
         self.info_button.setFixedSize(64, 64)
         if Theme:
@@ -102,11 +105,10 @@ class QueueBar(QtWidgets.QWidget):
             """)
         layout.addWidget(self.info_button)
 
-        # Instruments button
-        self.instruments_button = QtWidgets.QPushButton()
-        self.instruments_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay))
+        # Instruments button - settings/gear icon
+        self.instruments_button = QtWidgets.QPushButton("⚙")  # Gear/settings icon
+        self.instruments_button.setFont(QtGui.QFont("Segoe UI Symbol", 28))
         self.instruments_button.setToolTip("Show instruments")
-        self.instruments_button.setIconSize(QtCore.QSize(24, 24))
         self.instruments_button.setFixedSize(64, 64)
         if Theme:
             self.instruments_button.setStyleSheet(Theme.icon_button_style())
@@ -125,11 +127,10 @@ class QueueBar(QtWidgets.QWidget):
             """)
         layout.addWidget(self.instruments_button)
 
-        # Presets button
-        self.presets_button = QtWidgets.QPushButton("P")
+        # Presets button - bookmark/template icon
+        self.presets_button = QtWidgets.QPushButton("☆")  # Star/bookmark icon
         self.presets_button.setToolTip("Choose queue preset")
-        self.presets_button.setFont(QtGui.QFont("Arial", 36, QtGui.QFont.Bold))
-        self.presets_button.setIconSize(QtCore.QSize(24, 24))
+        self.presets_button.setFont(QtGui.QFont("Segoe UI Symbol", 28))
         self.presets_button.setFixedSize(64, 64)
         if Theme:
             self.presets_button.setStyleSheet(Theme.icon_button_style())
@@ -148,11 +149,10 @@ class QueueBar(QtWidgets.QWidget):
             """)
         layout.addWidget(self.presets_button)
 
-        # Save button
-        self.save_button = QtWidgets.QPushButton()
-        self.save_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DialogSaveButton))
+        # Save button - floppy disk/save icon
+        self.save_button = QtWidgets.QPushButton("💾")  # Floppy disk save icon
+        self.save_button.setFont(QtGui.QFont("Segoe UI Emoji", 24))
         self.save_button.setToolTip("Save queue to file")
-        self.save_button.setIconSize(QtCore.QSize(24, 24))
         self.save_button.setFixedSize(64, 64)
         if Theme:
             self.save_button.setStyleSheet(Theme.icon_button_style())
@@ -171,10 +171,9 @@ class QueueBar(QtWidgets.QWidget):
             """)
         layout.addWidget(self.save_button)
 
-        # Load button
-        self.load_button = QtWidgets.QPushButton()
-        self.load_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DialogOpenButton))
-        self.load_button.setIconSize(QtCore.QSize(24, 24))
+        # Load button - folder open icon
+        self.load_button = QtWidgets.QPushButton("📂")  # Open folder icon
+        self.load_button.setFont(QtGui.QFont("Segoe UI Emoji", 24))
         self.load_button.setToolTip("Load queue from file")
         self.load_button.setFixedSize(64, 64)
         if Theme:
@@ -194,10 +193,9 @@ class QueueBar(QtWidgets.QWidget):
             """)
         layout.addWidget(self.load_button)
 
-        # Extensions button
-        self.extensions_button = QtWidgets.QPushButton()
-        self.extensions_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_ComputerIcon))
-        self.extensions_button.setIconSize(QtCore.QSize(24, 24))
+        # Extensions button - puzzle piece/extensions icon
+        self.extensions_button = QtWidgets.QPushButton("🧩")  # Puzzle piece for extensions
+        self.extensions_button.setFont(QtGui.QFont("Segoe UI Emoji", 24))
         self.extensions_button.setToolTip("Show extensions")
         self.extensions_button.setFixedSize(64, 64)
         if Theme:
@@ -271,8 +269,12 @@ class QueueBar(QtWidgets.QWidget):
     def on_queue_preset_loaded(self, queue):
         """Handle when a queue preset is loaded."""
         if isinstance(queue, Queue):
-            # Copy queue data to current queue
-            self.queue.scans = queue.scans
+            # Clear existing scans from the current queue
+            self.queue.clear()
+            # Add scans from preset to current queue using enqueue
+            for scan in queue.scans:
+                self.queue.enqueue(scan)
+            # Copy queue ID and metadata
             self.queue.QID = queue.QID
             if hasattr(queue, 'metadata'):
                 self.queue.metadata = queue.metadata

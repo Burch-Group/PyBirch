@@ -6,22 +6,33 @@
 <div class="list-page">
     <div class="page-header">
         <h1>Equipment</h1>
-        <a href="{{ url_for('main.equipment_new') }}" class="btn btn-primary">+ New Equipment</a>
+        <div class="header-actions">
+            <a href="{{ url_for('main.all_equipment_issues') }}" class="btn btn-secondary">View All Issues</a>
+            <a href="{{ url_for('main.equipment_new') }}" class="btn btn-primary">+ New Equipment</a>
+        </div>
     </div>
     
     <div class="filters">
         <form method="GET" class="filter-form">
             <input type="text" name="search" placeholder="Search equipment..." 
                    value="{{ search }}" class="filter-input">
+            <select name="equipment_type" class="filter-select">
+                <option value="">All Types</option>
+                <option value="glovebox" {% if equipment_type == 'glovebox' %}selected{% endif %}>Glovebox</option>
+                <option value="chamber" {% if equipment_type == 'chamber' %}selected{% endif %}>Chamber</option>
+                <option value="lithography" {% if equipment_type == 'lithography' %}selected{% endif %}>Lithography</option>
+                <option value="furnace" {% if equipment_type == 'furnace' %}selected{% endif %}>Furnace</option>
+                <option value="other" {% if equipment_type == 'other' %}selected{% endif %}>Other</option>
+            </select>
             <select name="status" class="filter-select">
                 <option value="">All Status</option>
-                <option value="available" {% if status == 'available' %}selected{% endif %}>Available</option>
-                <option value="in_use" {% if status == 'in_use' %}selected{% endif %}>In Use</option>
+                <option value="operational" {% if status == 'operational' %}selected{% endif %}>Operational</option>
                 <option value="maintenance" {% if status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                <option value="offline" {% if status == 'offline' %}selected{% endif %}>Offline</option>
                 <option value="retired" {% if status == 'retired' %}selected{% endif %}>Retired</option>
             </select>
             <button type="submit" class="btn btn-secondary">Filter</button>
-            {% if search or status %}
+            {% if search or status or equipment_type %}
                 <a href="{{ url_for('main.equipment') }}" class="btn btn-link">Clear</a>
             {% endif %}
         </form>
@@ -30,30 +41,58 @@
     <p class="result-count">{{ total }} equipment item(s) found</p>
     
     {% if equipment %}
+        {# Separate pinned and unpinned items #}
+        {% set pinned_items = equipment | selectattr('id', 'in', pinned_ids) | list %}
+        {% set unpinned_items = equipment | rejectattr('id', 'in', pinned_ids) | list %}
+        
         <table class="data-table">
             <thead>
                 <tr>
+                    <th style="width: 30px;"></th>
                     <th>Name</th>
                     <th>Type</th>
-                    <th>Manufacturer</th>
-                    <th>Model</th>
-                    <th>Status</th>
+                    <th>Owner</th>
                     <th>Location</th>
+                    <th>Status</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
-                {% for item in equipment %}
-                <tr>
+                {# Pinned items first #}
+                {% for item in pinned_items %}
+                <tr class="pinned-row">
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn pinned" data-entity-type="equipment" data-entity-id="{{ item.id }}" title="Unpin">📌</button>
+                        {% endif %}
+                    </td>
                     <td><a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}">{{ item.name }}</a></td>
                     <td>{{ item.equipment_type or '-' }}</td>
-                    <td>{{ item.manufacturer or '-' }}</td>
-                    <td>{{ item.model or '-' }}</td>
+                    <td>{{ item.owner_name or '-' }}</td>
+                    <td>{{ item.location or '-' }}{% if item.room %} ({{ item.room }}){% endif %}</td>
                     <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
-                    <td>{{ item.location or '-' }}</td>
                     <td>
                         <a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ url_for('main.equipment_edit', equipment_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                        <a href="{{ url_for('main.equipment_issues', equipment_id=item.id) }}" class="btn btn-sm btn-secondary">Issues</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {# Unpinned items #}
+                {% for item in unpinned_items %}
+                <tr>
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn" data-entity-type="equipment" data-entity-id="{{ item.id }}" title="Pin">📍</button>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}">{{ item.name }}</a></td>
+                    <td>{{ item.equipment_type or '-' }}</td>
+                    <td>{{ item.owner_name or '-' }}</td>
+                    <td>{{ item.location or '-' }}{% if item.room %} ({{ item.room }}){% endif %}</td>
+                    <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
+                    <td>
+                        <a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.equipment_issues', equipment_id=item.id) }}" class="btn btn-sm btn-secondary">Issues</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -63,11 +102,11 @@
         {% if total_pages > 1 %}
         <div class="pagination">
             {% if page > 1 %}
-                <a href="{{ url_for('main.equipment', page=page-1, search=search, status=status) }}" class="btn btn-sm">← Previous</a>
+                <a href="{{ url_for('main.equipment', page=page-1, search=search, status=status, equipment_type=equipment_type) }}" class="btn btn-sm">← Previous</a>
             {% endif %}
             <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
             {% if page < total_pages %}
-                <a href="{{ url_for('main.equipment', page=page+1, search=search, status=status) }}" class="btn btn-sm">Next →</a>
+                <a href="{{ url_for('main.equipment', page=page+1, search=search, status=status, equipment_type=equipment_type) }}" class="btn btn-sm">Next →</a>
             {% endif %}
         </div>
         {% endif %}

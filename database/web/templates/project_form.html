@@ -31,7 +31,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="lab_id">Lab</label>
-                    <select id="lab_id" name="lab_id">
+                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab">
                         <option value="">-- Select Lab --</option>
                         {% for lab in labs %}
                         <option value="{{ lab.id }}" {% if project and project.lab_id == lab.id %}selected{% endif %}>{{ lab.name }}</option>
@@ -105,4 +105,17 @@
         </div>
     </form>
 </div>
+
+{% if not project %}
+<script>
+    // Autofill start date with current date for new projects
+    document.addEventListener('DOMContentLoaded', function() {
+        const startDateField = document.getElementById('start_date');
+        if (startDateField && !startDateField.value) {
+            const today = new Date().toISOString().split('T')[0];
+            startDateField.value = today;
+        }
+    });
+</script>
+{% endif %}
 {% endblock %}

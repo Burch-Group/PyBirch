@@ -59,8 +59,9 @@ class ScanManager:
         Returns:
             Dictionary with created scan data
         """
-        # Generate unique scan_id
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # Generate unique scan_id with milliseconds for uniqueness
+        now = datetime.now()
+        timestamp = now.strftime('%Y%m%d_%H%M%S') + f'_{now.microsecond // 1000:03d}'
         scan_id = f"{scan_settings.project_name}_{scan_settings.scan_name}_{timestamp}"
         
         # Serialize scan tree if available
@@ -78,7 +79,7 @@ class ScanManager:
             'scan_type': scan_settings.scan_type,
             'job_type': scan_settings.job_type,
             'status': 'pending',
-            'owner': owner,
+            'created_by': owner,  # Database uses 'created_by' instead of 'owner'
             'scan_tree_data': scan_tree_data,
             'additional_tags': getattr(scan_settings, 'additional_tags', []),
             'sample_id': sample_id,
@@ -118,7 +119,7 @@ class ScanManager:
         
         result = self.db.update_scan(db_id, {
             'status': 'running',
-            'started_at': datetime.now().isoformat()
+            'started_at': datetime.now()  # Use datetime object, not string
         })
         return result is not None
     
@@ -157,7 +158,7 @@ class ScanManager:
         
         update_data = {
             'status': 'completed',
-            'completed_at': datetime.now().isoformat()
+            'completed_at': datetime.now()  # Use datetime object, not string
         }
         
         if wandb_link:
@@ -187,7 +188,7 @@ class ScanManager:
         
         update_data = {
             'status': 'failed',
-            'completed_at': datetime.now().isoformat()
+            'completed_at': datetime.now()  # Use datetime object, not string
         }
         
         if error_message:
@@ -208,7 +209,7 @@ class ScanManager:
         
         result = self.db.update_scan(db_id, {
             'status': 'aborted',
-            'completed_at': datetime.now().isoformat()
+            'completed_at': datetime.now()  # Use datetime object, not string
         })
         
         if result:

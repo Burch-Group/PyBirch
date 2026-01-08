@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Industrial Machine for Equipment -->
+  <rect x="3" y="8" width="18" height="13" rx="2"/>
+  <rect x="7" y="11" width="4" height="7" rx="1"/>
+  <rect x="13" y="11" width="4" height="7" rx="1"/>
+  <line x1="3" y1="8" x2="21" y2="8"/>
+  <path d="M8 8V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+  <circle cx="14.5" cy="14.5" r="1.5"/>
+</svg>

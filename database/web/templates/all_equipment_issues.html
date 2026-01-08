@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}All Equipment Issues - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>All Equipment Issues</h1>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <select name="status" class="filter-select">
+                <option value="">All Status</option>
+                <option value="open" {% if status == 'open' %}selected{% endif %}>Open</option>
+                <option value="in_progress" {% if status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                <option value="resolved" {% if status == 'resolved' %}selected{% endif %}>Resolved</option>
+                <option value="closed" {% if status == 'closed' %}selected{% endif %}>Closed</option>
+                <option value="wont_fix" {% if status == 'wont_fix' %}selected{% endif %}>Won't Fix</option>
+            </select>
+            <select name="priority" class="filter-select">
+                <option value="">All Priorities</option>
+                <option value="critical" {% if priority == 'critical' %}selected{% endif %}>Critical</option>
+                <option value="high" {% if priority == 'high' %}selected{% endif %}>High</option>
+                <option value="medium" {% if priority == 'medium' %}selected{% endif %}>Medium</option>
+                <option value="low" {% if priority == 'low' %}selected{% endif %}>Low</option>
+            </select>
+            <select name="category" class="filter-select">
+                <option value="">All Categories</option>
+                <option value="malfunction" {% if category == 'malfunction' %}selected{% endif %}>Malfunction</option>
+                <option value="maintenance" {% if category == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                <option value="safety" {% if category == 'safety' %}selected{% endif %}>Safety</option>
+                <option value="consumables" {% if category == 'consumables' %}selected{% endif %}>Consumables</option>
+                <option value="other" {% if category == 'other' %}selected{% endif %}>Other</option>
+            </select>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if status or priority or category %}
+                <a href="{{ url_for('main.all_equipment_issues') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} issue(s) found</p>
+    
+    {% if issues %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Equipment</th>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Assignee</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for issue in issues %}
+                <tr>
+                    <td><a href="{{ url_for('main.equipment_detail', equipment_id=issue.equipment_id) }}">{{ issue.equipment_name or 'Unknown' }}</a></td>
+                    <td><a href="{{ url_for('main.equipment_issue_detail', equipment_id=issue.equipment_id, issue_id=issue.id) }}">{{ issue.title }}</a></td>
+                    <td>{{ issue.category }}</td>
+                    <td><span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span></td>
+                    <td><span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span></td>
+                    <td>{{ issue.assignee_name or '-' }}</td>
+                    <td>{{ issue.created_at[:10] if issue.created_at else '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('main.equipment_issue_detail', equipment_id=issue.equipment_id, issue_id=issue.id) }}" class="btn btn-sm">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="{{ url_for('main.all_equipment_issues', page=page-1, status=status, priority=priority, category=category) }}" class="btn btn-sm">← Previous</a>
+            {% endif %}
+            <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}
+                <a href="{{ url_for('main.all_equipment_issues', page=page+1, status=status, priority=priority, category=category) }}" class="btn btn-sm">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>No equipment issues found.</p>
+        </div>
+    {% endif %}
+</div>
+
+<style>
+.priority-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+.priority-low { background: #e3f2fd; color: #1565c0; }
+.priority-medium { background: #fff3e0; color: #e65100; }
+.priority-high { background: #ffebee; color: #c62828; }
+.priority-critical { background: #c62828; color: white; }
+</style>
+{% endblock %}

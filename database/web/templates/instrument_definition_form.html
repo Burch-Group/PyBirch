@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+
+{% block title %}{{ form_title }} - PyBirch Database{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<style>
+    .form-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+    }
+    .form-section {
+        background: white;
+        padding: 24px;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .form-section h3 {
+        margin-top: 0;
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .form-group {
+        margin-bottom: 16px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 500;
+        color: #374151;
+    }
+    .form-group label .required {
+        color: #dc2626;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 0.95rem;
+    }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    .form-group .help-text {
+        font-size: 0.8rem;
+        color: #6b7280;
+        margin-top: 4px;
+    }
+    .code-editor-section {
+        grid-column: 1 / -1;
+    }
+    .code-editor-container {
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .CodeMirror {
+        height: 400px;
+        font-family: 'Courier New', Consolas, monospace;
+        font-size: 14px;
+    }
+    .form-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid #e2e8f0;
+    }
+    .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .checkbox-group input[type="checkbox"] {
+        width: auto;
+    }
+    .validation-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        margin-bottom: 12px;
+    }
+    .validation-status.valid {
+        background: rgba(16, 185, 129, 0.1);
+        color: #059669;
+    }
+    .validation-status.invalid {
+        background: rgba(239, 68, 68, 0.1);
+        color: #dc2626;
+    }
+    .validation-status.pending {
+        background: rgba(245, 158, 11, 0.1);
+        color: #d97706;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="breadcrumb">
+        <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / {{ form_title }}
+    </div>
+    
+    <h1>{{ form_title }}</h1>
+    
+    <form method="POST" action="{{ form_action }}" id="definition-form">
+        <div class="form-grid">
+            <!-- Basic Info -->
+            <div class="form-section">
+                <h3>Basic Information</h3>
+                
+                {% if not definition.id %}
+                <div class="form-group">
+                    <label>Class Name <span class="required">*</span></label>
+                    <input type="text" name="name" value="{{ definition.name or '' }}" 
+                           pattern="[A-Za-z_][A-Za-z0-9_]*" required
+                           placeholder="e.g., MyLockInAmplifier">
+                    <div class="help-text">Python class name (letters, numbers, underscore, must start with letter)</div>
+                </div>
+                {% endif %}
+                
+                <div class="form-group">
+                    <label>Display Name <span class="required">*</span></label>
+                    <input type="text" name="display_name" value="{{ definition.display_name or '' }}" required
+                           placeholder="e.g., My Lock-In Amplifier">
+                </div>
+                
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea name="description" rows="3" placeholder="Brief description of this instrument...">{{ definition.description or '' }}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Instrument Type <span class="required">*</span></label>
+                    <select name="instrument_type" required>
+                        <option value="">Select type...</option>
+                        <option value="measurement" {% if definition.instrument_type == 'measurement' %}selected{% endif %}>Measurement</option>
+                        <option value="movement" {% if definition.instrument_type == 'movement' %}selected{% endif %}>Movement</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Base Class <span class="required">*</span></label>
+                    <input type="text" name="base_class" value="{{ definition.base_class or '' }}" required
+                           placeholder="e.g., Measurement or Movement">
+                    <div class="help-text">The parent class this instrument extends</div>
+                </div>
+            </div>
+            
+            <!-- Classification -->
+            <div class="form-section">
+                <h3>Classification</h3>
+                
+                <div class="form-group">
+                    <label>Category</label>
+                    <input type="text" name="category" value="{{ definition.category or '' }}"
+                           placeholder="e.g., Lock-In Amplifier, Spectrometer, Stage">
+                </div>
+                
+                <div class="form-group">
+                    <label>Manufacturer</label>
+                    <input type="text" name="manufacturer" value="{{ definition.manufacturer or '' }}"
+                           placeholder="e.g., Stanford Research, Thorlabs">
+                </div>
+                
+                <div class="form-group">
+                    <label>Dependencies</label>
+                    <textarea name="dependencies" rows="2" placeholder="Comma-separated list of required packages">{{ definition.dependencies or '' }}</textarea>
+                    <div class="help-text">e.g., pyvisa, numpy, scipy</div>
+                </div>
+                
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" name="is_public" id="is_public" {% if definition.is_public %}checked{% endif %}>
+                        <label for="is_public">Make publicly available</label>
+                    </div>
+                    <div class="help-text">Allow other labs to use this instrument definition</div>
+                </div>
+                
+                {% if definition.id %}
+                <div class="form-group">
+                    <label>Change Summary</label>
+                    <input type="text" name="change_summary" placeholder="Brief description of changes...">
+                    <div class="help-text">This will be recorded in the version history</div>
+                </div>
+                {% endif %}
+            </div>
+            
+            <!-- Source Code Editor -->
+            <div class="form-section code-editor-section">
+                <h3>Source Code <span class="required">*</span></h3>
+                
+                <div id="validation-status" class="validation-status pending">
+                    <span>⏳</span> Click "Validate" to check syntax
+                </div>
+                
+                <div class="code-editor-container">
+                    <textarea name="source_code" id="source-code">{{ definition.source_code or '' }}</textarea>
+                </div>
+                
+                <div style="margin-top: 12px;">
+                    <button type="button" class="btn btn-secondary" onclick="validateCode()">Validate Syntax</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.instrument_definitions') }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Save Definition</button>
+        </div>
+    </form>
+</div>
+
+<script>
+    // Initialize CodeMirror
+    const editor = CodeMirror.fromTextArea(document.getElementById('source-code'), {
+        mode: 'python',
+        theme: 'material-darker',
+        lineNumbers: true,
+        indentUnit: 4,
+        tabSize: 4,
+        indentWithTabs: false,
+        lineWrapping: true,
+        matchBrackets: true,
+        autoCloseBrackets: true,
+    });
+    
+    // Update hidden textarea when editor changes
+    editor.on('change', function() {
+        document.getElementById('source-code').value = editor.getValue();
+        // Reset validation status on change
+        updateValidationStatus('pending', '⏳', 'Click "Validate" to check syntax');
+    });
+    
+    function updateValidationStatus(status, icon, message) {
+        const el = document.getElementById('validation-status');
+        el.className = 'validation-status ' + status;
+        el.innerHTML = '<span>' + icon + '</span> ' + message;
+    }
+    
+    async function validateCode() {
+        const code = editor.getValue();
+        updateValidationStatus('pending', '⏳', 'Validating...');
+        
+        try {
+            const response = await fetch('/api/v1/instrument-definitions/validate-code', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    source_code: code,
+                    base_class: document.querySelector('input[name="base_class"]').value
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.data && result.data.valid) {
+                let message = '✓ Syntax is valid';
+                if (result.data.class_name) {
+                    message += ' - Found class: ' + result.data.class_name;
+                }
+                if (result.data.warnings && result.data.warnings.length > 0) {
+                    message += ' (with warnings)';
+                }
+                updateValidationStatus('valid', '✓', message);
+            } else {
+                let errorMsg = 'Syntax errors found';
+                if (result.data && result.data.errors && result.data.errors.length > 0) {
+                    const err = result.data.errors[0];
+                    errorMsg = err.message;
+                    if (err.line) {
+                        errorMsg += ' (line ' + err.line + ')';
+                        // Highlight the error line
+                        editor.setCursor(err.line - 1, err.offset || 0);
+                        editor.focus();
+                    }
+                }
+                updateValidationStatus('invalid', '✗', errorMsg);
+            }
+        } catch (error) {
+            updateValidationStatus('invalid', '✗', 'Validation failed: ' + error.message);
+        }
+    }
+    
+    // Validate on form submit
+    document.getElementById('definition-form').addEventListener('submit', function(e) {
+        // Update textarea before submit
+        document.getElementById('source-code').value = editor.getValue();
+    });
+</script>
+{% endblock %}

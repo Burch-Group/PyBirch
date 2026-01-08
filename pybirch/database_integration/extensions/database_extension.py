@@ -26,6 +26,7 @@ except ImportError:
 
 from ..managers.scan_manager import ScanManager
 from ..managers.data_manager import DataManager
+from ..managers.queue_manager import QueueManager
 
 
 class DatabaseExtension(ScanExtension):
@@ -92,6 +93,7 @@ class DatabaseExtension(ScanExtension):
         # Initialize managers
         self.scan_manager = ScanManager(db_service)
         self.data_manager = DataManager(db_service, buffer_size=buffer_size)
+        self.queue_manager = QueueManager(db_service) if queue_id else None
         
         # State tracking
         self._db_scan: Optional[Dict] = None
@@ -128,11 +130,15 @@ class DatabaseExtension(ScanExtension):
         Called when the scan is starting up (by Scan.startup()).
         Creates the database record for this scan.
         """
+        print(f"[DB] DatabaseExtension.startup() called")
+        print(f"[DB]   scan_settings: {self._scan_settings}")
+        print(f"[DB]   sample_id: {self.sample_id}, project_id: {self.project_id}, queue_id: {self.queue_id}")
+        
         # If we have a scan reference, use it; otherwise use stored settings
         scan_settings = self._scan_settings
         
         if scan_settings is None:
-            print("Warning: DatabaseExtension.startup() called without scan_settings")
+            print("[DB] Warning: DatabaseExtension.startup() called without scan_settings")
             return
         
         # Create database scan record
@@ -158,6 +164,17 @@ class DatabaseExtension(ScanExtension):
         self.scan_manager.start_scan(self._scan_id)
         self._started = True
         print(f"[DB] Scan started: {self._scan_id}")
+        
+        # Add log entry to queue if part of a queue
+        if self.queue_id:
+            try:
+                self.db.create_queue_log(
+                    self.queue_id, 'INFO',
+                    f"Scan started: {self._scan_id}",
+                    scan_id=self._scan_id
+                )
+            except Exception as e:
+                print(f"[DB] Failed to add queue log: {e}")
     
     def save_data(self, data: pd.DataFrame, measurement_name: str):
         """
@@ -168,7 +185,13 @@ class DatabaseExtension(ScanExtension):
             data: DataFrame containing measurement data
             measurement_name: Name/ID of the measurement (e.g., instrument unique_id)
         """
-        if not self._db_scan or self._completed:
+        print(f"[DB] save_data called: measurement={measurement_name}, rows={len(data)}, db_scan={self._db_scan}, completed={self._completed}")
+        
+        if not self._db_scan:
+            print(f"[DB] ERROR: No db_scan record - skipping save_data for {measurement_name}")
+            return
+        if self._completed:
+            print(f"[DB] WARNING: Scan already completed - skipping save_data for {measurement_name}")
             return
         
         # Extract instrument name from measurement_name if possible
@@ -183,8 +206,8 @@ class DatabaseExtension(ScanExtension):
             instrument_name=instrument_name
         )
         
-        # Uncomment for debugging:
-        # print(f"[DB] Saved {count} data points for {measurement_name}")
+        # Debug logging
+        print(f"[DB] Saved {count} data points for {measurement_name}")
     
     def save_array(
         self,
@@ -248,7 +271,45 @@ class DatabaseExtension(ScanExtension):
         self._completed = True
         
         data_count = self.data_manager.get_data_count(self.db_scan_id)
-        print(f"Database scan completed: {self._scan_id} ({data_count} data points)")
+        print(f"[DB] Scan completed: {self._scan_id} ({data_count} data points)")
+        
+        # Update queue progress if part of a queue
+        if self.queue_id:
+            try:
+                # Get current queue state to calculate completed scans
+                queue = self.db.get_queue(self.queue_id)
+                if queue:
+                    completed = (queue.get('completed_scans') or 0) + 1
+                    total = queue.get('total_scans') or 0
+                    
+                    # Build update dict
+                    update_data = {'completed_scans': completed}
+                    
+                    # Check if all scans are done - mark queue as completed
+                    if completed >= total and total > 0:
+                        from datetime import datetime
+                        update_data['status'] = 'completed'
+                        update_data['completed_at'] = datetime.now()
+                        print(f"[DB] Queue completed: all {total} scans finished")
+                    
+                    # Update queue
+                    self.db.update_queue(self.queue_id, update_data)
+                    
+                    # Add log entry
+                    log_message = f"Scan completed: {self._scan_id} ({completed}/{total})"
+                    if completed >= total and total > 0:
+                        log_message = f"Queue completed: {self._scan_id} was final scan ({completed}/{total})"
+                    
+                    self.db.create_queue_log(
+                        self.queue_id, 'INFO',
+                        log_message,
+                        scan_id=self._scan_id
+                    )
+                    print(f"[DB] Updated queue progress: {completed}/{total}")
+            except Exception as e:
+                print(f"[DB] Failed to update queue progress: {e}")
+                import traceback
+                traceback.print_exc()
     
     def on_abort(self):
         """Called when scan is aborted."""

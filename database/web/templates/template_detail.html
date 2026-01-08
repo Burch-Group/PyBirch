@@ -23,11 +23,11 @@
         </div>
         <div class="detail-actions">
             <a href="{{ url_for('main.template_edit', template_id=template.id) }}" class="btn btn-secondary">
-                ✏️ Edit
+                Edit
             </a>
             <form method="POST" action="{{ url_for('main.template_delete', template_id=template.id) }}" 
                   style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this template?')">
-                <button type="submit" class="btn btn-danger">🗑️ Delete</button>
+                <button type="submit" class="btn btn-danger">Delete</button>
             </form>
         </div>
     </div>
@@ -171,7 +171,7 @@
             <div class="sidebar-section">
                 <h3>QR Code</h3>
                 <div class="qr-code-container">
-                    <img src="{{ url_for('main.template_qr', template_id=template.id) }}" alt="Template QR Code" class="qr-code-image">
+                    <img src="{{ url_for('main.template_qrcode', template_id=template.id) }}" alt="Template QR Code" class="qr-code-image">
                 </div>
                 <p class="qr-description">Scan to use this template</p>
             </div>

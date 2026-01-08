@@ -2,6 +2,15 @@
 PyBirch Database Session Management
 ===================================
 Database connection, session management, and initialization utilities.
+
+Supports both SQLite (default for local development) and PostgreSQL (recommended for production).
+
+Configuration:
+    Set the DATABASE_URL environment variable to use PostgreSQL:
+    
+        export DATABASE_URL="postgresql://user:password@localhost:5432/pybirch"
+    
+    Or pass the URL directly to DatabaseManager or init_db().
 """
 
 import os
@@ -9,9 +18,31 @@ from typing import Optional, Generator
 from contextlib import contextmanager
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, Session, scoped_session
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import StaticPool, QueuePool
 
 from database.models import Base
+
+
+def get_database_url() -> str:
+    """
+    Get database URL from environment or use default SQLite.
+    
+    Checks DATABASE_URL environment variable first, then falls back to SQLite.
+    
+    Returns:
+        Database connection URL string
+    """
+    env_url = os.environ.get('DATABASE_URL')
+    if env_url:
+        # Handle Heroku-style postgres:// URLs
+        if env_url.startswith('postgres://'):
+            env_url = env_url.replace('postgres://', 'postgresql://', 1)
+        return env_url
+    
+    # Default to SQLite in the database folder
+    db_folder = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(db_folder, "pybirch.db")
+    return f"sqlite:///{db_path}"
 
 
 class DatabaseManager:
@@ -44,21 +75,21 @@ class DatabaseManager:
         Initialize the database manager.
         
         Args:
-            database_url: Database connection URL. If None, uses SQLite in the database folder.
+            database_url: Database connection URL. If None, checks DATABASE_URL env var,
+                         then falls back to SQLite in the database folder.
             echo: If True, SQLAlchemy will log all SQL statements.
             create_tables: If True, creates all tables on initialization.
         """
         if database_url is None:
-            # Default to SQLite database in the database folder
-            db_folder = os.path.dirname(os.path.abspath(__file__))
-            db_path = os.path.join(db_folder, "pybirch.db")
-            database_url = f"sqlite:///{db_path}"
+            database_url = get_database_url()
         
         self.database_url = database_url
         self._echo = echo
+        self._is_sqlite = database_url.startswith("sqlite")
+        self._is_postgresql = database_url.startswith("postgresql")
         
         # Create engine with appropriate settings
-        if database_url.startswith("sqlite"):
+        if self._is_sqlite:
             # SQLite-specific settings for better concurrency
             self._engine = create_engine(
                 database_url,
@@ -66,20 +97,30 @@ class DatabaseManager:
                 connect_args={"check_same_thread": False},
                 poolclass=StaticPool if ":memory:" in database_url else None
             )
-            # Enable foreign key support for SQLite
+            # Enable foreign keys and WAL mode for better concurrency
             @event.listens_for(self._engine, "connect")
             def set_sqlite_pragma(dbapi_connection, connection_record):
                 cursor = dbapi_connection.cursor()
                 cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA journal_mode=WAL")  # Write-Ahead Logging for concurrent access
+                cursor.execute("PRAGMA synchronous=NORMAL")  # Faster writes with reasonable safety
+                cursor.execute("PRAGMA cache_size=-64000")  # 64MB cache
+                cursor.execute("PRAGMA busy_timeout=5000")  # 5 second timeout on locks
                 cursor.close()
         else:
-            # PostgreSQL or other databases
+            # PostgreSQL or other databases - optimized for concurrent access
             self._engine = create_engine(
                 database_url,
                 echo=echo,
-                pool_size=5,
-                max_overflow=10,
-                pool_pre_ping=True
+                poolclass=QueuePool,
+                pool_size=10,  # Base connections
+                max_overflow=20,  # Extra connections under load
+                pool_pre_ping=True,  # Verify connections before use
+                pool_recycle=3600,  # Recycle connections after 1 hour
+                connect_args={
+                    "connect_timeout": 10,
+                    "application_name": "PyBirch",
+                } if self._is_postgresql else {}
             )
         
         # Create session factory

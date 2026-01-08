@@ -4,7 +4,35 @@
 
 {% block content %}
 <div class="dashboard">
-    <h1>Dashboard</h1>
+    <h1>Dashboard <span id="connection-status" class="connection-status connecting" title="Connecting..."></span></h1>
+    
+    <!-- Live Activity Panel -->
+    <div class="live-activity-panel" id="live-activity-panel">
+        <h3>🔴 Live Activity <span class="connection-status-text connecting">Connecting...</span></h3>
+        
+        <div id="running-queues-container">
+            <h4 style="margin: 8px 0; font-size: 0.9em; color: #94a3b8;">Active Queues</h4>
+            <div id="running-queues">
+                <div class="live-activity-item" style="color: #64748b; font-style: italic;">No active queues</div>
+            </div>
+        </div>
+        
+        <div id="running-scans-container" style="margin-top: 16px;">
+            <h4 style="margin: 8px 0; font-size: 0.9em; color: #94a3b8;">Running Scans</h4>
+            <div id="running-scans">
+                <div class="live-activity-item" style="color: #64748b; font-style: italic;">No running scans</div>
+            </div>
+        </div>
+        
+        <div id="instrument-summary-container" style="margin-top: 16px;">
+            <h4 style="margin: 8px 0; font-size: 0.9em; color: #94a3b8;">Instrument Status</h4>
+            <div id="instrument-summary" class="live-activity-item">
+                <span>🟢 <span id="instruments-connected">0</span> connected</span>
+                <span>🔴 <span id="instruments-error">0</span> errors</span>
+                <span>🟡 <span id="instruments-busy">0</span> busy</span>
+            </div>
+        </div>
+    </div>
     
     <div class="stats-grid">
         <div class="stat-card">
@@ -109,7 +137,7 @@
                             <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
                             <td>{{ scan.created_at[:10] if scan.created_at else '-' }}</td>
                             <td>
-                                <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">🚀 Open</a>
+                                <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
                             </td>
                         </tr>
                         {% endfor %}
@@ -178,6 +206,37 @@
     </div>
     {% endif %}
     
+    {% if stats.open_equipment_issues %}
+    <div class="dashboard-section full-width">
+        <h2>Open Equipment Issues</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Equipment</th>
+                    <th>Category</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for issue in stats.open_equipment_issues %}
+                <tr>
+                    <td><a href="{{ url_for('main.equipment_issue_detail', equipment_id=issue.equipment_id, issue_id=issue.id) }}">{{ issue.title }}</a></td>
+                    <td><a href="{{ url_for('main.equipment_detail', equipment_id=issue.equipment_id) }}">{{ issue.equipment_name or 'Unknown' }}</a></td>
+                    <td><span class="badge badge-{{ issue.category }}">{{ issue.category }}</span></td>
+                    <td><span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span></td>
+                    <td><span class="status-badge status-{{ issue.status }}">{{ issue.status.replace('_', ' ') }}</span></td>
+                    <td>{{ issue.created_at[:10] if issue.created_at else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <a href="{{ url_for('main.all_equipment_issues') }}" class="btn btn-link">View all equipment issues →</a>
+    </div>
+    {% endif %}
+    
     <div class="quick-actions">
         <h2>Quick Actions</h2>
         <div class="action-buttons">
@@ -190,4 +249,173 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/pybirch-realtime.js') }}"></script>
+<script>
+// Dashboard Live Activity Manager
+class DashboardRealtimeManager {
+    constructor(realtimeClient) {
+        this.client = realtimeClient;
+        this.runningQueues = new Map();
+        this.runningScans = new Map();
+        this.instrumentStatuses = new Map();
+        
+        this.setupCallbacks();
+    }
+    
+    setupCallbacks() {
+        // Queue status updates
+        this.client.onQueueStatus((data) => {
+            if (data.status === 'running' || data.status === 'pending') {
+                this.runningQueues.set(data.queue_id, {
+                    id: data.queue_id,
+                    name: data.name || `Queue ${data.queue_id}`,
+                    status: data.status,
+                    progress: data.progress || 0
+                });
+            } else {
+                this.runningQueues.delete(data.queue_id);
+            }
+            this.updateRunningQueuesDisplay();
+        });
+        
+        // Scan status updates
+        this.client.onScanStatus((data) => {
+            if (data.status === 'running' || data.status === 'pending') {
+                this.runningScans.set(data.scan_id, {
+                    id: data.scan_id,
+                    name: data.name || `Scan ${data.scan_id}`,
+                    status: data.status,
+                    progress: data.progress || 0
+                });
+            } else {
+                this.runningScans.delete(data.scan_id);
+            }
+            this.updateRunningScansDisplay();
+        });
+        
+        // Instrument status updates
+        this.client.onInstrumentStatus((data) => {
+            this.instrumentStatuses.set(data.instrument_id, {
+                id: data.instrument_id,
+                name: data.name,
+                status: data.status,
+                is_connected: data.is_connected
+            });
+            this.updateInstrumentSummary();
+        });
+        
+        // Connection status
+        this.client.onConnect(() => {
+            this.updateConnectionStatus(true);
+            // Subscribe to global updates
+            this.client.subscribeQueues();
+            this.client.subscribeScans();
+            this.client.subscribeInstruments();
+        });
+        
+        this.client.onDisconnect(() => {
+            this.updateConnectionStatus(false);
+        });
+    }
+    
+    updateConnectionStatus(connected) {
+        const statusEl = document.getElementById('connection-status');
+        const textEl = document.querySelector('.connection-status-text');
+        
+        if (statusEl) {
+            statusEl.className = `connection-status ${connected ? 'connected' : 'disconnected'}`;
+            statusEl.title = connected ? 'Live updates active' : 'Disconnected';
+        }
+        
+        if (textEl) {
+            textEl.className = `connection-status-text ${connected ? 'connected' : 'disconnected'}`;
+            textEl.textContent = connected ? 'Live' : 'Disconnected';
+        }
+    }
+    
+    updateRunningQueuesDisplay() {
+        const container = document.getElementById('running-queues');
+        if (!container) return;
+        
+        if (this.runningQueues.size === 0) {
+            container.innerHTML = '<div class="live-activity-item" style="color: #64748b; font-style: italic;">No active queues</div>';
+            return;
+        }
+        
+        let html = '';
+        this.runningQueues.forEach((queue) => {
+            html += `
+                <div class="live-activity-item">
+                    <a href="/queues/${queue.id}">${escapeHtml(queue.name)}</a>
+                    <span class="status-badge status-${queue.status}">${queue.status}</span>
+                    ${queue.progress > 0 ? `<span class="progress-text">${Math.round(queue.progress)}%</span>` : ''}
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+    
+    updateRunningScansDisplay() {
+        const container = document.getElementById('running-scans');
+        if (!container) return;
+        
+        if (this.runningScans.size === 0) {
+            container.innerHTML = '<div class="live-activity-item" style="color: #64748b; font-style: italic;">No running scans</div>';
+            return;
+        }
+        
+        let html = '';
+        this.runningScans.forEach((scan) => {
+            html += `
+                <div class="live-activity-item">
+                    <a href="/scans/${scan.id}">${escapeHtml(scan.name)}</a>
+                    <span class="status-badge status-${scan.status}">${scan.status}</span>
+                    ${scan.progress > 0 ? `<span class="progress-text">${Math.round(scan.progress)}%</span>` : ''}
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+    
+    updateInstrumentSummary() {
+        let connected = 0;
+        let errors = 0;
+        let busy = 0;
+        
+        this.instrumentStatuses.forEach((inst) => {
+            if (inst.is_connected) connected++;
+            if (inst.status === 'error') errors++;
+            if (inst.status === 'busy' || inst.status === 'moving') busy++;
+        });
+        
+        const connectedEl = document.getElementById('instruments-connected');
+        const errorEl = document.getElementById('instruments-error');
+        const busyEl = document.getElementById('instruments-busy');
+        
+        if (connectedEl) connectedEl.textContent = connected;
+        if (errorEl) errorEl.textContent = errors;
+        if (busyEl) busyEl.textContent = busy;
+    }
+}
+
+// Helper function
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    // Wait for PyBirchRealtime to be available
+    setTimeout(function() {
+        if (window.pybirchRealtime) {
+            window.dashboardManager = new DashboardRealtimeManager(window.pybirchRealtime);
+        }
+    }, 500);
+});
+</script>
 {% endblock %}

@@ -12,84 +12,158 @@
     
     <h1>{{ action }} Equipment</h1>
     
-    {% if template %}
-    <div class="template-notice">
-        <span class="template-badge">📋 Using Template</span>
-        <strong>{{ template.name }}</strong>
-        {% if template.lab_name or (template.template_data and template.template_data.lab_name) %}
-         - {{ template.lab_name or template.template_data.lab_name }}
-        {% endif %}
-        <p class="template-hint">Fields have been pre-filled from the template. You can modify them as needed.</p>
-    </div>
-    {% endif %}
-    
     <form method="POST" class="entity-form">
-        <div class="form-grid">
-            <div class="form-group">
-                <label for="name">Name *</label>
-                <input type="text" id="name" name="name" required
-                       value="{{ equipment.name if equipment else '' }}"
-                       placeholder="e.g., Keithley 2400 Sourcemeter">
+        <div class="form-section">
+            <h2>Basic Information</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="name">Name *</label>
+                    <input type="text" id="name" name="name" required
+                           value="{{ equipment.name if equipment else '' }}"
+                           placeholder="e.g., Main Glovebox">
+                </div>
+                
+                <div class="form-group">
+                    <label for="equipment_type">Type</label>
+                    <select id="equipment_type" name="equipment_type">
+                        <option value="">Select type...</option>
+                        <option value="glovebox" {% if equipment and equipment.equipment_type == 'glovebox' %}selected{% endif %}>Glovebox</option>
+                        <option value="chamber" {% if equipment and equipment.equipment_type == 'chamber' %}selected{% endif %}>Chamber</option>
+                        <option value="lithography" {% if equipment and equipment.equipment_type == 'lithography' %}selected{% endif %}>Lithography</option>
+                        <option value="furnace" {% if equipment and equipment.equipment_type == 'furnace' %}selected{% endif %}>Furnace</option>
+                        <option value="other" {% if equipment and equipment.equipment_type == 'other' %}selected{% endif %}>Other</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="lab_id">Lab</label>
+                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab">
+                        <option value="">-- No Lab --</option>
+                        {% for lab in labs %}
+                        <option value="{{ lab.id }}" 
+                                {% if (equipment and equipment.lab_id and equipment.lab_id == lab.id) or (default_lab_id == lab.id and (not equipment or not equipment.lab_id)) %}selected{% endif %}>
+                            {{ lab.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small>Associate this equipment with a lab <a href="#" class="set-default-link" data-field="default_lab_id" data-source="lab_id">Set as default</a></small>
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" rows="3"
+                              placeholder="Brief description of the equipment and its capabilities">{{ equipment.description if equipment else '' }}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="owner_id">Owner</label>
+                    <select id="owner_id" name="owner_id" class="searchable-select" data-entity-type="user">
+                        <option value="">No owner assigned</option>
+                        {% for user in users %}
+                        <option value="{{ user.id }}" {% if equipment and equipment.owner_id == user.id %}selected{% endif %}
+                            data-name="{{ user.name or '' }}" data-username="{{ user.username }}" data-email="{{ user.email or '' }}">
+                            {{ user.name or user.username }}{% if user.email %} ({{ user.email }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-hint">The person responsible for this equipment</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="status">Status</label>
+                    <select id="status" name="status">
+                        <option value="operational" {% if equipment and equipment.status == 'operational' %}selected{% endif %}>Operational</option>
+                        <option value="maintenance" {% if equipment and equipment.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                        <option value="offline" {% if equipment and equipment.status == 'offline' %}selected{% endif %}>Offline</option>
+                        <option value="retired" {% if equipment and equipment.status == 'retired' %}selected{% endif %}>Retired</option>
+                    </select>
+                </div>
             </div>
-            
-            <div class="form-group">
-                <label for="equipment_type">Type</label>
-                <select id="equipment_type" name="equipment_type">
-                    <option value="">Select type...</option>
-                    <option value="movement" {% if equipment and equipment.equipment_type == 'movement' %}selected{% endif %}>Movement</option>
-                    <option value="measurement" {% if equipment and equipment.equipment_type == 'measurement' %}selected{% endif %}>Measurement</option>
-                    <option value="fabrication" {% if equipment and equipment.equipment_type == 'fabrication' %}selected{% endif %}>Fabrication</option>
-                    <option value="other" {% if equipment and equipment.equipment_type == 'other' %}selected{% endif %}>Other</option>
-                </select>
+        </div>
+        
+        <div class="form-section">
+            <h2>Manufacturer Details</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="manufacturer">Manufacturer</label>
+                    <input type="text" id="manufacturer" name="manufacturer"
+                           value="{{ equipment.manufacturer if equipment else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="model">Model</label>
+                    <input type="text" id="model" name="model"
+                           value="{{ equipment.model if equipment else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="serial_number">Serial Number</label>
+                    <input type="text" id="serial_number" name="serial_number"
+                           value="{{ equipment.serial_number if equipment else '' }}">
+                </div>
             </div>
-            
-            <div class="form-group">
-                <label for="pybirch_class">PyBirch Class</label>
-                <input type="text" id="pybirch_class" name="pybirch_class"
-                       value="{{ equipment.pybirch_class if equipment else '' }}"
-                       placeholder="e.g., Keithley2400">
+        </div>
+        
+        <div class="form-section">
+            <h2>Location</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="location">Location</label>
+                    <input type="text" id="location" name="location"
+                           value="{{ equipment.location if equipment else '' }}"
+                           placeholder="e.g., Building A">
+                </div>
+                
+                <div class="form-group">
+                    <label for="room">Room</label>
+                    <input type="text" id="room" name="room"
+                           value="{{ equipment.room if equipment else '' }}"
+                           placeholder="e.g., 101">
+                </div>
             </div>
-            
-            <div class="form-group">
-                <label for="manufacturer">Manufacturer</label>
-                <input type="text" id="manufacturer" name="manufacturer"
-                       value="{{ equipment.manufacturer if equipment else '' }}">
-            </div>
-            
-            <div class="form-group">
-                <label for="model">Model</label>
-                <input type="text" id="model" name="model"
-                       value="{{ equipment.model if equipment else '' }}">
-            </div>
-            
-            <div class="form-group">
-                <label for="serial_number">Serial Number</label>
-                <input type="text" id="serial_number" name="serial_number"
-                       value="{{ equipment.serial_number if equipment else '' }}">
-            </div>
-            
-            <div class="form-group">
-                <label for="adapter">Adapter / Connection String</label>
-                <input type="text" id="adapter" name="adapter"
-                       value="{{ equipment.adapter if equipment else '' }}"
-                       placeholder="e.g., GPIB0::24::INSTR">
-            </div>
-            
-            <div class="form-group">
-                <label for="location">Location</label>
-                <input type="text" id="location" name="location"
-                       value="{{ equipment.location if equipment else '' }}"
-                       placeholder="e.g., Lab 101">
-            </div>
-            
-            <div class="form-group">
-                <label for="status">Status</label>
-                <select id="status" name="status">
-                    <option value="available" {% if equipment and equipment.status == 'available' %}selected{% endif %}>Available</option>
-                    <option value="in_use" {% if equipment and equipment.status == 'in_use' %}selected{% endif %}>In Use</option>
-                    <option value="maintenance" {% if equipment and equipment.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
-                    <option value="retired" {% if equipment and equipment.status == 'retired' %}selected{% endif %}>Retired</option>
-                </select>
+        </div>
+        
+        <div class="form-section">
+            <h2>Maintenance & Warranty</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="purchase_date">Purchase Date</label>
+                    <input type="date" id="purchase_date" name="purchase_date"
+                           value="{{ equipment.purchase_date if equipment else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="warranty_expiration">Warranty Expiration</label>
+                    <input type="date" id="warranty_expiration" name="warranty_expiration"
+                           value="{{ equipment.warranty_expiration if equipment else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="last_maintenance_date">Last Maintenance</label>
+                    <input type="date" id="last_maintenance_date" name="last_maintenance_date"
+                           value="{{ equipment.last_maintenance_date if equipment else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="next_maintenance_date">Next Maintenance</label>
+                    <input type="date" id="next_maintenance_date" name="next_maintenance_date"
+                           value="{{ equipment.next_maintenance_date if equipment else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="maintenance_interval_days">Maintenance Interval (days)</label>
+                    <input type="number" id="maintenance_interval_days" name="maintenance_interval_days"
+                           value="{{ equipment.maintenance_interval_days if equipment else '' }}"
+                           placeholder="e.g., 90">
+                </div>
+                
+                <div class="form-group">
+                    <label for="documentation_url">Documentation URL</label>
+                    <input type="url" id="documentation_url" name="documentation_url"
+                           value="{{ equipment.documentation_url if equipment and equipment.documentation_url else '' }}"
+                           placeholder="https://...">
+                    <small class="form-hint">Link to manual or documentation</small>
+                </div>
             </div>
         </div>
         
@@ -101,26 +175,28 @@
 </div>
 
 <style>
-.template-notice {
-    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-    border: 1px solid #81c784;
+.form-section {
+    background: var(--card-bg);
     border-radius: 8px;
-    padding: 1rem 1.5rem;
+    padding: 1.5rem;
     margin-bottom: 1.5rem;
 }
-.template-badge {
-    background: #4caf50;
-    color: white;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    margin-right: 0.5rem;
+.form-section h2 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
 }
-.template-notice strong { color: #2e7d32; }
-.template-hint {
-    margin: 0.5rem 0 0 0;
-    font-size: 0.9rem;
-    color: #558b2f;
+.form-hint {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.85rem;
+    color: #666;
+}
+.full-width {
+    grid-column: 1 / -1;
 }
 </style>
 {% endblock %}

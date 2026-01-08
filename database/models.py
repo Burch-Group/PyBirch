@@ -92,6 +92,7 @@ class Lab(Base):
     members: Mapped[List["LabMember"]] = relationship("LabMember", back_populates="lab", cascade="all, delete-orphan")
     projects: Mapped[List["Project"]] = relationship("Project", back_populates="lab")
     equipment: Mapped[List["Equipment"]] = relationship("Equipment", back_populates="lab")
+    instruments: Mapped[List["Instrument"]] = relationship("Instrument", back_populates="lab")
     samples: Mapped[List["Sample"]] = relationship("Sample", back_populates="lab")
     
     __table_args__ = (
@@ -265,18 +266,55 @@ class User(Base):
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     role: Mapped[str] = mapped_column(String(50), default='user')  # 'admin', 'user', 'viewer'
     lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    default_lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)  # User's preferred lab for autofill
+    default_project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)  # User's preferred project for autofill
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    orcid: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # ORCID identifier
+    office_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    lab = relationship("Lab", backref="users")
+    lab = relationship("Lab", backref="users", foreign_keys=[lab_id])
+    default_lab = relationship("Lab", foreign_keys=[default_lab_id])
+    default_project = relationship("Project", foreign_keys=[default_project_id])
     issues_created = relationship("Issue", back_populates="reporter", foreign_keys="Issue.reporter_id")
     issues_assigned = relationship("Issue", back_populates="assignee", foreign_keys="Issue.assignee_id")
+    pins = relationship("UserPin", back_populates="user", cascade="all, delete-orphan")
+    owned_equipment = relationship("Equipment", back_populates="owner")
+    equipment_issues_created = relationship("EquipmentIssue", back_populates="reporter", foreign_keys="EquipmentIssue.reporter_id")
+    equipment_issues_assigned = relationship("EquipmentIssue", back_populates="assignee", foreign_keys="EquipmentIssue.assignee_id")
     
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', role='{self.role}')>"
+
+
+class UserPin(Base):
+    """
+    Tracks items pinned by users for quick access.
+    """
+    __tablename__ = "user_pins"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'sample', 'scan', 'queue', 'project', etc.
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="pins")
+    
+    __table_args__ = (
+        Index('idx_user_pins_user', 'user_id'),
+        Index('idx_user_pins_entity', 'entity_type', 'entity_id'),
+        # Unique constraint: user can only pin an entity once
+        Index('uq_user_pins', 'user_id', 'entity_type', 'entity_id', unique=True),
+    )
+    
+    def __repr__(self):
+        return f"<UserPin(user_id={self.user_id}, entity={self.entity_type}:{self.entity_id})>"
 
 
 # ============================================================
@@ -322,20 +360,20 @@ class Issue(Base):
 
 
 # ============================================================
-# EQUIPMENT & INSTRUMENTS
+# INSTRUMENTS (formerly Equipment) - PyBirch-compatible devices
 # ============================================================
 
-class Equipment(Base):
+class Instrument(Base):
     """
-    Laboratory equipment and instruments.
+    Laboratory instruments that interface with PyBirch.
     Maps to PyBirch's Movement and Measurement instruments.
     """
-    __tablename__ = "equipment"
+    __tablename__ = "instruments"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    equipment_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'movement', 'measurement', 'fabrication'
+    instrument_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'movement', 'measurement', 'fabrication'
     pybirch_class: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # e.g., 'Keithley2400', 'NewportStage'
     manufacturer: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -350,15 +388,304 @@ class Equipment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     template_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('templates.id'), nullable=True)
+    equipment_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('equipment.id'), nullable=True)  # Parent equipment
+    definition_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('instrument_definitions.id'), nullable=True)  # Link to code definition
+    
+    # Relationships
+    lab: Mapped[Optional["Lab"]] = relationship("Lab", back_populates="instruments")
+    template: Mapped[Optional["Template"]] = relationship("Template", foreign_keys=[template_id])
+    equipment: Mapped[Optional["Equipment"]] = relationship("Equipment", back_populates="instruments")
+    status_history: Mapped[List["InstrumentStatus"]] = relationship("InstrumentStatus", back_populates="instrument", order_by="InstrumentStatus.updated_at.desc()", cascade="all, delete-orphan")
+    definition: Mapped[Optional["InstrumentDefinition"]] = relationship("InstrumentDefinition")
+    computer_bindings: Mapped[List["ComputerBinding"]] = relationship("ComputerBinding", back_populates="instrument", cascade="all, delete-orphan")
+    
+    def __repr__(self):
+        return f"<Instrument(id={self.id}, name='{self.name}', type='{self.instrument_type}')>"
+
+
+class InstrumentStatus(Base):
+    """
+    Real-time instrument status tracking.
+    Captures connection state, settings, and errors for PyBirch instruments.
+    """
+    __tablename__ = "instrument_status"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instrument_id: Mapped[int] = mapped_column(Integer, ForeignKey('instruments.id'), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default='disconnected')  # 'connected', 'disconnected', 'error', 'busy'
+    last_connected: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    current_settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Current instrument settings
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_traceback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    instrument: Mapped["Instrument"] = relationship("Instrument", back_populates="status_history")
+    
+    __table_args__ = (
+        Index('idx_instrument_status_instrument', 'instrument_id'),
+        Index('idx_instrument_status_status', 'status'),
+        Index('idx_instrument_status_updated', 'updated_at'),
+    )
+    
+    def __repr__(self):
+        return f"<InstrumentStatus(id={self.id}, instrument_id={self.instrument_id}, status='{self.status}')>"
+
+
+# ============================================================
+# INSTRUMENT DEFINITIONS - Stored instrument code
+# ============================================================
+
+class InstrumentDefinition(Base):
+    """
+    Stores executable Python code for PyBirch instruments.
+    This is the 'class definition' - reusable across multiple physical instruments.
+    Enables browser-based instrument creation and per-computer discovery.
+    """
+    __tablename__ = "instrument_definitions"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Identity
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)  # Class name
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Classification
+    instrument_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'movement' or 'measurement'
+    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'Lock-In Amplifier', 'Stage', etc.
+    manufacturer: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    
+    # The actual code
+    source_code: Mapped[str] = mapped_column(Text, nullable=False)  # Full Python class definition
+    base_class: Mapped[str] = mapped_column(String(100), nullable=False)  # 'FakeMeasurementInstrument', etc.
+    dependencies: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # ['pyvisa', 'numpy', ...]
+    
+    # Configuration schema
+    settings_schema: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # JSON Schema for settings
+    default_settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    # Metadata for measurement instruments
+    data_columns: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # ['X', 'Y', 'R']
+    data_units: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)    # ['V', 'V', 'V']
+    
+    # Metadata for movement instruments
+    position_column: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    position_units: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    
+    # Ownership and versioning
+    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False)  # Shared across labs?
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)  # Shipped with PyBirch?
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=True)  # Approved for use?
+    
+    # Audit
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    lab: Mapped[Optional["Lab"]] = relationship("Lab")
+    versions: Mapped[List["InstrumentDefinitionVersion"]] = relationship(
+        "InstrumentDefinitionVersion", back_populates="definition", 
+        order_by="InstrumentDefinitionVersion.version.desc()", cascade="all, delete-orphan"
+    )
+    
+    __table_args__ = (
+        Index('idx_instrument_def_type', 'instrument_type'),
+        Index('idx_instrument_def_lab', 'lab_id'),
+        Index('idx_instrument_def_category', 'category'),
+    )
+    
+    def __repr__(self):
+        return f"<InstrumentDefinition(id={self.id}, name='{self.name}', type='{self.instrument_type}')>"
+
+
+class InstrumentDefinitionVersion(Base):
+    """
+    Version history for instrument definitions.
+    Allows rollback and audit trail for code changes.
+    """
+    __tablename__ = "instrument_definition_versions"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    definition_id: Mapped[int] = mapped_column(Integer, ForeignKey('instrument_definitions.id'), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_code: Mapped[str] = mapped_column(Text, nullable=False)
+    change_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    definition: Mapped["InstrumentDefinition"] = relationship("InstrumentDefinition", back_populates="versions")
+    
+    __table_args__ = (
+        Index('idx_instrument_def_version_def', 'definition_id'),
+        UniqueConstraint('definition_id', 'version', name='uq_definition_version'),
+    )
+    
+    def __repr__(self):
+        return f"<InstrumentDefinitionVersion(id={self.id}, definition_id={self.definition_id}, version={self.version})>"
+
+
+class ComputerBinding(Base):
+    """
+    Binds instrument instances to specific computers.
+    Enables auto-discovery of instruments per PyBirch instance.
+    Tracks last adapter and connection info for each computer.
+    """
+    __tablename__ = "computer_bindings"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instrument_id: Mapped[int] = mapped_column(Integer, ForeignKey('instruments.id'), nullable=False)
+    
+    # Computer identification
+    computer_name: Mapped[str] = mapped_column(String(255), nullable=False)  # hostname
+    computer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # MAC address or UUID
+    username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # OS username
+    
+    # Connection info (last known)
+    adapter: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # VISA address
+    adapter_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # 'GPIB', 'USB', 'Serial', 'TCP'
+    
+    # Status
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=True)  # Primary computer for this instrument
+    last_connected: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    # Audit
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    instrument: Mapped["Instrument"] = relationship("Instrument", back_populates="computer_bindings")
+    
+    __table_args__ = (
+        UniqueConstraint('instrument_id', 'computer_name', name='uq_instrument_computer'),
+        Index('idx_computer_binding_computer', 'computer_name'),
+        Index('idx_computer_binding_instrument', 'instrument_id'),
+    )
+    
+    def __repr__(self):
+        return f"<ComputerBinding(id={self.id}, instrument_id={self.instrument_id}, computer='{self.computer_name}')>"
+
+
+# ============================================================
+# EQUIPMENT - Large lab equipment (gloveboxes, chambers, etc.)
+# ============================================================
+
+class Equipment(Base):
+    """
+    Large laboratory equipment like gloveboxes, deposition chambers, photolithography machines.
+    These are not PyBirch-controlled instruments but contain or support instruments.
+    """
+    __tablename__ = "equipment"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    equipment_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'glovebox', 'chamber', 'lithography', 'furnace', 'other'
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    manufacturer: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    serial_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    room: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Room number
+    status: Mapped[str] = mapped_column(String(50), default='operational')  # 'operational', 'maintenance', 'offline', 'retired'
+    owner_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)  # Responsible person
+    purchase_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    warranty_expiration: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    last_maintenance_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    next_maintenance_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    maintenance_interval_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    specifications: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Technical specs
+    documentation_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Manual/docs link
+    extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     lab: Mapped[Optional["Lab"]] = relationship("Lab", back_populates="equipment")
-    template: Mapped[Optional["Template"]] = relationship("Template", foreign_keys=[template_id])
+    owner: Mapped[Optional["User"]] = relationship("User", back_populates="owned_equipment")
+    instruments: Mapped[List["Instrument"]] = relationship("Instrument", back_populates="equipment")
     procedure_associations: Mapped[List["ProcedureEquipment"]] = relationship("ProcedureEquipment", back_populates="equipment")
+    images: Mapped[List["EquipmentImage"]] = relationship("EquipmentImage", back_populates="equipment", cascade="all, delete-orphan")
+    issues: Mapped[List["EquipmentIssue"]] = relationship("EquipmentIssue", back_populates="equipment", cascade="all, delete-orphan")
     fabrication_runs: Mapped[List["FabricationRunEquipment"]] = relationship("FabricationRunEquipment", back_populates="equipment")
+    
+    __table_args__ = (
+        Index('idx_equipment_lab', 'lab_id'),
+        Index('idx_equipment_owner', 'owner_id'),
+        Index('idx_equipment_status', 'status'),
+    )
     
     def __repr__(self):
         return f"<Equipment(id={self.id}, name='{self.name}', type='{self.equipment_type}')>"
+
+
+class EquipmentImage(Base):
+    """Images associated with equipment."""
+    __tablename__ = "equipment_images"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    equipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment.id'), nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    original_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mime_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    caption: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)  # Primary/thumbnail image
+    uploaded_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    equipment: Mapped["Equipment"] = relationship("Equipment", back_populates="images")
+    
+    __table_args__ = (
+        Index('idx_equipment_images_equipment', 'equipment_id'),
+    )
+
+
+class EquipmentIssue(Base):
+    """
+    Issue tracking for equipment problems, maintenance requests, etc.
+    """
+    __tablename__ = "equipment_issues"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    equipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment.id'), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category: Mapped[str] = mapped_column(String(50), default='malfunction')  # 'malfunction', 'maintenance', 'safety', 'consumables', 'other'
+    priority: Mapped[str] = mapped_column(String(50), default='medium')  # 'low', 'medium', 'high', 'critical'
+    status: Mapped[str] = mapped_column(String(50), default='open')  # 'open', 'in_progress', 'resolved', 'closed', 'wont_fix'
+    reporter_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    assignee_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    steps_to_reproduce: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resolution: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cost: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)  # Repair/maintenance cost
+    downtime_hours: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)  # Equipment downtime
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    equipment: Mapped["Equipment"] = relationship("Equipment", back_populates="issues")
+    reporter = relationship("User", back_populates="equipment_issues_created", foreign_keys=[reporter_id])
+    assignee = relationship("User", back_populates="equipment_issues_assigned", foreign_keys=[assignee_id])
+    
+    __table_args__ = (
+        Index('idx_equipment_issues_equipment', 'equipment_id'),
+        Index('idx_equipment_issues_status', 'status'),
+        Index('idx_equipment_issues_reporter', 'reporter_id'),
+        Index('idx_equipment_issues_assignee', 'assignee_id'),
+    )
+    
+    def __repr__(self):
+        return f"<EquipmentIssue(id={self.id}, equipment_id={self.equipment_id}, title='{self.title}')>"
 
 
 # ============================================================
@@ -373,6 +700,7 @@ class Precursor(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
+    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     chemical_formula: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     cas_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
@@ -393,10 +721,15 @@ class Precursor(Base):
     
     # Relationships
     project: Mapped[Optional["Project"]] = relationship("Project", back_populates="precursors")
+    lab: Mapped[Optional["Lab"]] = relationship("Lab", foreign_keys=[lab_id])
     template: Mapped[Optional["Template"]] = relationship("Template", foreign_keys=[template_id])
     inventory: Mapped[List["PrecursorInventory"]] = relationship("PrecursorInventory", back_populates="precursor")
     sample_associations: Mapped[List["SamplePrecursor"]] = relationship("SamplePrecursor", back_populates="precursor")
     procedure_associations: Mapped[List["ProcedurePrecursor"]] = relationship("ProcedurePrecursor", back_populates="precursor")
+    
+    __table_args__ = (
+        Index('idx_precursors_lab', 'lab_id'),
+    )
     
     def __repr__(self):
         return f"<Precursor(id={self.id}, name='{self.name}', formula='{self.chemical_formula}')>"
@@ -437,6 +770,7 @@ class Procedure(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
+    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     procedure_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'deposition', 'annealing', etc.
     version: Mapped[str] = mapped_column(String(20), default='1.0')
@@ -453,10 +787,15 @@ class Procedure(Base):
     
     # Relationships
     project: Mapped[Optional["Project"]] = relationship("Project", back_populates="procedures")
+    lab: Mapped[Optional["Lab"]] = relationship("Lab", foreign_keys=[lab_id])
     template: Mapped[Optional["Template"]] = relationship("Template", foreign_keys=[template_id])
     equipment_associations: Mapped[List["ProcedureEquipment"]] = relationship("ProcedureEquipment", back_populates="procedure")
     precursor_associations: Mapped[List["ProcedurePrecursor"]] = relationship("ProcedurePrecursor", back_populates="procedure")
     fabrication_runs: Mapped[List["FabricationRun"]] = relationship("FabricationRun", back_populates="procedure")
+    
+    __table_args__ = (
+        Index('idx_procedures_lab', 'lab_id'),
+    )
     
     def __repr__(self):
         return f"<Procedure(id={self.id}, name='{self.name}', type='{self.procedure_type}')>"
@@ -610,11 +949,12 @@ class FabricationRun(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sample_id: Mapped[int] = mapped_column(Integer, ForeignKey('samples.id'), nullable=False)
     procedure_id: Mapped[int] = mapped_column(Integer, ForeignKey('procedures.id'), nullable=False)
+    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
     run_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Order in fabrication sequence
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default='pending')  # 'pending', 'in_progress', 'completed', 'failed'
-    operator: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Operator who ran the fabrication
     actual_parameters: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     results: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -636,11 +976,13 @@ class FabricationRun(Base):
     # Relationships
     sample: Mapped["Sample"] = relationship("Sample", back_populates="fabrication_runs")
     procedure: Mapped["Procedure"] = relationship("Procedure", back_populates="fabrication_runs")
+    lab: Mapped[Optional["Lab"]] = relationship("Lab", foreign_keys=[lab_id])
     equipment_used: Mapped[List["FabricationRunEquipment"]] = relationship("FabricationRunEquipment", back_populates="fabrication_run")
     precursors_consumed: Mapped[List["FabricationRunPrecursor"]] = relationship("FabricationRunPrecursor", back_populates="fabrication_run")
     
     __table_args__ = (
         Index('idx_fabrication_sample', 'sample_id'),
+        Index('idx_fabrication_lab', 'lab_id'),
     )
 
 
@@ -687,6 +1029,7 @@ class ScanTemplate(Base):
     __tablename__ = "scan_templates"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     scan_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # '1D Scan', '2D Scan', etc.
     job_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'Raman', 'Transport', etc.
@@ -702,8 +1045,13 @@ class ScanTemplate(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
     # Relationships
+    lab: Mapped[Optional["Lab"]] = relationship("Lab", foreign_keys=[lab_id])
     queue_template_items: Mapped[List["QueueTemplateItem"]] = relationship("QueueTemplateItem", back_populates="scan_template")
     scans: Mapped[List["Scan"]] = relationship("Scan", back_populates="scan_template")
+    
+    __table_args__ = (
+        Index('idx_scan_templates_lab', 'lab_id'),
+    )
     
     def __repr__(self):
         return f"<ScanTemplate(id={self.id}, name='{self.name}', type='{self.scan_type}')>"
@@ -717,6 +1065,7 @@ class QueueTemplate(Base):
     __tablename__ = "queue_templates"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     default_settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -727,8 +1076,13 @@ class QueueTemplate(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
     # Relationships
+    lab: Mapped[Optional["Lab"]] = relationship("Lab", foreign_keys=[lab_id])
     items: Mapped[List["QueueTemplateItem"]] = relationship("QueueTemplateItem", back_populates="queue_template", order_by="QueueTemplateItem.position")
     queues: Mapped[List["Queue"]] = relationship("Queue", back_populates="queue_template")
+    
+    __table_args__ = (
+        Index('idx_queue_templates_lab', 'lab_id'),
+    )
     
     def __repr__(self):
         return f"<QueueTemplate(id={self.id}, name='{self.name}')>"
@@ -769,6 +1123,7 @@ class Queue(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
+    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
     queue_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)  # Maps to PyBirch Queue.QID
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     sample_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('samples.id'), nullable=True)
@@ -780,7 +1135,7 @@ class Queue(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     total_scans: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     completed_scans: Mapped[int] = mapped_column(Integer, default=0)
-    operator: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Operator who ran the queue
     settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     wandb_run_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Link to W&B
@@ -790,6 +1145,7 @@ class Queue(Base):
     
     # Relationships
     project: Mapped[Optional["Project"]] = relationship("Project", back_populates="queues")
+    lab: Mapped[Optional["Lab"]] = relationship("Lab", foreign_keys=[lab_id])
     sample: Mapped[Optional["Sample"]] = relationship("Sample", back_populates="queues")
     queue_template: Mapped[Optional["QueueTemplate"]] = relationship("QueueTemplate", back_populates="queues")
     scans: Mapped[List["Scan"]] = relationship("Scan", back_populates="queue", order_by="Scan.position_in_queue")
@@ -799,6 +1155,7 @@ class Queue(Base):
         Index('idx_queues_status', 'status'),
         Index('idx_queues_sample', 'sample_id'),
         Index('idx_queues_project', 'project_id'),
+        Index('idx_queues_lab', 'lab_id'),
     )
     
     def __repr__(self):
@@ -842,6 +1199,7 @@ class Scan(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
+    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
     scan_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)  # User-friendly ID
     queue_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('queues.id'), nullable=True)
     sample_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('samples.id'), nullable=True)
@@ -853,7 +1211,7 @@ class Scan(Base):
     scan_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     scan_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     job_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    owner: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Owner/operator of the scan
     additional_tags: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     
     # Execution info
@@ -875,6 +1233,7 @@ class Scan(Base):
     
     # Relationships
     project: Mapped[Optional["Project"]] = relationship("Project", back_populates="scans")
+    lab: Mapped[Optional["Lab"]] = relationship("Lab", foreign_keys=[lab_id])
     queue: Mapped[Optional["Queue"]] = relationship("Queue", back_populates="scans")
     sample: Mapped[Optional["Sample"]] = relationship("Sample", back_populates="scans")
     scan_template: Mapped[Optional["ScanTemplate"]] = relationship("ScanTemplate", back_populates="scans")
@@ -886,6 +1245,7 @@ class Scan(Base):
         Index('idx_scans_sample', 'sample_id'),
         Index('idx_scans_queue', 'queue_id'),
         Index('idx_scans_project', 'project_id'),
+        Index('idx_scans_lab', 'lab_id'),
     )
     
     @classmethod
@@ -898,7 +1258,7 @@ class Scan(Base):
             scan_name=settings.scan_name,
             scan_type=settings.scan_type,
             job_type=settings.job_type,
-            owner=pybirch_scan.owner,
+            created_by=getattr(pybirch_scan, 'owner', None),  # Map PyBirch owner to created_by
             additional_tags=settings.additional_tags,
             status=settings.status,
             scan_tree_data=settings.scan_tree.serialize() if settings.scan_tree else None,
@@ -1046,7 +1406,7 @@ class Analysis(Base):
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     parameters: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Parameters used
-    operator: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Operator who ran the analysis
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -1153,6 +1513,33 @@ class EntityTag(Base):
 # ============================================================
 # ATTACHMENTS & FILES
 # ============================================================
+
+class EntityImage(Base):
+    """Images attached to any entity (samples, precursors, equipment, procedures)."""
+    __tablename__ = "entity_images"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'sample', 'precursor', 'equipment', 'procedure'
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)  # Original filename
+    stored_filename: Mapped[str] = mapped_column(String(255), nullable=False)  # UUID-based stored filename
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # User-provided name/title
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mime_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    uploaded_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_entity_images', 'entity_type', 'entity_id'),
+        Index('idx_entity_images_created', 'created_at'),
+    )
+    
+    def __repr__(self):
+        return f"<EntityImage(id={self.id}, entity='{self.entity_type}:{self.entity_id}', name='{self.name}')>"
+
 
 class Attachment(Base):
     """File attachments for any entity."""

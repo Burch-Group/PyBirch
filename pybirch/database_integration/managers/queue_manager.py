@@ -95,11 +95,17 @@ class QueueManager:
         Returns:
             Dictionary with created queue data
         """
-        queue_id = pybirch_queue.QID
+        # Generate a unique queue_id with timestamp to avoid conflicts
+        # Format: QueueName_YYYYMMDD_HHMMSS_microseconds
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        unique_queue_id = f"{pybirch_queue.QID}_{timestamp}"
+        
+        # Queue name is the user-friendly display name (the original QID)
+        queue_name = pybirch_queue.QID
         
         data = {
-            'queue_id': queue_id,
-            'name': f"Queue {queue_id}",
+            'queue_id': unique_queue_id,  # Unique identifier for database
+            'name': queue_name,            # User-friendly display name
             'status': pybirch_queue.state.name.lower(),
             'execution_mode': pybirch_queue.execution_mode.name,
             'sample_id': sample_id,
@@ -108,7 +114,7 @@ class QueueManager:
         }
         
         db_queue = self.db.create_queue(data)
-        self._active_queues[queue_id] = db_queue['id']
+        self._active_queues[unique_queue_id] = db_queue['id']
         
         return db_queue
     
@@ -128,7 +134,7 @@ class QueueManager:
         
         result = self.db.update_queue(db_id, {
             'status': 'running',
-            'started_at': datetime.now().isoformat()
+            'started_at': datetime.now()  # Use datetime object, not string
         })
         return result is not None
     
@@ -158,7 +164,7 @@ class QueueManager:
         
         result = self.db.update_queue(db_id, {
             'status': 'completed',
-            'completed_at': datetime.now().isoformat()
+            'completed_at': datetime.now()  # Use datetime object, not string
         })
         
         if result:
@@ -174,7 +180,7 @@ class QueueManager:
         
         result = self.db.update_queue(db_id, {
             'status': 'stopped',
-            'completed_at': datetime.now().isoformat()
+            'completed_at': datetime.now()  # Use datetime object, not string
         })
         
         if result:

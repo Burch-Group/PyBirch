@@ -37,9 +37,14 @@
     <p class="result-count">{{ total }} project(s) found</p>
     
     {% if projects %}
+        {# Separate pinned and unpinned items #}
+        {% set pinned_items = projects | selectattr('id', 'in', pinned_ids) | list %}
+        {% set unpinned_items = projects | rejectattr('id', 'in', pinned_ids) | list %}
+        
         <table class="data-table">
             <thead>
                 <tr>
+                    <th style="width: 30px;"></th>
                     <th>Name</th>
                     <th>Code</th>
                     <th>Lab</th>
@@ -50,8 +55,40 @@
                 </tr>
             </thead>
             <tbody>
-                {% for project in projects %}
+                {# Pinned items first #}
+                {% for project in pinned_items %}
+                <tr class="pinned-row">
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn pinned" data-entity-type="project" data-entity-id="{{ project.id }}" title="Unpin">📌</button>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('main.project_detail', project_id=project.id) }}">{{ project.name }}</a></td>
+                    <td>{{ project.code or '-' }}</td>
+                    <td>
+                        {% if project.lab_id %}
+                        <a href="{{ url_for('main.lab_detail', lab_id=project.lab_id) }}">{{ project.lab_name or 'Lab #' ~ project.lab_id }}</a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td><span class="status-badge status-{{ project.status }}">{{ project.status }}</span></td>
+                    <td>{{ project.start_date or '-' }}</td>
+                    <td>{{ project.funding_source or '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('main.project_detail', project_id=project.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.project_edit', project_id=project.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {# Unpinned items #}
+                {% for project in unpinned_items %}
                 <tr>
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn" data-entity-type="project" data-entity-id="{{ project.id }}" title="Pin">📍</button>
+                        {% endif %}
+                    </td>
                     <td><a href="{{ url_for('main.project_detail', project_id=project.id) }}">{{ project.name }}</a></td>
                     <td>{{ project.code or '-' }}</td>
                     <td>

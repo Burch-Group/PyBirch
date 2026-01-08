@@ -5,12 +5,182 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}PyBirch Database{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Socket.IO for real-time updates -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        /* Real-time connection indicator */
+        .connection-status {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        .connection-status.connected { background: #22c55e; }
+        .connection-status.disconnected { background: #ef4444; }
+        .connection-status.connecting { background: #f59e0b; animation: pulse 1s infinite; }
+        
+        /* Status change highlight animation */
+        .status-updated {
+            animation: highlight 2s ease-out;
+        }
+        @keyframes highlight {
+            0% { background-color: rgba(59, 130, 246, 0.3); }
+            100% { background-color: transparent; }
+        }
+        
+        /* Live badge pulse for running status */
+        .status-badge.status-running {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        /* Connection status text */
+        .connection-status-text {
+            font-size: 0.75rem;
+            margin-left: 4px;
+        }
+        .connection-status-text.connected { color: #22c55e; }
+        .connection-status-text.disconnected { color: #ef4444; }
+        .connection-status-text.connecting { color: #f59e0b; }
+        
+        /* Live indicator */
+        .live-indicator {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            background: rgba(239, 68, 68, 0.1);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: #ef4444;
+        }
+        .live-indicator::before {
+            content: '';
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #ef4444;
+            border-radius: 50%;
+            margin-right: 6px;
+            animation: pulse 1s infinite;
+        }
+        
+        /* Position panel for instruments */
+        .position-panel {
+            font-family: 'Courier New', monospace;
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+        }
+        .position-axis {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 8px 0;
+            padding: 8px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 4px;
+        }
+        .position-label {
+            font-weight: bold;
+            color: #94a3b8;
+        }
+        .position-value {
+            color: #22d3ee;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        .position-value.moving {
+            color: #fbbf24;
+            animation: pulse 0.5s infinite;
+        }
+        .position-target {
+            color: #64748b;
+            font-size: 0.9em;
+        }
+        
+        /* Log panel */
+        .log-panel {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #0f172a;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+        }
+        .log-entry {
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin: 2px 0;
+        }
+        .log-entry.DEBUG { color: #64748b; }
+        .log-entry.INFO { color: #e2e8f0; }
+        .log-entry.WARNING { color: #fbbf24; background: rgba(251, 191, 36, 0.1); }
+        .log-entry.ERROR { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+        .log-timestamp {
+            color: #64748b;
+            margin-right: 8px;
+        }
+        
+        /* Live data chart container */
+        .live-chart-container {
+            position: relative;
+            min-height: 300px;
+            background: #fff;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+        }
+        
+        /* Live activity panel */
+        .live-activity-panel {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            color: #1e293b;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .live-activity-panel h3 {
+            margin: 0 0 16px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #1e293b;
+        }
+        .live-activity-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 8px;
+            margin: 8px 0;
+            border: 1px solid #e2e8f0;
+        }
+        .live-activity-item:hover {
+            background: #f1f5f9;
+        }
+    </style>
     {% block extra_head %}{% endblock %}
 </head>
 <body>
     <nav class="navbar">
+        <button class="hamburger-btn" id="hamburger-btn" aria-label="Toggle menu">
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+        </button>
         <div class="nav-brand">
-            <a href="{{ url_for('main.index') }}">🌳 PyBirch Database</a>
+            <a href="{{ url_for('main.index') }}">🌳<span class="brand-text"> PyBirch Database</span></a>
         </div>
         <div class="nav-search">
             <form action="{{ url_for('main.search') }}" method="GET">
@@ -18,21 +188,6 @@
                        value="{{ request.args.get('q', '') }}" class="search-input">
                 <button type="submit" class="btn btn-primary">Search</button>
             </form>
-        </div>
-        <div class="nav-links">
-            <a href="{{ url_for('main.labs') }}" class="nav-link {% if request.endpoint and 'lab' in request.endpoint and 'permission' not in request.endpoint %}active{% endif %}">Labs</a>
-            <a href="{{ url_for('main.projects') }}" class="nav-link {% if request.endpoint and 'project' in request.endpoint and 'permission' not in request.endpoint %}active{% endif %}">Projects</a>
-            <a href="{{ url_for('main.samples') }}" class="nav-link {% if request.endpoint and 'sample' in request.endpoint %}active{% endif %}">Samples</a>
-            <a href="{{ url_for('main.templates') }}" class="nav-link {% if request.endpoint and 'template' in request.endpoint %}active{% endif %}">Templates</a>
-            <a href="{{ url_for('main.scans') }}" class="nav-link {% if request.endpoint and 'scan' in request.endpoint %}active{% endif %}">Scans</a>
-            <a href="{{ url_for('main.queues') }}" class="nav-link {% if request.endpoint and 'queue' in request.endpoint %}active{% endif %}">Queues</a>
-            <a href="{{ url_for('main.equipment') }}" class="nav-link {% if request.endpoint and 'equipment' in request.endpoint %}active{% endif %}">Equipment</a>
-            <a href="{{ url_for('main.precursors') }}" class="nav-link {% if request.endpoint and 'precursor' in request.endpoint %}active{% endif %}">Precursors</a>
-            <a href="{{ url_for('main.procedures') }}" class="nav-link {% if request.endpoint and 'procedure' in request.endpoint %}active{% endif %}">Procedures</a>
-            <a href="{{ url_for('main.issues') }}" class="nav-link {% if request.endpoint and 'issue' in request.endpoint %}active{% endif %}">📋 Issues</a>
-            {% if current_user and current_user.role == 'admin' %}
-            <a href="{{ url_for('main.permissions') }}" class="nav-link nav-link-admin {% if request.endpoint and 'permission' in request.endpoint %}active{% endif %}">🔐 Permissions</a>
-            {% endif %}
         </div>
         <div class="nav-user">
             {% if current_user %}
@@ -48,6 +203,132 @@
             {% endif %}
         </div>
     </nav>
+    
+    <!-- Slide-out Navigation Menu -->
+    <div class="nav-overlay" id="nav-overlay"></div>
+    <div class="nav-drawer" id="nav-drawer">
+        <div class="nav-drawer-header">
+            <span>Navigation</span>
+            <button class="nav-drawer-close" id="nav-drawer-close">&times;</button>
+        </div>
+        <div class="nav-drawer-links">
+            <a href="{{ url_for('main.labs') }}" class="nav-drawer-link {% if request.endpoint and 'lab' in request.endpoint and 'permission' not in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/labs.svg') }}" class="nav-icon" alt="">
+                <span>Labs</span>
+            </a>
+            <a href="{{ url_for('main.projects') }}" class="nav-drawer-link {% if request.endpoint and 'project' in request.endpoint and 'permission' not in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/projects.svg') }}" class="nav-icon" alt="">
+                <span>Projects</span>
+            </a>
+            <a href="{{ url_for('main.samples') }}" class="nav-drawer-link {% if request.endpoint and 'sample' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/samples.svg') }}" class="nav-icon" alt="">
+                <span>Samples</span>
+            </a>
+            <a href="{{ url_for('main.templates') }}" class="nav-drawer-link {% if request.endpoint and 'template' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/templates.svg') }}" class="nav-icon" alt="">
+                <span>Templates</span>
+            </a>
+            <a href="{{ url_for('main.scans') }}" class="nav-drawer-link {% if request.endpoint and 'scan' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/scans.svg') }}" class="nav-icon" alt="">
+                <span>Scans</span>
+            </a>
+            <a href="{{ url_for('main.queues') }}" class="nav-drawer-link {% if request.endpoint and 'queue' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/queues.svg') }}" class="nav-icon" alt="">
+                <span>Queues</span>
+            </a>
+            <a href="{{ url_for('main.instruments') }}" class="nav-drawer-link {% if request.endpoint and 'instrument' in request.endpoint and 'definition' not in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/instruments.svg') }}" class="nav-icon" alt="">
+                <span>Instruments</span>
+            </a>
+            <a href="{{ url_for('main.instrument_definitions') }}" class="nav-drawer-link {% if request.endpoint and 'instrument_definition' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/instruments.svg') }}" class="nav-icon" alt="">
+                <span>Instrument Definitions</span>
+            </a>
+            <a href="{{ url_for('main.equipment') }}" class="nav-drawer-link {% if request.endpoint and 'equipment' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/equipment.svg') }}" class="nav-icon" alt="">
+                <span>Equipment</span>
+            </a>
+            <a href="{{ url_for('main.precursors') }}" class="nav-drawer-link {% if request.endpoint and 'precursor' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/precursors.svg') }}" class="nav-icon" alt="">
+                <span>Precursors</span>
+            </a>
+            <a href="{{ url_for('main.procedures') }}" class="nav-drawer-link {% if request.endpoint and 'procedure' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/procedures.svg') }}" class="nav-icon" alt="">
+                <span>Procedures</span>
+            </a>
+            <a href="{{ url_for('main.issues') }}" class="nav-drawer-link {% if request.endpoint and 'issue' in request.endpoint and 'equipment_issue' not in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/issues.svg') }}" class="nav-icon" alt="">
+                <span>Issues</span>
+            </a>
+            {% if current_user and current_user.role == 'admin' %}
+            <a href="{{ url_for('main.permissions') }}" class="nav-drawer-link nav-drawer-link-admin {% if request.endpoint and 'permission' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/permissions.svg') }}" class="nav-icon" alt="">
+                <span>Permissions</span>
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Filter Toggle Button (top right) -->
+    <button class="filter-toggle-btn {% if has_active_filter %}has-filter{% endif %}" id="filter-toggle-btn" title="Toggle Filters">
+        <span class="filter-icon-bars">
+            <span></span>
+            <span></span>
+            <span></span>
+        </span>
+        {% if has_active_filter %}
+        <span class="filter-indicator"></span>
+        {% endif %}
+    </button>
+    
+    <!-- Site-Wide Filter Row (Collapsible, beneath header) -->
+    <div class="filter-row collapsed" id="filter-bar">
+        <div class="filter-row-content">
+            <form action="{{ url_for('main.set_site_filters') }}" method="POST" class="filter-row-form" id="site-filter-form">
+                <div class="filter-row-group">
+                    <label for="filter-lab-select">Lab:</label>
+                    <select name="lab_id" id="filter-lab-select" class="filter-select" onchange="updateProjectOptions()">
+                        <option value="">All Labs</option>
+                        {% for lab in filter_labs %}
+                        <option value="{{ lab.id }}" {% if filter_lab_id == lab.id %}selected{% endif %}>
+                            {{ lab.display }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="filter-row-group">
+                    <label for="filter-project-select">Project:</label>
+                    <select name="project_id" id="filter-project-select" class="filter-select">
+                        <option value="">All Projects</option>
+                        {% for project in filter_projects %}
+                        <option value="{{ project.id }}" {% if filter_project_id == project.id %}selected{% endif %}
+                                data-lab-id="{{ project.lab_id }}">
+                            {{ project.display }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="filter-row-actions">
+                    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+                    {% if has_active_filter %}
+                    <a href="{{ url_for('main.clear_site_filters') }}" class="btn btn-secondary btn-sm">Clear</a>
+                    {% endif %}
+                </div>
+                {% if has_active_filter %}
+                <div class="filter-row-active">
+                    <span>Active:</span>
+                    {% if filter_lab_name %}
+                    <span class="filter-badge filter-badge-lab">{{ filter_lab_name }}</span>
+                    {% endif %}
+                    {% if filter_project_name %}
+                    <span class="filter-badge filter-badge-project">{{ filter_project_name }}</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </form>
+            <button class="filter-row-close" id="filter-row-close" title="Close filters">&times;</button>
+        </div>
+    </div>
     
     <main class="main-content">
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -68,6 +349,170 @@
     </footer>
     
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+    // Site-wide filter functionality
+    function updateProjectOptions() {
+        const labSelect = document.getElementById('filter-lab-select');
+        const projectSelect = document.getElementById('filter-project-select');
+        const selectedLabId = labSelect.value;
+        
+        // Get all project options
+        const projectOptions = projectSelect.querySelectorAll('option');
+        
+        projectOptions.forEach(option => {
+            if (option.value === '') {
+                // Always show "All Projects" option
+                option.style.display = '';
+                option.disabled = false;
+            } else {
+                const optionLabId = option.getAttribute('data-lab-id');
+                if (!selectedLabId || optionLabId === selectedLabId) {
+                    option.style.display = '';
+                    option.disabled = false;
+                } else {
+                    option.style.display = 'none';
+                    option.disabled = true;
+                    // If this option was selected, reset to "All Projects"
+                    if (option.selected) {
+                        projectSelect.value = '';
+                    }
+                }
+            }
+        });
+        
+        // If searchable-select is initialized, re-render its options
+        const projectWrapper = projectSelect.closest('.searchable-select-wrapper');
+        if (projectWrapper) {
+            const selectedText = projectWrapper.querySelector('.selected-text');
+            if (selectedText) {
+                const selectedOption = projectSelect.options[projectSelect.selectedIndex];
+                selectedText.textContent = selectedOption ? selectedOption.text : 'All Projects';
+            }
+            // Re-render the dropdown options
+            const optionsList = projectWrapper.querySelector('.searchable-select-options');
+            if (optionsList) {
+                renderFilteredProjectOptions(projectSelect, optionsList, selectedLabId);
+            }
+        }
+    }
+    
+    function renderFilteredProjectOptions(select, optionsList, selectedLabId) {
+        optionsList.innerHTML = '';
+        
+        Array.from(select.options).forEach(opt => {
+            // Skip disabled/hidden options (filtered by lab)
+            if (opt.disabled && opt.value !== '') return;
+            
+            const optionDiv = document.createElement('div');
+            optionDiv.className = 'searchable-option';
+            optionDiv.dataset.value = opt.value;
+            optionDiv.textContent = opt.text;
+            
+            if (opt.value === select.value) {
+                optionDiv.classList.add('selected');
+            }
+            
+            optionDiv.addEventListener('click', () => {
+                select.value = opt.value;
+                select.dispatchEvent(new Event('change'));
+                const wrapper = select.closest('.searchable-select-wrapper');
+                if (wrapper) {
+                    wrapper.querySelector('.selected-text').textContent = opt.text;
+                    wrapper.classList.remove('open');
+                }
+            });
+            
+            optionsList.appendChild(optionDiv);
+        });
+    }
+    
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        updateProjectOptions();
+        
+        // Hamburger menu functionality
+        const hamburgerBtn = document.getElementById('hamburger-btn');
+        const navDrawer = document.getElementById('nav-drawer');
+        const navOverlay = document.getElementById('nav-overlay');
+        const navDrawerClose = document.getElementById('nav-drawer-close');
+        
+        function openDrawer() {
+            navDrawer.classList.add('open');
+            navOverlay.classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeDrawer() {
+            navDrawer.classList.remove('open');
+            navOverlay.classList.remove('open');
+            document.body.style.overflow = '';
+        }
+        
+        hamburgerBtn.addEventListener('click', openDrawer);
+        navOverlay.addEventListener('click', closeDrawer);
+        navDrawerClose.addEventListener('click', closeDrawer);
+        
+        // Filter row toggle functionality
+        const filterToggleBtn = document.getElementById('filter-toggle-btn');
+        const filterRow = document.getElementById('filter-bar');
+        const filterRowClose = document.getElementById('filter-row-close');
+        
+        filterToggleBtn.addEventListener('click', function() {
+            filterRow.classList.toggle('collapsed');
+            filterToggleBtn.classList.toggle('filter-open');
+        });
+        
+        filterRowClose.addEventListener('click', function() {
+            filterRow.classList.add('collapsed');
+            filterToggleBtn.classList.remove('filter-open');
+        });
+        
+        // Hide filter button on scroll down, show on scroll up
+        let lastScrollY = window.scrollY;
+        let ticking = false;
+        
+        function updateFilterButtonVisibility() {
+            const currentScrollY = window.scrollY;
+            
+            if (currentScrollY > lastScrollY && currentScrollY > 100) {
+                // Scrolling down - hide button and collapse filter row
+                filterToggleBtn.classList.add('hidden');
+                filterRow.classList.add('collapsed');
+                filterToggleBtn.classList.remove('filter-open');
+            } else {
+                // Scrolling up or at top - show button
+                filterToggleBtn.classList.remove('hidden');
+            }
+            
+            lastScrollY = currentScrollY;
+            ticking = false;
+        }
+        
+        window.addEventListener('scroll', function() {
+            if (!ticking) {
+                requestAnimationFrame(updateFilterButtonVisibility);
+                ticking = true;
+            }
+        });
+    });
+    </script>
+    <!-- PyBirch Real-Time WebSocket Client -->
+    <script src="{{ url_for('static', filename='js/pybirch-realtime.js') }}"></script>
+    <script>
+        // Initialize real-time client on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const realtime = initPyBirchRealtime();
+            realtime.connect();
+            
+            // Log connection status changes for debugging
+            realtime.onConnect(function() {
+                console.log('PyBirch Realtime connected');
+            });
+            realtime.onDisconnect(function(data) {
+                console.log('PyBirch Realtime disconnected:', data.reason);
+            });
+        });
+    </script>
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

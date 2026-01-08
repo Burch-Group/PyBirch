@@ -14,7 +14,7 @@
     
     {% if template %}
     <div class="template-notice">
-        <span class="template-badge">📋 Using Template</span>
+        <span class="template-badge">Using Template</span>
         <strong>{{ template.name }}</strong>
         {% if template.lab_name or (template.template_data and template.template_data.lab_name) %}
          - {{ template.lab_name or template.template_data.lab_name }}
@@ -101,30 +101,42 @@
         <!-- Relationships Section -->
         <div class="form-section">
             <h2>Relationships</h2>
-            <p class="section-description">Link this sample to a project, parent sample, or specify the precursors used to create it.</p>
+            <p class="section-description">Link this sample to a lab, project, parent sample, or specify the precursors used to create it.</p>
             
             <div class="form-grid">
                 <div class="form-group">
-                    <label for="project_id">
-                        <span class="label-icon">📁</span> Project
-                    </label>
-                    <select id="project_id" name="project_id" class="searchable-select">
+                    <label for="lab_id">Lab</label>
+                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab">
+                        <option value="">-- No Lab --</option>
+                        {% for lab in labs %}
+                        <option value="{{ lab.id }}" 
+                                {% if (sample and sample.lab_id and sample.lab_id == lab.id) or (default_lab_id == lab.id and (not sample or not sample.lab_id)) %}selected{% endif %}>
+                            {{ lab.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small>Associate this sample with a lab <a href="#" class="set-default-link" data-field="default_lab_id" data-source="lab_id">Set as default</a></small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="project_id">Project</label>
+                    <select id="project_id" name="project_id" class="searchable-select" data-entity-type="project">
                         <option value="">-- No Project --</option>
                         {% for project in projects %}
                         <option value="{{ project.id }}" 
-                                {% if sample and sample.project_id == project.id %}selected{% endif %}>
+                                {% if (sample and sample.project_id and sample.project_id == project.id) or (default_project_id == project.id and (not sample or not sample.project_id)) %}selected{% endif %}>
                             {{ project.display }}
                         </option>
                         {% endfor %}
                     </select>
-                    <small>Associate this sample with a research project</small>
+                    <small>Associate this sample with a research project <a href="#" class="set-default-link" data-field="default_project_id" data-source="project_id">Set as default</a></small>
                 </div>
                 
                 <div class="form-group">
                     <label for="parent_sample_id">
                         <span class="label-icon">🔗</span> Parent Sample (Derived From)
                     </label>
-                    <select id="parent_sample_id" name="parent_sample_id" class="searchable-select">
+                    <select id="parent_sample_id" name="parent_sample_id" class="searchable-select" data-entity-type="sample">
                         <option value="">-- No Parent Sample --</option>
                         {% for s in samples_list %}
                         <option value="{{ s.id }}"
@@ -140,9 +152,7 @@
         
         <!-- Precursors Section -->
         <div class="form-section">
-            <h2>
-                <span class="label-icon">🧪</span> Precursors Used
-            </h2>
+            <h2>Precursors Used</h2>
             <p class="section-description">Specify the chemical precursors or materials used to create this sample.</p>
             
             <div id="precursors-container">
@@ -152,7 +162,7 @@
                         <div class="precursor-fields">
                             <div class="form-group">
                                 <label>Precursor</label>
-                                <select name="precursor_id[]" class="searchable-select">
+                                <select name="precursor_id[]" class="searchable-select" data-entity-type="precursor">
                                     <option value="">Select precursor...</option>
                                     {% for p in precursors %}
                                     <option value="{{ p.id }}" {% if p.id == sp.precursor_id %}selected{% endif %}>
@@ -210,7 +220,7 @@
         <div class="precursor-fields">
             <div class="form-group">
                 <label>Precursor</label>
-                <select name="precursor_id[]" class="searchable-select">
+                <select name="precursor_id[]" class="searchable-select" data-entity-type="precursor">
                     <option value="">Select precursor...</option>
                     {% for p in precursors %}
                     <option value="{{ p.id }}">{{ p.display }}</option>
@@ -369,6 +379,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const clone = template.content.cloneNode(true);
         container.appendChild(clone);
         attachRemoveHandler(container.lastElementChild);
+        // Initialize searchable selects on the new row
+        if (typeof initSearchableSelects === 'function') {
+            initSearchableSelects();
+        }
     });
     
     // Attach remove handlers to existing rows

@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block title %}{{ instrument.name }} - PyBirch Database{% endblock %}
+
+{% block extra_head %}
+<style>
+    .error-panel {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid #ef4444;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 16px 0;
+        display: none;
+    }
+    .error-panel .error-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+    .error-panel .error-title {
+        color: #ef4444;
+        font-weight: bold;
+    }
+    .error-panel .error-message {
+        color: #dc2626;
+        font-family: monospace;
+    }
+    .error-panel .dismiss-btn {
+        background: transparent;
+        border: none;
+        color: #ef4444;
+        cursor: pointer;
+        font-size: 1.2em;
+    }
+    
+    .status-indicator {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 8px;
+        vertical-align: middle;
+    }
+    .status-indicator.status-connected { background: #22c55e; }
+    .status-indicator.status-disconnected { background: #64748b; }
+    .status-indicator.status-error { background: #ef4444; animation: pulse 1s infinite; }
+    .status-indicator.status-busy { background: #f59e0b; }
+    .status-indicator.status-moving { background: #3b82f6; animation: pulse 0.5s infinite; }
+    
+    .movement-status-text {
+        font-size: 0.9em;
+        margin-left: 8px;
+    }
+    .movement-status-text.status-idle { color: #64748b; }
+    .movement-status-text.status-moving { color: #3b82f6; }
+    .movement-status-text.status-error { color: #ef4444; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.instruments') }}">Instruments</a> / {{ instrument.name }}
+        </div>
+        <div class="header-actions">
+            <span id="connection-status" class="connection-status connecting" title="Connecting..."></span>
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <h1>
+            <span id="instrument-status-indicator" class="status-indicator status-{{ instrument.status }}" title="{{ instrument.status }}"></span>
+            {{ instrument.name }}
+            <span id="movement-status-text" class="movement-status-text status-idle">Idle</span>
+        </h1>
+        <div class="detail-actions">
+            <span class="status-badge status-{{ instrument.status }}" id="instrument-status-badge">{{ instrument.status }}</span>
+            <a href="{{ url_for('main.instrument_duplicate', instrument_id=instrument.id) }}" class="btn btn-secondary">Duplicate</a>
+            <a href="{{ url_for('main.instrument_edit', instrument_id=instrument.id) }}" class="btn btn-secondary">Edit</a>
+        </div>
+    </div>
+    
+    <!-- Error Panel (hidden by default) -->
+    <div class="error-panel" id="instrument-error-panel">
+        <div class="error-header">
+            <span class="error-title">⚠️ Instrument Error</span>
+            <button class="dismiss-btn" onclick="this.parentElement.parentElement.style.display='none'">&times;</button>
+        </div>
+        <div class="error-message"></div>
+    </div>
+    
+    <!-- Live Position Panel (for movement instruments) -->
+    {% if instrument.instrument_type == 'movement' %}
+    <div class="position-panel" id="position-panel">
+        <h3 style="margin: 0 0 12px 0; color: #94a3b8;">📍 Live Position</h3>
+        <div class="position-axis" data-axis="x">
+            <span class="position-label">X:</span>
+            <span>
+                <span class="position-value" id="position-x">--</span>
+                <span class="position-target" id="target-x" style="display: none;"></span>
+            </span>
+        </div>
+        <div class="position-axis" data-axis="y">
+            <span class="position-label">Y:</span>
+            <span>
+                <span class="position-value" id="position-y">--</span>
+                <span class="position-target" id="target-y" style="display: none;"></span>
+            </span>
+        </div>
+        <div class="position-axis" data-axis="z">
+            <span class="position-label">Z:</span>
+            <span>
+                <span class="position-value" id="position-z">--</span>
+                <span class="position-target" id="target-z" style="display: none;"></span>
+            </span>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- QR Code Section -->
+    <div class="qr-code-section">
+        <div class="qr-code-preview">
+            <img src="{{ url_for('main.instrument_qrcode_preview', instrument_id=instrument.id) }}" 
+                 alt="QR Code for {{ instrument.name }}" 
+                 class="qr-code-img">
+        </div>
+        <a href="{{ url_for('main.instrument_qrcode', instrument_id=instrument.id) }}" 
+           class="btn btn-secondary btn-small" download>
+            📥 Download QR Code
+        </a>
+    </div>
+    
+    <div class="detail-grid">
+        <div class="detail-section">
+            <h2>Basic Information</h2>
+            <dl class="detail-list">
+                <dt>Type</dt>
+                <dd>{{ instrument.instrument_type or '-' }}</dd>
+                
+                <dt>PyBirch Class</dt>
+                <dd><code>{{ instrument.pybirch_class or '-' }}</code></dd>
+                
+                <dt>Manufacturer</dt>
+                <dd>{{ instrument.manufacturer or '-' }}</dd>
+                
+                <dt>Model</dt>
+                <dd>{{ instrument.model or '-' }}</dd>
+                
+                <dt>Serial Number</dt>
+                <dd>{{ instrument.serial_number or '-' }}</dd>
+                
+                <dt>Location</dt>
+                <dd>{{ instrument.location or '-' }}</dd>
+                
+                {% if instrument.equipment_id %}
+                <dt>Parent Equipment</dt>
+                <dd><a href="{{ url_for('main.equipment_detail', equipment_id=instrument.equipment_id) }}">View Equipment</a></dd>
+                {% endif %}
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Connection & Calibration</h2>
+            <dl class="detail-list">
+                <dt>Adapter / Connection</dt>
+                <dd><code>{{ instrument.adapter or '-' }}</code></dd>
+                
+                <dt>Last Calibration</dt>
+                <dd>{{ instrument.calibration_date or '-' }}</dd>
+                
+                <dt>Next Calibration</dt>
+                <dd>{{ instrument.next_calibration_date or '-' }}</dd>
+                
+                <dt>Added</dt>
+                <dd>{{ instrument.created_at[:10] if instrument.created_at else '-' }}</dd>
+            </dl>
+            
+            {% if instrument.specifications %}
+            <h3>Specifications</h3>
+            <pre class="json-display">{{ instrument.specifications | tojson(indent=2) }}</pre>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Images Section -->
+    {% include 'partials/image_gallery.html' %}
+    
+    <!-- Current Settings (if connected) -->
+    <div class="detail-section" style="margin-top: 20px;">
+        <h2>Current Settings</h2>
+        <pre class="json-display" id="current-settings" style="background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 8px; font-size: 0.85rem;">Waiting for instrument connection...</pre>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/instrument-realtime.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize instrument realtime manager
+        const instrumentId = {{ instrument.id }};
+        window.instrumentManager = new InstrumentRealtimeManager(instrumentId);
+    });
+</script>
+{% endblock %}

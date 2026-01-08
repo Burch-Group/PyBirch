@@ -1,0 +1,371 @@
+{% extends "base.html" %}
+
+{% block title %}Advanced Search - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="search-page">
+    <div class="search-header">
+        <h1>Advanced Search</h1>
+        <div class="search-toggle">
+            <a href="{{ url_for('main.search') }}">Simple</a>
+            <a href="{{ url_for('main.advanced_search') }}" class="active">Advanced</a>
+        </div>
+    </div>
+    
+    <form class="advanced-search-form" method="GET" action="{{ url_for('main.advanced_search') }}">
+        <div class="search-filters">
+            <div class="filter-row">
+                <div class="filter-group filter-group-wide">
+                    <label for="q">Search Query</label>
+                    <input type="text" name="q" id="q" value="{{ query }}" placeholder="Search terms...">
+                </div>
+            </div>
+            
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label>Entity Types</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="types" value="samples" {% if 'samples' in entity_types %}checked{% endif %}>
+                            Samples
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="types" value="scans" {% if 'scans' in entity_types %}checked{% endif %}>
+                            Scans
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="types" value="queues" {% if 'queues' in entity_types %}checked{% endif %}>
+                            Queues
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="types" value="equipment" {% if 'equipment' in entity_types %}checked{% endif %}>
+                            Equipment
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="types" value="precursors" {% if 'precursors' in entity_types %}checked{% endif %}>
+                            Precursors
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="types" value="procedures" {% if 'procedures' in entity_types %}checked{% endif %}>
+                            Procedures
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="lab_id">Lab</label>
+                    <select name="lab_id" id="lab_id">
+                        <option value="">All Labs</option>
+                        {% for lab in labs %}
+                        <option value="{{ lab.id }}" {% if lab_id == lab.id %}selected{% endif %}>{{ lab.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="project_id">Project</label>
+                    <select name="project_id" id="project_id">
+                        <option value="">All Projects</option>
+                        {% for project in projects %}
+                        <option value="{{ project.id }}" {% if project_id == project.id %}selected{% endif %}>{{ project.display }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label for="status">Status</label>
+                    <select name="status" id="status">
+                        <option value="">Any Status</option>
+                        <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
+                        <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
+                        <option value="pending" {% if status == 'pending' %}selected{% endif %}>Pending</option>
+                        <option value="archived" {% if status == 'archived' %}selected{% endif %}>Archived</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="created_after">Created After</label>
+                    <input type="date" name="created_after" id="created_after" value="{{ created_after or '' }}">
+                </div>
+                
+                <div class="filter-group">
+                    <label for="created_before">Created Before</label>
+                    <input type="date" name="created_before" id="created_before" value="{{ created_before or '' }}">
+                </div>
+            </div>
+        </div>
+        
+        <div class="search-actions">
+            <button type="submit" class="btn btn-primary">Search</button>
+            <a href="{{ url_for('main.advanced_search') }}" class="btn btn-secondary">Clear</a>
+        </div>
+    </form>
+    
+    {% if results %}
+        {% set grand_total = results.grand_total|default(0) %}
+        
+        {% if grand_total > 0 %}
+            <p class="search-summary">Found <strong>{{ grand_total }}</strong> result{{ 's' if grand_total != 1 else '' }}</p>
+            
+            <!-- Samples -->
+            {% if results.samples %}
+            <div class="search-results-section">
+                <h3>Samples ({{ results.samples|length }})</h3>
+                <div class="results-list">
+                    {% for item in results.samples %}
+                    <div class="result-item">
+                        <a href="{{ url_for('main.sample_detail', sample_id=item.id) }}" class="result-title">{{ item.name }}</a>
+                        {% if item.material %}<span class="result-tag">{{ item.material }}</span>{% endif %}
+                        {% if item.status %}<span class="result-tag status-{{ item.status }}">{{ item.status }}</span>{% endif %}
+                        {% if item.description %}<p class="result-description">{{ item.description[:150] }}{{ '...' if item.description|length > 150 }}</p>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Scans -->
+            {% if results.scans %}
+            <div class="search-results-section">
+                <h3>Scans ({{ results.scans|length }})</h3>
+                <div class="results-list">
+                    {% for item in results.scans %}
+                    <div class="result-item">
+                        <a href="{{ url_for('main.scan_detail', scan_id=item.id) }}" class="result-title">{{ item.name or 'Scan #' ~ item.id }}</a>
+                        {% if item.scan_type %}<span class="result-tag">{{ item.scan_type }}</span>{% endif %}
+                        {% if item.status %}<span class="result-tag status-{{ item.status }}">{{ item.status }}</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Queues -->
+            {% if results.queues %}
+            <div class="search-results-section">
+                <h3>Queues ({{ results.queues|length }})</h3>
+                <div class="results-list">
+                    {% for item in results.queues %}
+                    <div class="result-item">
+                        <a href="{{ url_for('main.queue_detail', queue_id=item.id) }}" class="result-title">{{ item.name }}</a>
+                        {% if item.status %}<span class="result-tag status-{{ item.status }}">{{ item.status }}</span>{% endif %}
+                        {% if item.description %}<p class="result-description">{{ item.description[:150] }}{{ '...' if item.description|length > 150 }}</p>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Equipment -->
+            {% if results.equipment %}
+            <div class="search-results-section">
+                <h3>Equipment ({{ results.equipment|length }})</h3>
+                <div class="results-list">
+                    {% for item in results.equipment %}
+                    <div class="result-item">
+                        <a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}" class="result-title">{{ item.name }}</a>
+                        {% if item.equipment_type %}<span class="result-tag">{{ item.equipment_type }}</span>{% endif %}
+                        {% if item.status %}<span class="result-tag status-{{ item.status }}">{{ item.status }}</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Precursors -->
+            {% if results.precursors %}
+            <div class="search-results-section">
+                <h3>Precursors ({{ results.precursors|length }})</h3>
+                <div class="results-list">
+                    {% for item in results.precursors %}
+                    <div class="result-item">
+                        <a href="{{ url_for('main.precursor_detail', precursor_id=item.id) }}" class="result-title">{{ item.name }}</a>
+                        {% if item.chemical_formula %}<span class="result-tag">{{ item.chemical_formula }}</span>{% endif %}
+                        {% if item.description %}<p class="result-description">{{ item.description[:150] }}{{ '...' if item.description|length > 150 }}</p>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Procedures -->
+            {% if results.procedures %}
+            <div class="search-results-section">
+                <h3>Procedures ({{ results.procedures|length }})</h3>
+                <div class="results-list">
+                    {% for item in results.procedures %}
+                    <div class="result-item">
+                        <a href="{{ url_for('main.procedure_detail', procedure_id=item.id) }}" class="result-title">{{ item.name }}</a>
+                        {% if item.procedure_type %}<span class="result-tag">{{ item.procedure_type }}</span>{% endif %}
+                        {% if item.description %}<p class="result-description">{{ item.description[:150] }}{{ '...' if item.description|length > 150 }}</p>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+        {% else %}
+            <div class="empty-state">
+                <p>No results found matching your criteria.</p>
+                <p>Try adjusting your filters or search terms.</p>
+            </div>
+        {% endif %}
+    {% else %}
+        <div class="search-hint">
+            <strong>Tip:</strong> Use the filters above to narrow down your search. 
+            You can search by text, filter by entity type, lab, project, status, or date range.
+        </div>
+    {% endif %}
+</div>
+
+<style>
+.advanced-search-form {
+    background: var(--card-bg, #fff);
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.search-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.filter-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    flex: 1;
+    min-width: 200px;
+}
+
+.filter-group-wide {
+    flex: 2;
+    min-width: 100%;
+}
+
+.filter-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: var(--text-secondary, #666);
+}
+
+.filter-group input[type="text"],
+.filter-group input[type="date"],
+.filter-group select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 4px;
+    font-size: 0.95rem;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: normal;
+    cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: auto;
+}
+
+.search-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color, #eee);
+}
+
+.search-results-section {
+    background: var(--card-bg, #fff);
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.search-results-section h3 {
+    margin: 0 0 1rem 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.result-item {
+    padding: 0.75rem;
+    background: var(--bg-light, #f9f9f9);
+    border-radius: 4px;
+}
+
+.result-title {
+    font-weight: 500;
+    color: var(--primary-color, #2563eb);
+    text-decoration: none;
+}
+
+.result-title:hover {
+    text-decoration: underline;
+}
+
+.result-tag {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    background: var(--bg-muted, #eee);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-left: 0.5rem;
+}
+
+.result-description {
+    margin: 0.5rem 0 0 0;
+    color: var(--text-secondary, #666);
+    font-size: 0.9rem;
+}
+
+.search-toggle {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.search-toggle a {
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    text-decoration: none;
+    color: var(--text-secondary, #666);
+}
+
+.search-toggle a.active {
+    background: var(--primary-color, #2563eb);
+    color: white;
+}
+
+.search-toggle a:hover:not(.active) {
+    background: var(--bg-light, #f5f5f5);
+}
+</style>
+{% endblock %}

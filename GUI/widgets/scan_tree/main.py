@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import sys
 from PySide6.QtWidgets import QApplication
-from mainwindow import MainWindow
+from mainwindow import ScanTreeWidget
+
+# Backward compatibility alias
+MainWindow = ScanTreeWidget
 
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    window = MainWindow()
+    window = ScanTreeWidget()
     window.show()
     sys.exit(app.exec())

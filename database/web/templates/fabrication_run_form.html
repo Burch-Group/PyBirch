@@ -23,7 +23,7 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label for="procedure_id">Procedure *</label>
-                        <select id="procedure_id" name="procedure_id" required>
+                        <select id="procedure_id" name="procedure_id" required class="searchable-select" data-entity-type="procedure">
                             <option value="">Select a procedure...</option>
                             {% for proc in procedures %}
                             <option value="{{ proc.id }}" {% if run and run.procedure_id == proc.id %}selected{% endif %}>
@@ -53,9 +53,9 @@
                     </div>
                     
                     <div class="form-group">
-                        <label for="operator">Operator</label>
-                        <input type="text" id="operator" name="operator" 
-                               value="{{ run.operator if run else g.current_user.username if g.current_user else '' }}"
+                        <label for="created_by">Operator</label>
+                        <input type="text" id="created_by" name="created_by" 
+                               value="{{ run.created_by if run else g.current_user.username if g.current_user else '' }}"
                                placeholder="Person performing this run">
                     </div>
                 </div>

@@ -39,11 +39,11 @@
                 
                 <div class="form-group">
                     <label for="project_id">Project</label>
-                    <select id="project_id" name="project_id">
+                    <select id="project_id" name="project_id" class="searchable-select" data-entity-type="project">
                         <option value="">No Project</option>
                         {% for project in projects %}
                         <option value="{{ project.id }}" 
-                                {% if template and template.project_id == project.id %}selected{% endif %}>
+                                {% if (template and template.project_id and template.project_id == project.id) or (default_project_id == project.id and (not template or not template.project_id)) %}selected{% endif %}>
                             {{ project.name }}
                         </option>
                         {% endfor %}
@@ -52,11 +52,11 @@
                 
                 <div class="form-group">
                     <label for="lab_id">Lab</label>
-                    <select id="lab_id" name="lab_id">
+                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab">
                         <option value="">No Lab</option>
                         {% for lab in labs %}
                         <option value="{{ lab.id }}" 
-                                {% if template and template.lab_id == lab.id %}selected{% endif %}>
+                                {% if (template and template.lab_id and template.lab_id == lab.id) or (default_lab_id == lab.id and (not template or not template.lab_id)) %}selected{% endif %}>
                             {{ lab.name }}
                         </option>
                         {% endfor %}
@@ -148,7 +148,7 @@
                         {% if template and template.template_data and template.template_data.linked_precursor_ids %}
                             {% for precursor_id in template.template_data.linked_precursor_ids %}
                             <div class="linked-item">
-                                <select name="data_linked_precursor_ids">
+                                <select name="data_linked_precursor_ids" class="searchable-select" data-entity-type="precursor">
                                     <option value="">Select precursor...</option>
                                     {% for precursor in precursors %}
                                     <option value="{{ precursor.id }}" {% if precursor.id == precursor_id %}selected{% endif %}>
@@ -165,27 +165,27 @@
                 </div>
             </div>
             
-            <!-- Equipment Fields -->
-            <div id="equipment-fields" class="entity-fields" style="display: none;">
+            <!-- Instrument Fields -->
+            <div id="instrument-fields" class="entity-fields" style="display: none;">
                 <div class="form-grid">
                     <div class="form-group">
-                        <label for="data_equipment_status">Equipment Status</label>
-                        <select id="data_equipment_status" name="data_equipment_status">
+                        <label for="data_instrument_status">Instrument Status</label>
+                        <select id="data_instrument_status" name="data_instrument_status">
                             <option value="">Default (available)</option>
-                            <option value="available" {% if template and template.template_data and template.template_data.equipment_status == 'available' %}selected{% endif %}>Available</option>
-                            <option value="in_use" {% if template and template.template_data and template.template_data.equipment_status == 'in_use' %}selected{% endif %}>In Use</option>
-                            <option value="maintenance" {% if template and template.template_data and template.template_data.equipment_status == 'maintenance' %}selected{% endif %}>Maintenance</option>
-                            <option value="retired" {% if template and template.template_data and template.template_data.equipment_status == 'retired' %}selected{% endif %}>Retired</option>
+                            <option value="available" {% if template and template.template_data and template.template_data.instrument_status == 'available' %}selected{% endif %}>Available</option>
+                            <option value="in_use" {% if template and template.template_data and template.template_data.instrument_status == 'in_use' %}selected{% endif %}>In Use</option>
+                            <option value="maintenance" {% if template and template.template_data and template.template_data.instrument_status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                            <option value="retired" {% if template and template.template_data and template.template_data.instrument_status == 'retired' %}selected{% endif %}>Retired</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="data_equipment_type">Equipment Type</label>
-                        <select id="data_equipment_type" name="data_equipment_type">
+                        <label for="data_instrument_type">Instrument Type</label>
+                        <select id="data_instrument_type" name="data_instrument_type">
                             <option value="">Select type...</option>
-                            <option value="movement" {% if template and template.template_data and template.template_data.equipment_type == 'movement' %}selected{% endif %}>Movement</option>
-                            <option value="measurement" {% if template and template.template_data and template.template_data.equipment_type == 'measurement' %}selected{% endif %}>Measurement</option>
-                            <option value="fabrication" {% if template and template.template_data and template.template_data.equipment_type == 'fabrication' %}selected{% endif %}>Fabrication</option>
-                            <option value="other" {% if template and template.template_data and template.template_data.equipment_type == 'other' %}selected{% endif %}>Other</option>
+                            <option value="movement" {% if template and template.template_data and template.template_data.instrument_type == 'movement' %}selected{% endif %}>Movement</option>
+                            <option value="measurement" {% if template and template.template_data and template.template_data.instrument_type == 'measurement' %}selected{% endif %}>Measurement</option>
+                            <option value="fabrication" {% if template and template.template_data and template.template_data.instrument_type == 'fabrication' %}selected{% endif %}>Fabrication</option>
+                            <option value="other" {% if template and template.template_data and template.template_data.instrument_type == 'other' %}selected{% endif %}>Other</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -298,7 +298,7 @@
                         {% if template and template.template_data and template.template_data.linked_precursor_ids %}
                             {% for precursor_id in template.template_data.linked_precursor_ids %}
                             <div class="linked-item">
-                                <select name="data_linked_precursor_ids">
+                                <select name="data_linked_precursor_ids" class="searchable-select" data-entity-type="precursor">
                                     <option value="">Select precursor...</option>
                                     {% for precursor in precursors %}
                                     <option value="{{ precursor.id }}" {% if precursor.id == precursor_id %}selected{% endif %}>
@@ -322,7 +322,7 @@
                         {% if template and template.template_data and template.template_data.linked_equipment_ids %}
                             {% for equipment_id in template.template_data.linked_equipment_ids %}
                             <div class="linked-item">
-                                <select name="data_linked_equipment_ids">
+                                <select name="data_linked_equipment_ids" class="searchable-select" data-entity-type="equipment">
                                     <option value="">Select equipment...</option>
                                     {% for equip in equipment %}
                                     <option value="{{ equip.id }}" {% if equip.id == equipment_id %}selected{% endif %}>
@@ -403,10 +403,14 @@ function addLinkedPrecursor(containerId) {
     });
     
     div.innerHTML = `
-        <select name="data_linked_precursor_ids">${options}</select>
+        <select name="data_linked_precursor_ids" class="searchable-select" data-entity-type="precursor">${options}</select>
         <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
     `;
     container.appendChild(div);
+    // Re-initialize searchable selects
+    if (typeof initSearchableSelects === 'function') {
+        initSearchableSelects();
+    }
 }
 
 function addLinkedEquipment() {
@@ -421,10 +425,14 @@ function addLinkedEquipment() {
     });
     
     div.innerHTML = `
-        <select name="data_linked_equipment_ids">${options}</select>
+        <select name="data_linked_equipment_ids" class="searchable-select" data-entity-type="equipment">${options}</select>
         <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
     `;
     container.appendChild(div);
+    // Re-initialize searchable selects
+    if (typeof initSearchableSelects === 'function') {
+        initSearchableSelects();
+    }
 }
 </script>
 

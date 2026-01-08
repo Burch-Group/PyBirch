@@ -53,21 +53,110 @@
     </div>
     
     {% if templates %}
+    {# Separate pinned and unpinned items #}
+    {% set pinned_items = templates | selectattr('id', 'in', pinned_ids) | list %}
+    {% set unpinned_items = templates | rejectattr('id', 'in', pinned_ids) | list %}
+    
     <div class="templates-grid">
-        {% for template in templates %}
-        <div class="template-card">
+        {# Pinned templates first #}
+        {% for template in pinned_items %}
+        <div class="template-card pinned-card">
             <div class="template-header">
                 <div class="template-title-row">
+                    {% if current_user %}
+                    <button class="pin-btn pinned" data-entity-type="template" data-entity-id="{{ template.id }}" title="Unpin">📌</button>
+                    {% endif %}
                     <span class="entity-type-badge">{{ template.entity_icon }} {{ template.entity_label }}</span>
                     <span class="status-badge status-{{ template.status_color }}">{{ template.status_label }}</span>
                     <div class="template-actions-dropdown">
                         <button class="btn btn-icon btn-link dropdown-toggle" type="button">⋮</button>
                         <div class="dropdown-menu">
-                            <a href="{{ url_for('main.template_detail', template_id=template.id) }}" class="dropdown-item">👁️ View Details</a>
-                            <a href="{{ url_for('main.template_edit', template_id=template.id) }}" class="dropdown-item">✏️ Edit</a>
+                            <a href="{{ url_for('main.template_detail', template_id=template.id) }}" class="dropdown-item">View Details</a>
+                            <a href="{{ url_for('main.template_edit', template_id=template.id) }}" class="dropdown-item">Edit</a>
                             <form method="POST" action="{{ url_for('main.template_delete', template_id=template.id) }}" 
                                   onsubmit="return confirm('Are you sure you want to delete this template?');" class="dropdown-item-form">
-                                <button type="submit" class="dropdown-item text-danger">🗑️ Delete</button>
+                                <button type="submit" class="dropdown-item text-danger">Delete</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <h2><a href="{{ url_for('main.template_detail', template_id=template.id) }}">{{ template.name }}</a></h2>
+                {% if template.description %}
+                <p class="template-description">{{ template.description }}</p>
+                {% endif %}
+            </div>
+            
+            <div class="template-info">
+                {% if template.project_name %}
+                <a href="{{ url_for('main.project_detail', project_id=template.project_id) }}" class="info-badge info-badge-link">📁 {{ template.project_name }}</a>
+                {% endif %}
+                {% if template.lab_name %}
+                <span class="info-badge">🏛️ {{ template.lab_name }}</span>
+                {% endif %}
+            </div>
+            
+            <div class="template-details">
+                {% if template.template_data %}
+                <dl class="template-data">
+                    {% for key, value in template.template_data.items() if value and key not in ['lab_name', 'project_name', 'steps'] %}
+                    <dt>{{ key.replace('_', ' ').title() }}</dt>
+                    <dd>{{ value if value is string else value }}</dd>
+                    {% endfor %}
+                </dl>
+                {% endif %}
+            </div>
+            
+            <div class="template-qr-preview">
+                <img src="{{ url_for('main.template_qrcode_preview', template_id=template.id) }}" 
+                     alt="QR Code for {{ template.name }}"
+                     class="qr-preview-img"
+                     loading="lazy">
+            </div>
+            
+            <div class="template-actions">
+                <a href="{{ url_for('main.template_qrcode', template_id=template.id) }}" 
+                   class="btn btn-secondary btn-sm">
+                    📥 Download QR
+                </a>
+                {% if template.entity_type == 'sample' %}
+                <a href="{{ url_for('main.sample_new', template_id=template.id) }}" class="btn btn-primary btn-sm">+ Create {{ template.entity_label }}</a>
+                {% elif template.entity_type == 'equipment' %}
+                <a href="{{ url_for('main.equipment_new', template_id=template.id) }}" class="btn btn-primary btn-sm">+ Create {{ template.entity_label }}</a>
+                {% elif template.entity_type == 'precursor' %}
+                <a href="{{ url_for('main.precursor_new', template_id=template.id) }}" class="btn btn-primary btn-sm">+ Create {{ template.entity_label }}</a>
+                {% elif template.entity_type == 'procedure' %}
+                <a href="{{ url_for('main.procedure_new', template_id=template.id) }}" class="btn btn-primary btn-sm">+ Create {{ template.entity_label }}</a>
+                {% endif %}
+            </div>
+            
+            <div class="template-meta">
+                {% if template.created_by %}
+                <span>By {{ template.created_by }}</span>
+                {% endif %}
+                {% if template.created_at %}
+                <span>{{ template.created_at[:10] }}</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+        {# Unpinned templates #}
+        {% for template in unpinned_items %}
+        <div class="template-card">
+            <div class="template-header">
+                <div class="template-title-row">
+                    {% if current_user %}
+                    <button class="pin-btn" data-entity-type="template" data-entity-id="{{ template.id }}" title="Pin">📍</button>
+                    {% endif %}
+                    <span class="entity-type-badge">{{ template.entity_icon }} {{ template.entity_label }}</span>
+                    <span class="status-badge status-{{ template.status_color }}">{{ template.status_label }}</span>
+                    <div class="template-actions-dropdown">
+                        <button class="btn btn-icon btn-link dropdown-toggle" type="button">⋮</button>
+                        <div class="dropdown-menu">
+                            <a href="{{ url_for('main.template_detail', template_id=template.id) }}" class="dropdown-item">View Details</a>
+                            <a href="{{ url_for('main.template_edit', template_id=template.id) }}" class="dropdown-item">Edit</a>
+                            <form method="POST" action="{{ url_for('main.template_delete', template_id=template.id) }}" 
+                                  onsubmit="return confirm('Are you sure you want to delete this template?');" class="dropdown-item-form">
+                                <button type="submit" class="dropdown-item text-danger">Delete</button>
                             </form>
                         </div>
                     </div>

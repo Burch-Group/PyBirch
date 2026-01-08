@@ -588,19 +588,35 @@ incomplete_scans = recovered.get_incomplete_scans()
 - Uses Phase 2's DatabaseExtension for individual scan tracking
 - Provides foundation for Phase 4's real-time WebSocket updates
 
-### Phase 4: Real-Time Features (Week 7-8)
-1. [ ] Set up Flask-SocketIO
-2. [ ] Implement WebSocket server
-3. Create live dashboard UI
-4. Add real-time data plotting
-5. Test with concurrent users
+### Phase 4: Real-Time Features (Week 7-8) ⏳ IN PROGRESS
+1. [x] Set up Flask-SocketIO - Added to database/web/app.py with graceful fallback
+2. [x] Implement WebSocket server - Created pybirch/database_integration/sync/
+   - websocket_server.py: ScanUpdateServer class with broadcasting methods
+   - event_handlers.py: ScanEventHandler, QueueEventHandler, InstrumentEventHandler
+3. [ ] Create live dashboard UI
+4. [ ] Add real-time data plotting
+5. [ ] Test with concurrent users
 
-### Phase 5: Equipment Management (Week 9-10)
-1. Implement `EquipmentManager` class
-2. Create instrument discovery system
-3. Add status monitoring
-4. Build equipment configuration UI
-5. Test with real instruments
+**Files Created:**
+- `pybirch/database_integration/sync/__init__.py`
+- `pybirch/database_integration/sync/websocket_server.py`
+- `pybirch/database_integration/sync/event_handlers.py`
+
+**Files Modified:**
+- `database/web/app.py` - Flask-SocketIO integration
+
+### Phase 5: Equipment Management (Week 9-10) ✅ MOSTLY COMPLETE
+1. [x] Implement `EquipmentManager` class - Already exists with full functionality
+2. [x] Create instrument discovery system - discover_instruments() method exists
+3. [x] Add status monitoring - InstrumentStatus model added to database
+4. [ ] Build equipment configuration UI
+5. [ ] Test with real instruments
+
+**Files Created:**
+- `database/migrations/add_instrument_status.py` - Migration for InstrumentStatus table
+
+**Files Modified:**
+- `database/models.py` - Added InstrumentStatus model
 
 ### Phase 6: Polish & Documentation (Week 11-12)
 1. Performance optimization

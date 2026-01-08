@@ -1,0 +1,710 @@
+<!-- Entity Images Gallery Component -->
+<!-- Include this partial with: { % include 'partials/image_gallery.html' % } -->
+<!-- Required variables: entity_type, entity_id, images (list) -->
+
+<div class="images-section" id="images-section">
+    <div class="section-header">
+        <h2>Images</h2>
+        <span class="image-count">({{ images|length if images else 0 }})</span>
+    </div>
+    
+    <!-- Drag and Drop Zone -->
+    <div class="image-upload-zone" id="image-drop-zone">
+        <div class="drop-zone-content">
+            <div class="drop-icon"></div>
+            <p>Drag & drop images here</p>
+            <p class="drop-hint">or</p>
+            <label class="btn btn-secondary btn-small upload-btn">
+                <input type="file" id="image-file-input" accept="image/*" multiple style="display: none;">
+                Choose Files
+            </label>
+            <p class="file-types">PNG, JPG, GIF, WEBP, BMP (max 10MB)</p>
+        </div>
+        <div class="upload-progress" id="upload-progress" style="display: none;">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <p class="progress-text" id="progress-text">Uploading...</p>
+        </div>
+        <div class="upload-error" id="upload-error" style="display: none;">
+            <span class="error-icon">⚠️</span>
+            <span class="error-message" id="upload-error-message"></span>
+            <button type="button" class="error-dismiss" onclick="hideUploadError()">&times;</button>
+        </div>
+    </div>
+    
+    <!-- Image Gallery Grid -->
+    <div class="image-gallery" id="image-gallery">
+        {% if images %}
+            {% for image in images %}
+            <div class="image-card" data-image-id="{{ image.id }}">
+                <div class="image-preview">
+                    <img src="{{ url_for('static', filename='uploads/images/' + image.stored_filename) }}" 
+                         alt="{{ image.name or image.filename }}"
+                         loading="lazy"
+                         onclick="openImageModal(this.src, '{{ image.name or image.filename }}', '{{ image.description or '' }}')">
+                </div>
+                <div class="image-info">
+                    <div class="image-name" title="{{ image.name or image.filename }}">
+                        {{ image.name or image.filename }}
+                    </div>
+                    {% if image.description %}
+                    <div class="image-description" title="{{ image.description }}">
+                        {{ image.description }}
+                    </div>
+                    {% endif %}
+                    <div class="image-meta">
+                        <span class="image-date">{{ image.created_at[:10] if image.created_at else '' }}</span>
+                        {% if image.width and image.height %}
+                        <span class="image-dimensions">{{ image.width }}×{{ image.height }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="image-actions">
+                    <button class="btn-icon" onclick="editImageMetadata({{ image.id }}, '{{ image.name or '' }}', '{{ image.description or '' }}')" title="Edit">
+                        ✏️
+                    </button>
+                    <form action="{{ url_for('main.delete_entity_image', image_id=image.id) }}" method="POST" style="display: inline;" 
+                          onsubmit="return confirm('Delete this image?')">
+                        <button type="submit" class="btn-icon btn-danger" title="Delete">🗑️</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="no-images" id="no-images-message">
+                <p>No images yet. Upload some!</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Image Modal (for fullscreen view) -->
+<div class="image-modal" id="image-modal" onclick="closeImageModal(event)">
+    <div class="modal-content">
+        <button class="modal-close" onclick="closeImageModal()">&times;</button>
+        <img id="modal-image" src="" alt="">
+        <div class="modal-caption">
+            <h3 id="modal-title"></h3>
+            <p id="modal-description"></p>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Image Metadata Modal -->
+<div class="edit-modal" id="edit-image-modal">
+    <div class="edit-modal-content">
+        <h3>Edit Image Details</h3>
+        <form id="edit-image-form">
+            <input type="hidden" id="edit-image-id">
+            <div class="form-group">
+                <label for="edit-image-name">Name</label>
+                <input type="text" id="edit-image-name" placeholder="Image name">
+            </div>
+            <div class="form-group">
+                <label for="edit-image-description">Description</label>
+                <textarea id="edit-image-description" rows="3" placeholder="Optional description"></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+/* Image Section Styles */
+.images-section {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.images-section .section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.images-section .section-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.image-count {
+    color: var(--text-muted, #666);
+    font-size: 0.9rem;
+}
+
+/* Drop Zone */
+.image-upload-zone {
+    border: 2px dashed var(--border-color, #ddd);
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    margin-bottom: 1.5rem;
+    transition: all 0.2s ease;
+    background: var(--bg-light, #f9f9f9);
+}
+
+.image-upload-zone.drag-over {
+    border-color: var(--primary-color, #2563eb);
+    background: rgba(37, 99, 235, 0.05);
+}
+
+.drop-zone-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.drop-icon {
+    font-size: 2.5rem;
+    opacity: 0.6;
+}
+
+.drop-hint {
+    color: var(--text-muted, #666);
+    font-size: 0.85rem;
+}
+
+.file-types {
+    color: var(--text-muted, #999);
+    font-size: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.upload-progress {
+    padding: 1rem;
+}
+
+.progress-bar {
+    height: 8px;
+    background: var(--bg-light, #eee);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--primary-color, #2563eb);
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    color: var(--text-muted, #666);
+    font-size: 0.85rem;
+}
+
+/* Upload Error Message */
+.upload-error {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+    border-radius: 6px;
+    margin-top: 0.5rem;
+    color: #b91c1c;
+    font-size: 0.9rem;
+}
+
+.upload-error .error-icon {
+    font-size: 1.1rem;
+}
+
+.upload-error .error-message {
+    flex: 1;
+}
+
+.upload-error .error-dismiss {
+    background: none;
+    border: none;
+    color: #b91c1c;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.upload-error .error-dismiss:hover {
+    color: #7f1d1d;
+}
+
+/* Image Gallery Grid */
+.image-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.image-card {
+    background: var(--bg-light, #f9f9f9);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color, #eee);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.image-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.image-preview {
+    aspect-ratio: 4/3;
+    overflow: hidden;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.image-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.image-preview img:hover {
+    transform: scale(1.05);
+}
+
+.image-info {
+    padding: 0.75rem;
+}
+
+.image-name {
+    font-weight: 500;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.image-description {
+    color: var(--text-muted, #666);
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.image-meta {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-muted, #999);
+    font-size: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.image-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    border-top: 1px solid var(--border-color, #eee);
+    background: var(--card-bg, #fff);
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    transition: background 0.2s ease;
+}
+
+.btn-icon:hover {
+    background: var(--bg-light, #f0f0f0);
+}
+
+.btn-icon.btn-danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.no-images {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted, #666);
+}
+
+/* Image Modal */
+.image-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.9);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.image-modal.active {
+    display: flex;
+}
+
+.image-modal .modal-content {
+    max-width: 90%;
+    max-height: 90%;
+    position: relative;
+}
+
+.image-modal .modal-close {
+    position: absolute;
+    top: -40px;
+    right: 0;
+    background: none;
+    border: none;
+    color: white;
+    font-size: 2rem;
+    cursor: pointer;
+    padding: 0.5rem;
+}
+
+.image-modal img {
+    max-width: 100%;
+    max-height: 80vh;
+    object-fit: contain;
+}
+
+.modal-caption {
+    color: white;
+    text-align: center;
+    padding: 1rem;
+}
+
+.modal-caption h3 {
+    margin: 0 0 0.5rem 0;
+}
+
+.modal-caption p {
+    margin: 0;
+    opacity: 0.8;
+}
+
+/* Edit Modal */
+.edit-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 1001;
+    justify-content: center;
+    align-items: center;
+}
+
+.edit-modal.active {
+    display: flex;
+}
+
+.edit-modal-content {
+    background: var(--card-bg, #fff);
+    padding: 1.5rem;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+
+.edit-modal-content h3 {
+    margin: 0 0 1rem 0;
+}
+
+.edit-modal .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+</style>
+
+<script>
+// Image gallery functionality for entity type: {{ entity_type }}, entity id: {{ entity_id }}
+const entityType = '{{ entity_type }}';
+const entityId = {{ entity_id }};
+
+document.addEventListener('DOMContentLoaded', function() {
+    const dropZone = document.getElementById('image-drop-zone');
+    const fileInput = document.getElementById('image-file-input');
+    
+    if (!dropZone || !fileInput) return;
+    
+    // Only prevent defaults for drag events (not clicks)
+    function preventDragDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    
+    // Drag and drop handlers - only for drag events
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDragDefaults, false);
+        document.body.addEventListener(eventName, preventDragDefaults, false);
+    });
+    
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-over'), false);
+    });
+    
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-over'), false);
+    });
+    
+    dropZone.addEventListener('drop', handleDrop, false);
+    fileInput.addEventListener('change', handleFileSelect, false);
+    
+    // Also allow clicking anywhere in drop zone to open file picker
+    dropZone.addEventListener('click', function(e) {
+        // Don't trigger if clicking on the actual file input label/button
+        if (e.target.tagName !== 'INPUT' && !e.target.closest('label')) {
+            fileInput.click();
+        }
+    });
+});
+
+function handleDrop(e) {
+    const files = e.dataTransfer.files;
+    handleFiles(files);
+}
+
+function handleFileSelect(e) {
+    const files = e.target.files;
+    handleFiles(files);
+}
+
+function handleFiles(files) {
+    [...files].forEach(uploadFile);
+}
+
+function uploadFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', file.name);
+    
+    const progressDiv = document.getElementById('upload-progress');
+    const dropContent = document.querySelector('.drop-zone-content');
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
+    
+    dropContent.style.display = 'none';
+    progressDiv.style.display = 'block';
+    progressText.textContent = `Uploading ${file.name}...`;
+    
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            progressFill.style.width = percent + '%';
+            progressText.textContent = `Uploading ${file.name}... ${percent}%`;
+        }
+    });
+    
+    xhr.addEventListener('load', () => {
+        progressDiv.style.display = 'none';
+        dropContent.style.display = 'flex';
+        progressFill.style.width = '0%';
+        
+        if (xhr.status === 200) {
+            const response = JSON.parse(xhr.responseText);
+            if (response.success) {
+                hideUploadError();
+                addImageToGallery(response.image, response.url);
+            } else {
+                showUploadError('Upload failed: ' + response.error);
+            }
+        } else {
+            // Try to parse error message from JSON response
+            let errorMsg = 'Upload failed';
+            try {
+                const response = JSON.parse(xhr.responseText);
+                if (response.error) {
+                    errorMsg = response.error;
+                }
+            } catch (e) {
+                // Response wasn't JSON, check status codes
+                if (xhr.status === 401) {
+                    errorMsg = 'Please log in to upload images';
+                } else if (xhr.status === 413) {
+                    errorMsg = 'File too large';
+                } else if (xhr.status === 500) {
+                    errorMsg = 'Server error - please try again';
+                } else {
+                    errorMsg = `Upload failed (HTTP ${xhr.status})`;
+                }
+            }
+            showUploadError(errorMsg);
+        }
+    });
+    
+    xhr.addEventListener('error', () => {
+        progressDiv.style.display = 'none';
+        dropContent.style.display = 'flex';
+        showUploadError('Upload failed - network error');
+    });
+    
+    xhr.open('POST', `/api/images/${entityType}/${entityId}/upload`);
+    xhr.send(formData);
+}
+
+// Error display functions
+function showUploadError(message) {
+    const errorDiv = document.getElementById('upload-error');
+    const errorMessage = document.getElementById('upload-error-message');
+    if (errorDiv && errorMessage) {
+        errorMessage.textContent = message;
+        errorDiv.style.display = 'flex';
+    }
+}
+
+function hideUploadError() {
+    const errorDiv = document.getElementById('upload-error');
+    if (errorDiv) {
+        errorDiv.style.display = 'none';
+    }
+}
+
+function addImageToGallery(image, url) {
+    const gallery = document.getElementById('image-gallery');
+    const noImagesMsg = document.getElementById('no-images-message');
+    
+    if (noImagesMsg) {
+        noImagesMsg.remove();
+    }
+    
+    const card = document.createElement('div');
+    card.className = 'image-card';
+    card.dataset.imageId = image.id;
+    
+    card.innerHTML = `
+        <div class="image-preview">
+            <img src="${url}" alt="${image.name || image.filename}" 
+                 onclick="openImageModal(this.src, '${image.name || image.filename}', '${image.description || ''}')">
+        </div>
+        <div class="image-info">
+            <div class="image-name" title="${image.name || image.filename}">
+                ${image.name || image.filename}
+            </div>
+            ${image.description ? `<div class="image-description" title="${image.description}">${image.description}</div>` : ''}
+            <div class="image-meta">
+                <span class="image-date">${image.created_at ? image.created_at.slice(0, 10) : ''}</span>
+                ${image.width && image.height ? `<span class="image-dimensions">${image.width}×${image.height}</span>` : ''}
+            </div>
+        </div>
+        <div class="image-actions">
+            <button class="btn-icon" onclick="editImageMetadata(${image.id}, '${image.name || ''}', '${image.description || ''}')" title="Edit">✏️</button>
+            <form action="/images/${image.id}/delete" method="POST" style="display: inline;" onsubmit="return confirm('Delete this image?')">
+                <button type="submit" class="btn-icon btn-danger" title="Delete">🗑️</button>
+            </form>
+        </div>
+    `;
+    
+    gallery.insertBefore(card, gallery.firstChild);
+    
+    // Update count
+    const countSpan = document.querySelector('.image-count');
+    if (countSpan) {
+        const currentCount = parseInt(countSpan.textContent.match(/\d+/)?.[0] || '0');
+        countSpan.textContent = `(${currentCount + 1})`;
+    }
+}
+
+function openImageModal(src, title, description) {
+    const modal = document.getElementById('image-modal');
+    document.getElementById('modal-image').src = src;
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-description').textContent = description;
+    modal.classList.add('active');
+}
+
+function closeImageModal(event) {
+    if (!event || event.target === event.currentTarget) {
+        document.getElementById('image-modal').classList.remove('active');
+    }
+}
+
+function editImageMetadata(imageId, name, description) {
+    document.getElementById('edit-image-id').value = imageId;
+    document.getElementById('edit-image-name').value = name;
+    document.getElementById('edit-image-description').value = description;
+    document.getElementById('edit-image-modal').classList.add('active');
+}
+
+function closeEditModal() {
+    document.getElementById('edit-image-modal').classList.remove('active');
+}
+
+document.getElementById('edit-image-form')?.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const imageId = document.getElementById('edit-image-id').value;
+    const name = document.getElementById('edit-image-name').value;
+    const description = document.getElementById('edit-image-description').value;
+    
+    fetch(`/api/images/${imageId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name, description })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Update the card in the gallery
+            const card = document.querySelector(`.image-card[data-image-id="${imageId}"]`);
+            if (card) {
+                card.querySelector('.image-name').textContent = name;
+                const descEl = card.querySelector('.image-description');
+                if (description) {
+                    if (descEl) {
+                        descEl.textContent = description;
+                    } else {
+                        const newDescEl = document.createElement('div');
+                        newDescEl.className = 'image-description';
+                        newDescEl.textContent = description;
+                        card.querySelector('.image-name').after(newDescEl);
+                    }
+                } else if (descEl) {
+                    descEl.remove();
+                }
+            }
+            closeEditModal();
+        } else {
+            alert('Error updating image: ' + data.error);
+        }
+    })
+    .catch(err => {
+        alert('Error updating image');
+        console.error(err);
+    });
+});
+
+// Close modals on escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeImageModal();
+        closeEditModal();
+    }
+});
+</script>

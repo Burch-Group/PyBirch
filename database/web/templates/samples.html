@@ -29,9 +29,14 @@
     <p class="result-count">{{ total }} sample(s) found</p>
     
     {% if samples %}
+        {# Separate pinned and unpinned items #}
+        {% set pinned_samples = samples | selectattr('id', 'in', pinned_ids) | list %}
+        {% set unpinned_samples = samples | rejectattr('id', 'in', pinned_ids) | list %}
+        
         <table class="data-table">
             <thead>
                 <tr>
+                    <th style="width: 30px;"></th>
                     <th>Sample ID</th>
                     <th>Name</th>
                     <th>Material</th>
@@ -42,8 +47,34 @@
                 </tr>
             </thead>
             <tbody>
-                {% for sample in samples %}
+                {# Pinned items first #}
+                {% for sample in pinned_samples %}
+                <tr class="pinned-row">
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn pinned" data-entity-type="sample" data-entity-id="{{ sample.id }}" title="Unpin">📌</button>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}">{{ sample.sample_id }}</a></td>
+                    <td>{{ sample.name or '-' }}</td>
+                    <td>{{ sample.material or '-' }}</td>
+                    <td>{{ sample.sample_type or '-' }}</td>
+                    <td><span class="status-badge status-{{ sample.status }}">{{ sample.status }}</span></td>
+                    <td>{{ sample.created_at[:10] if sample.created_at else '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.sample_edit', sample_id=sample.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {# Unpinned items #}
+                {% for sample in unpinned_samples %}
                 <tr>
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn" data-entity-type="sample" data-entity-id="{{ sample.id }}" title="Pin">📍</button>
+                        {% endif %}
+                    </td>
                     <td><a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}">{{ sample.sample_id }}</a></td>
                     <td>{{ sample.name or '-' }}</td>
                     <td>{{ sample.material or '-' }}</td>

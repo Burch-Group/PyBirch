@@ -12,7 +12,7 @@
 
 {% if template %}
 <div class="template-notice">
-    <span class="template-badge">📋 Using Template</span>
+    <span class="template-badge">Using Template</span>
     <strong>{{ template.name }}</strong>
     {% if template.lab_name or (template.template_data and template.template_data.lab_name) %}
      - {{ template.lab_name or template.template_data.lab_name }}
@@ -22,61 +22,99 @@
 {% endif %}
 
 <form method="POST" class="form-container">
-    <div class="form-grid">
-        <div class="form-group full-width">
-            <label for="name">Procedure Name *</label>
-            <input type="text" id="name" name="name" required
-                   value="{{ procedure.name if procedure else '' }}"
-                   placeholder="e.g., Gold Thin Film Deposition">
+    <!-- Lab & Project Assignment Section -->
+    <div class="form-section">
+        <h2>Assignment</h2>
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="lab_id">Lab</label>
+                <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab">
+                    <option value="">-- No Lab --</option>
+                    {% for lab in labs %}
+                    <option value="{{ lab.id }}" 
+                            {% if (procedure and procedure.lab_id and procedure.lab_id == lab.id) or (default_lab_id == lab.id and (not procedure or not procedure.lab_id)) %}selected{% endif %}>
+                        {{ lab.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small>Associate this procedure with a lab <a href="#" class="set-default-link" data-field="default_lab_id" data-source="lab_id">Set as default</a></small>
+            </div>
+            
+            <div class="form-group">
+                <label for="project_id">Project</label>
+                <select id="project_id" name="project_id" class="searchable-select" data-entity-type="project">
+                    <option value="">-- No Project --</option>
+                    {% for project in projects %}
+                    <option value="{{ project.id }}" 
+                            {% if (procedure and procedure.project_id and procedure.project_id == project.id) or (default_project_id == project.id and (not procedure or not procedure.project_id)) %}selected{% endif %}>
+                        {{ project.display }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small>Associate this procedure with a project <a href="#" class="set-default-link" data-field="default_project_id" data-source="project_id">Set as default</a></small>
+            </div>
         </div>
-        
-        <div class="form-group">
-            <label for="procedure_type">Type</label>
-            <select id="procedure_type" name="procedure_type">
-                <option value="">Select type...</option>
-                <option value="deposition" {% if procedure and procedure.procedure_type == 'deposition' %}selected{% endif %}>Deposition</option>
-                <option value="annealing" {% if procedure and procedure.procedure_type == 'annealing' %}selected{% endif %}>Annealing</option>
-                <option value="etching" {% if procedure and procedure.procedure_type == 'etching' %}selected{% endif %}>Etching</option>
-                <option value="cleaning" {% if procedure and procedure.procedure_type == 'cleaning' %}selected{% endif %}>Cleaning</option>
-                <option value="characterization" {% if procedure and procedure.procedure_type == 'characterization' %}selected{% endif %}>Characterization</option>
-                <option value="lithography" {% if procedure and procedure.procedure_type == 'lithography' %}selected{% endif %}>Lithography</option>
-                <option value="doping" {% if procedure and procedure.procedure_type == 'doping' %}selected{% endif %}>Doping</option>
-                <option value="oxidation" {% if procedure and procedure.procedure_type == 'oxidation' %}selected{% endif %}>Oxidation</option>
-                <option value="assembly" {% if procedure and procedure.procedure_type == 'assembly' %}selected{% endif %}>Assembly</option>
-                <option value="other" {% if procedure and procedure.procedure_type == 'other' %}selected{% endif %}>Other</option>
-            </select>
-        </div>
-        
-        <div class="form-group">
-            <label for="version">Version</label>
-            <input type="text" id="version" name="version"
-                   value="{{ procedure.version if procedure else '1.0' }}"
-                   placeholder="1.0">
-        </div>
-        
-        <div class="form-group">
-            <label for="estimated_duration_minutes">Est. Duration (minutes)</label>
-            <input type="number" id="estimated_duration_minutes" name="estimated_duration_minutes"
-                   value="{{ procedure.estimated_duration_minutes if procedure and procedure.estimated_duration_minutes else '' }}"
-                   placeholder="e.g., 60" min="0">
-        </div>
-        
-        <div class="form-group">
-            <label for="created_by">Created By</label>
-            <input type="text" id="created_by" name="created_by" readonly
-                   value="{{ procedure.created_by if procedure else (current_user.username if current_user else '') }}">
-        </div>
-        
-        <div class="form-group full-width">
-            <label for="description">Description</label>
-            <textarea id="description" name="description" rows="3"
-                      placeholder="Detailed description of the procedure...">{{ procedure.description if procedure else '' }}</textarea>
-        </div>
-        
-        <div class="form-group full-width">
-            <label for="safety_requirements">⚠️ Safety Requirements</label>
-            <textarea id="safety_requirements" name="safety_requirements" rows="3"
-                      placeholder="PPE requirements, hazards, emergency procedures...">{{ procedure.safety_requirements if procedure else '' }}</textarea>
+    </div>
+
+    <!-- Basic Information -->
+    <div class="form-section">
+        <h2>Basic Information</h2>
+        <div class="form-grid">
+            <div class="form-group full-width">
+                <label for="name">Procedure Name *</label>
+                <input type="text" id="name" name="name" required
+                       value="{{ procedure.name if procedure else '' }}"
+                       placeholder="e.g., Gold Thin Film Deposition">
+            </div>
+            
+            <div class="form-group">
+                <label for="procedure_type">Type</label>
+                <select id="procedure_type" name="procedure_type">
+                    <option value="">Select type...</option>
+                    <option value="deposition" {% if procedure and procedure.procedure_type == 'deposition' %}selected{% endif %}>Deposition</option>
+                    <option value="annealing" {% if procedure and procedure.procedure_type == 'annealing' %}selected{% endif %}>Annealing</option>
+                    <option value="etching" {% if procedure and procedure.procedure_type == 'etching' %}selected{% endif %}>Etching</option>
+                    <option value="cleaning" {% if procedure and procedure.procedure_type == 'cleaning' %}selected{% endif %}>Cleaning</option>
+                    <option value="characterization" {% if procedure and procedure.procedure_type == 'characterization' %}selected{% endif %}>Characterization</option>
+                    <option value="lithography" {% if procedure and procedure.procedure_type == 'lithography' %}selected{% endif %}>Lithography</option>
+                    <option value="doping" {% if procedure and procedure.procedure_type == 'doping' %}selected{% endif %}>Doping</option>
+                    <option value="oxidation" {% if procedure and procedure.procedure_type == 'oxidation' %}selected{% endif %}>Oxidation</option>
+                    <option value="assembly" {% if procedure and procedure.procedure_type == 'assembly' %}selected{% endif %}>Assembly</option>
+                    <option value="other" {% if procedure and procedure.procedure_type == 'other' %}selected{% endif %}>Other</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="version">Version</label>
+                <input type="text" id="version" name="version"
+                       value="{{ procedure.version if procedure else '1.0' }}"
+                       placeholder="1.0">
+            </div>
+            
+            <div class="form-group">
+                <label for="estimated_duration_minutes">Est. Duration (minutes)</label>
+                <input type="number" id="estimated_duration_minutes" name="estimated_duration_minutes"
+                       value="{{ procedure.estimated_duration_minutes if procedure and procedure.estimated_duration_minutes else '' }}"
+                       placeholder="e.g., 60" min="0">
+            </div>
+            
+            <div class="form-group">
+                <label for="created_by">Created By</label>
+                <input type="text" id="created_by" name="created_by" readonly
+                       value="{{ procedure.created_by if procedure else (current_user.username if current_user else '') }}">
+            </div>
+            
+            <div class="form-group full-width">
+                <label for="description">Description</label>
+                <textarea id="description" name="description" rows="3"
+                          placeholder="Detailed description of the procedure...">{{ procedure.description if procedure else '' }}</textarea>
+            </div>
+            
+            <div class="form-group full-width">
+                <label for="safety_requirements">Safety Requirements</label>
+                <textarea id="safety_requirements" name="safety_requirements" rows="3"
+                          placeholder="PPE requirements, hazards, emergency procedures...">{{ procedure.safety_requirements if procedure else '' }}</textarea>
+            </div>
         </div>
     </div>
     
@@ -141,6 +179,32 @@
         <button type="button" class="btn btn-secondary" onclick="addStep()">+ Add Step</button>
     </div>
     
+    <!-- Equipment Section -->
+    <div class="form-section">
+        <h2>Required Equipment</h2>
+        <p class="form-help">Select the equipment (e.g., gloveboxes, chambers, machines) needed for this procedure.</p>
+        
+        <div id="equipment-container">
+            {% if linked_equipment_ids %}
+                {% for equip_id in linked_equipment_ids %}
+                <div class="linked-equipment-item">
+                    <select name="equipment_ids[]" class="equipment-select">
+                        <option value="">Select equipment...</option>
+                        {% for equip in equipment %}
+                        <option value="{{ equip.id }}" {% if equip.id == equip_id %}selected{% endif %}>
+                            {{ equip.name }}{% if equip.model %} ({{ equip.model }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeEquipment(this)">✕</button>
+                </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+        
+        <button type="button" class="btn btn-secondary" onclick="addEquipment()">+ Add Equipment</button>
+    </div>
+    
     <div class="form-actions">
         <a href="{{ url_for('main.procedures') }}" class="btn btn-secondary">Cancel</a>
         <button type="submit" class="btn btn-primary">{{ action }} Procedure</button>
@@ -148,6 +212,35 @@
 </form>
 
 <script>
+// Equipment data for dynamic dropdowns
+const equipmentData = [
+    {% for equip in equipment %}
+    {id: {{ equip.id }}, name: "{{ equip.name }}", model: "{{ equip.model or '' }}"},
+    {% endfor %}
+];
+
+function addEquipment() {
+    const container = document.getElementById('equipment-container');
+    const div = document.createElement('div');
+    div.className = 'linked-equipment-item';
+    
+    let options = '<option value="">Select equipment...</option>';
+    equipmentData.forEach(e => {
+        const display = e.model ? `${e.name} (${e.model})` : e.name;
+        options += `<option value="${e.id}">${display}</option>`;
+    });
+    
+    div.innerHTML = `
+        <select name="equipment_ids[]" class="equipment-select">${options}</select>
+        <button type="button" class="btn btn-sm btn-danger" onclick="removeEquipment(this)">✕</button>
+    `;
+    container.appendChild(div);
+}
+
+function removeEquipment(button) {
+    button.parentElement.remove();
+}
+
 let stepCount = document.querySelectorAll('.step-form-item').length;
 
 function addStep() {
@@ -216,6 +309,20 @@ function renumberSteps() {
     margin: 0.5rem 0 0 0;
     font-size: 0.9rem;
     color: #558b2f;
+}
+
+/* Equipment Section */
+.linked-equipment-item {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+.linked-equipment-item select {
+    flex: 1;
+}
+#equipment-container {
+    margin-bottom: 1rem;
 }
 </style>
 {% endblock %}

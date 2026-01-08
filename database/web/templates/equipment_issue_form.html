@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Issue - {{ equipment.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.equipment') }}">Equipment</a> / 
+            <a href="{{ url_for('main.equipment_detail', equipment_id=equipment.id) }}">{{ equipment.name }}</a> / 
+            <a href="{{ url_for('main.equipment_issues', equipment_id=equipment.id) }}">Issues</a> /
+            {{ action }}
+        </div>
+    </div>
+    
+    <h1>{{ action }} Issue for {{ equipment.name }}</h1>
+    
+    <form method="POST" class="entity-form">
+        <div class="form-section">
+            <h2>Issue Details</h2>
+            <div class="form-grid">
+                <div class="form-group full-width">
+                    <label for="title">Title *</label>
+                    <input type="text" id="title" name="title" required
+                           value="{{ issue.title if issue else '' }}"
+                           placeholder="Brief description of the issue">
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" rows="4"
+                              placeholder="Detailed description of the issue">{{ issue.description if issue else '' }}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="category">Category</label>
+                    <select id="category" name="category">
+                        <option value="malfunction" {% if issue and issue.category == 'malfunction' %}selected{% elif not issue %}selected{% endif %}>Malfunction</option>
+                        <option value="maintenance" {% if issue and issue.category == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                        <option value="safety" {% if issue and issue.category == 'safety' %}selected{% endif %}>Safety</option>
+                        <option value="consumables" {% if issue and issue.category == 'consumables' %}selected{% endif %}>Consumables</option>
+                        <option value="other" {% if issue and issue.category == 'other' %}selected{% endif %}>Other</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="priority">Priority</label>
+                    <select id="priority" name="priority">
+                        <option value="low" {% if issue and issue.priority == 'low' %}selected{% endif %}>Low</option>
+                        <option value="medium" {% if issue and issue.priority == 'medium' %}selected{% elif not issue %}selected{% endif %}>Medium</option>
+                        <option value="high" {% if issue and issue.priority == 'high' %}selected{% endif %}>High</option>
+                        <option value="critical" {% if issue and issue.priority == 'critical' %}selected{% endif %}>Critical</option>
+                    </select>
+                </div>
+                
+                {% if issue %}
+                <div class="form-group">
+                    <label for="status">Status</label>
+                    <select id="status" name="status">
+                        <option value="open" {% if issue.status == 'open' %}selected{% endif %}>Open</option>
+                        <option value="in_progress" {% if issue.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                        <option value="resolved" {% if issue.status == 'resolved' %}selected{% endif %}>Resolved</option>
+                        <option value="closed" {% if issue.status == 'closed' %}selected{% endif %}>Closed</option>
+                        <option value="wont_fix" {% if issue.status == 'wont_fix' %}selected{% endif %}>Won't Fix</option>
+                    </select>
+                </div>
+                {% endif %}
+                
+                <div class="form-group">
+                    <label for="assignee_id">Assignee</label>
+                    <select id="assignee_id" name="assignee_id" class="searchable-select" data-entity-type="user">
+                        <option value="">Unassigned</option>
+                        {% for user in users %}
+                        <option value="{{ user.id }}" 
+                            {% if issue and issue.assignee_id == user.id %}selected
+                            {% elif not issue and default_assignee_id == user.id %}selected{% endif %}
+                            data-name="{{ user.name or '' }}" data-username="{{ user.username }}" data-email="{{ user.email or '' }}">
+                            {{ user.name or user.username }}{% if user.email %} ({{ user.email }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-hint">Defaults to equipment owner if not specified</small>
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Technical Details</h2>
+            <div class="form-grid">
+                <div class="form-group full-width">
+                    <label for="error_message">Error Message</label>
+                    <textarea id="error_message" name="error_message" rows="2"
+                              placeholder="Any error messages displayed">{{ issue.error_message if issue else '' }}</textarea>
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="steps_to_reproduce">Steps to Reproduce</label>
+                    <textarea id="steps_to_reproduce" name="steps_to_reproduce" rows="3"
+                              placeholder="Steps to reproduce the issue">{{ issue.steps_to_reproduce if issue else '' }}</textarea>
+                </div>
+            </div>
+        </div>
+        
+        {% if issue %}
+        <div class="form-section">
+            <h2>Resolution</h2>
+            <div class="form-grid">
+                <div class="form-group full-width">
+                    <label for="resolution">Resolution Notes</label>
+                    <textarea id="resolution" name="resolution" rows="3"
+                              placeholder="How was the issue resolved?">{{ issue.resolution if issue else '' }}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="cost">Repair Cost ($)</label>
+                    <input type="number" id="cost" name="cost" step="0.01" min="0"
+                           value="{{ issue.cost if issue and issue.cost else '' }}"
+                           placeholder="0.00">
+                </div>
+                
+                <div class="form-group">
+                    <label for="downtime_hours">Downtime (hours)</label>
+                    <input type="number" id="downtime_hours" name="downtime_hours" step="0.5" min="0"
+                           value="{{ issue.downtime_hours if issue and issue.downtime_hours else '' }}"
+                           placeholder="0">
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.equipment_issues', equipment_id=equipment.id) }}" class="btn btn-link">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ action }} Issue</button>
+        </div>
+    </form>
+</div>
+
+<style>
+.form-section {
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.form-section h2 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+.form-hint {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.85rem;
+    color: #666;
+}
+.full-width {
+    grid-column: 1 / -1;
+}
+</style>
+{% endblock %}

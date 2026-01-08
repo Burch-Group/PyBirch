@@ -14,22 +14,18 @@
         <h1>{{ equipment.name }}</h1>
         <div class="detail-actions">
             <span class="status-badge status-{{ equipment.status }}">{{ equipment.status }}</span>
+            <a href="{{ url_for('main.equipment_issues', equipment_id=equipment.id) }}" class="btn btn-secondary">Issues</a>
+            <a href="{{ url_for('main.equipment_issue_new', equipment_id=equipment.id) }}" class="btn btn-secondary">+ Report Issue</a>
+            <a href="{{ url_for('main.equipment_duplicate', equipment_id=equipment.id) }}" class="btn btn-secondary">Duplicate</a>
             <a href="{{ url_for('main.equipment_edit', equipment_id=equipment.id) }}" class="btn btn-secondary">Edit</a>
         </div>
     </div>
     
-    <!-- QR Code Section -->
-    <div class="qr-code-section">
-        <div class="qr-code-preview">
-            <img src="{{ url_for('main.equipment_qrcode_preview', equipment_id=equipment.id) }}" 
-                 alt="QR Code for {{ equipment.name }}" 
-                 class="qr-code-img">
-        </div>
-        <a href="{{ url_for('main.equipment_qrcode', equipment_id=equipment.id) }}" 
-           class="btn btn-secondary btn-small" download>
-            📥 Download QR Code
-        </a>
+    {% if equipment.description %}
+    <div class="description-section">
+        <p>{{ equipment.description }}</p>
     </div>
+    {% endif %}
     
     <div class="detail-grid">
         <div class="detail-section">
@@ -38,8 +34,8 @@
                 <dt>Type</dt>
                 <dd>{{ equipment.equipment_type or '-' }}</dd>
                 
-                <dt>PyBirch Class</dt>
-                <dd><code>{{ equipment.pybirch_class or '-' }}</code></dd>
+                <dt>Owner</dt>
+                <dd>{{ equipment.owner_name or 'Not assigned' }}</dd>
                 
                 <dt>Manufacturer</dt>
                 <dd>{{ equipment.manufacturer or '-' }}</dd>
@@ -51,31 +47,243 @@
                 <dd>{{ equipment.serial_number or '-' }}</dd>
                 
                 <dt>Location</dt>
-                <dd>{{ equipment.location or '-' }}</dd>
+                <dd>{{ equipment.location or '-' }}{% if equipment.room %} (Room {{ equipment.room }}){% endif %}</dd>
+                
+                {% if equipment.documentation_url %}
+                <dt>Documentation</dt>
+                <dd><a href="{{ equipment.documentation_url }}" target="_blank">📄 View Documentation</a></dd>
+                {% endif %}
             </dl>
         </div>
         
         <div class="detail-section">
-            <h2>Connection & Calibration</h2>
+            <h2>Maintenance & Warranty</h2>
             <dl class="detail-list">
-                <dt>Adapter / Connection</dt>
-                <dd><code>{{ equipment.adapter or '-' }}</code></dd>
+                <dt>Purchase Date</dt>
+                <dd>{{ equipment.purchase_date or '-' }}</dd>
                 
-                <dt>Last Calibration</dt>
-                <dd>{{ equipment.calibration_date or '-' }}</dd>
+                <dt>Warranty Expiration</dt>
+                <dd>
+                    {{ equipment.warranty_expiration or '-' }}
+                    {% if equipment.warranty_expiration %}
+                        {% set today = None %}
+                        {% if equipment.warranty_expiration < (equipment.created_at[:10] if equipment.created_at else '') %}
+                        <span class="status-badge status-retired">Expired</span>
+                        {% endif %}
+                    {% endif %}
+                </dd>
                 
-                <dt>Next Calibration</dt>
-                <dd>{{ equipment.next_calibration_date or '-' }}</dd>
+                <dt>Last Maintenance</dt>
+                <dd>{{ equipment.last_maintenance_date or '-' }}</dd>
+                
+                <dt>Next Maintenance</dt>
+                <dd>{{ equipment.next_maintenance_date or '-' }}</dd>
+                
+                <dt>Maintenance Interval</dt>
+                <dd>{% if equipment.maintenance_interval_days %}{{ equipment.maintenance_interval_days }} days{% else %}-{% endif %}</dd>
                 
                 <dt>Added</dt>
                 <dd>{{ equipment.created_at[:10] if equipment.created_at else '-' }}</dd>
             </dl>
-            
-            {% if equipment.specifications %}
-            <h3>Specifications</h3>
-            <pre class="json-display">{{ equipment.specifications | tojson(indent=2) }}</pre>
-            {% endif %}
         </div>
     </div>
+    
+    <!-- Child Instruments Section -->
+    {% if child_instruments %}
+    <div class="detail-section full-width">
+        <h2>Instruments</h2>
+        <p class="section-description">PyBirch-compatible instruments that are part of this equipment.</p>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>PyBirch Class</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for inst in child_instruments %}
+                <tr>
+                    <td><a href="{{ url_for('main.instrument_detail', instrument_id=inst.id) }}">{{ inst.name }}</a></td>
+                    <td>{{ inst.instrument_type or '-' }}</td>
+                    <td><code>{{ inst.pybirch_class or '-' }}</code></td>
+                    <td><span class="status-badge status-{{ inst.status }}">{{ inst.status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    
+    <!-- Recent Issues Section -->
+    {% if recent_issues %}
+    <div class="detail-section full-width">
+        <h2>Recent Issues</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for issue in recent_issues %}
+                <tr>
+                    <td><a href="{{ url_for('main.equipment_issue_detail', equipment_id=equipment.id, issue_id=issue.id) }}">{{ issue.title }}</a></td>
+                    <td>{{ issue.category }}</td>
+                    <td><span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span></td>
+                    <td><span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span></td>
+                    <td>{{ issue.created_at[:10] if issue.created_at else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <a href="{{ url_for('main.equipment_issues', equipment_id=equipment.id) }}" class="btn btn-link">View All Issues →</a>
+    </div>
+    {% endif %}
+    
+    <!-- Images Section -->
+    <div class="detail-section full-width">
+        <h2>Images</h2>
+        {% if current_user %}
+        <div class="image-upload-section">
+            <form id="image-upload-form" enctype="multipart/form-data">
+                <input type="file" id="image-file" name="image" accept="image/*" style="display: none;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('image-file').click()">
+                    Upload Image
+                </button>
+            </form>
+        </div>
+        {% endif %}
+        
+        {% if images %}
+        <div class="image-gallery">
+            {% for img in images %}
+            <div class="gallery-item {% if img.is_primary %}primary{% endif %}">
+                <img src="{{ img.file_path }}" alt="{{ img.caption or equipment.name }}">
+                {% if img.caption %}
+                <p class="image-caption">{{ img.caption }}</p>
+                {% endif %}
+                {% if current_user %}
+                <div class="image-actions">
+                    {% if not img.is_primary %}
+                    <form action="{{ url_for('main.equipment_image_set_primary', equipment_id=equipment.id, image_id=img.id) }}" method="POST" style="display: inline;">
+                        <button type="submit" class="btn btn-sm" title="Set as primary">⭐</button>
+                    </form>
+                    {% endif %}
+                    <form action="{{ url_for('main.equipment_image_delete', equipment_id=equipment.id, image_id=img.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Delete this image?')">
+                        <button type="submit" class="btn btn-sm btn-danger" title="Delete">🗑️</button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty-text">No images uploaded yet.</p>
+        {% endif %}
+    </div>
 </div>
+
+<style>
+.description-section {
+    background: var(--card-bg);
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+}
+.description-section p {
+    margin: 0;
+    color: var(--text-secondary);
+}
+.section-description {
+    margin-top: -0.5rem;
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+.detail-section.full-width {
+    grid-column: 1 / -1;
+}
+.priority-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+.priority-low { background: #e3f2fd; color: #1565c0; }
+.priority-medium { background: #fff3e0; color: #e65100; }
+.priority-high { background: #ffebee; color: #c62828; }
+.priority-critical { background: #c62828; color: white; }
+
+.image-upload-section {
+    margin-bottom: 1rem;
+}
+.image-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+}
+.gallery-item {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--card-bg);
+}
+.gallery-item.primary {
+    border: 2px solid #4caf50;
+}
+.gallery-item img {
+    width: 100%;
+    height: 150px;
+    object-fit: cover;
+}
+.image-caption {
+    padding: 0.5rem;
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+.image-actions {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    gap: 0.25rem;
+}
+.empty-text {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+</style>
+
+<script>
+document.getElementById('image-file')?.addEventListener('change', function(e) {
+    if (this.files.length > 0) {
+        const formData = new FormData();
+        formData.append('image', this.files[0]);
+        
+        fetch('{{ url_for("main.equipment_image_upload", equipment_id=equipment.id) }}', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error uploading image: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(err => {
+            alert('Error uploading image');
+            console.error(err);
+        });
+    }
+});
+</script>
 {% endblock %}

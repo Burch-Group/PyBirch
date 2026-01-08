@@ -9,13 +9,17 @@
             <a href="{{ url_for('main.queues') }}">Queues</a> / {{ queue.name or queue.queue_id }}
         </div>
         <div class="header-actions">
-            <a href="{{ queue.pybirch_uri }}" class="btn btn-primary">🚀 Open in PyBirch</a>
+            {% if queue.status == 'running' %}
+            <span class="live-indicator">LIVE</span>
+            {% endif %}
+            <span id="connection-status" class="connection-status connecting" title="Connecting..."></span>
+            <a href="{{ queue.pybirch_uri }}" class="btn btn-primary">Open in PyBirch</a>
         </div>
     </div>
     
     <div class="detail-header">
         <h1>{{ queue.name or queue.queue_id }}</h1>
-        <span class="status-badge status-{{ queue.status }}">{{ queue.status }}</span>
+        <span class="status-badge status-{{ queue.status }}" id="queue-status-badge">{{ queue.status }}</span>
     </div>
     
     <div class="detail-grid">
@@ -72,8 +76,11 @@
     
     {% if queue.scans %}
     <div class="related-section">
-        <h2>Scans in Queue ({{ queue.scans|length }})</h2>
-        <table class="data-table">
+        <div class="section-header">
+            <h2>Scans in Queue ({{ queue.scans|length }})</h2>
+            <a href="{{ url_for('main.scans', queue_id=queue.id) }}" class="btn btn-sm btn-secondary">View All Scans →</a>
+        </div>
+        <table class="data-table" id="queue-scans-table">
             <thead>
                 <tr>
                     <th>Scan Name</th>
@@ -85,14 +92,14 @@
             </thead>
             <tbody>
                 {% for scan in queue.scans %}
-                <tr>
+                <tr data-scan-id="{{ scan.scan_id or scan.id }}">
                     <td><a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or 'Unnamed' }}</a></td>
                     <td>{{ scan.project_name or '-' }}</td>
                     <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
-                    <td>{{ scan.completed_points or 0 }} / {{ scan.total_points or 0 }}</td>
+                    <td class="progress-cell">{{ scan.completed_points or 0 }} / {{ scan.total_points or 0 }}</td>
                     <td>
                         <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">🚀</a>
+                        <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -100,5 +107,33 @@
         </table>
     </div>
     {% endif %}
+    
+    <!-- Live Log Panel -->
+    <div class="related-section">
+        <div class="section-header">
+            <h2>📋 Queue Log</h2>
+            <button class="btn btn-sm btn-secondary" id="clear-log-btn">Clear</button>
+        </div>
+        <div class="log-panel" id="queue-log-panel">
+            <div class="log-entry INFO"><span class="log-timestamp">--:--:--</span> Waiting for log events...</div>
+        </div>
+    </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/queue-realtime.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize queue realtime manager
+        const queueId = '{{ queue.queue_id or queue.id }}';
+        window.queueManager = new QueueRealtimeManager(queueId);
+        
+        // Clear log button
+        document.getElementById('clear-log-btn').addEventListener('click', function() {
+            const logPanel = document.getElementById('queue-log-panel');
+            logPanel.innerHTML = '<div class="log-entry INFO"><span class="log-timestamp">--:--:--</span> Log cleared</div>';
+        });
+    });
+</script>
 {% endblock %}

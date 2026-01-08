@@ -12,12 +12,13 @@ from sqlalchemy.orm import Session, joinedload
 from contextlib import contextmanager
 
 from database.models import (
-    Template, Equipment, Precursor, PrecursorInventory,
+    Template, Equipment, Instrument, Precursor, PrecursorInventory,
     Procedure, Sample, SamplePrecursor,
     Queue, QueueLog, Scan, MeasurementObject, MeasurementDataPoint,
     Tag, EntityTag, FabricationRun,
     Lab, LabMember, Project, ProjectMember, ItemGuest,
-    User, Issue
+    User, UserPin, Issue, EntityImage,
+    EquipmentImage, EquipmentIssue, ProcedureEquipment
 )
 from database.session import get_session, init_db
 
@@ -71,9 +72,13 @@ class DatabaseService:
                     'total': session.query(func.count(Queue.id)).scalar() or 0,
                     'active': session.query(func.count(Queue.id)).filter(Queue.status.in_(['running', 'paused'])).scalar() or 0,
                 },
+                'instruments': {
+                    'total': session.query(func.count(Instrument.id)).scalar() or 0,
+                    'available': session.query(func.count(Instrument.id)).filter(Instrument.status == 'available').scalar() or 0,
+                },
                 'equipment': {
                     'total': session.query(func.count(Equipment.id)).scalar() or 0,
-                    'available': session.query(func.count(Equipment.id)).filter(Equipment.status == 'available').scalar() or 0,
+                    'operational': session.query(func.count(Equipment.id)).filter(Equipment.status == 'operational').scalar() or 0,
                 },
                 'precursors': {
                     'total': session.query(func.count(Precursor.id)).scalar() or 0,
@@ -101,6 +106,7 @@ class DatabaseService:
             stats['recent_scans'] = self._get_recent_scans(session, limit=5)
             stats['recent_samples'] = self._get_recent_samples(session, limit=5)
             stats['open_issues'] = self._get_open_issues(session, limit=5)
+            stats['open_equipment_issues'] = self._get_open_equipment_issues(session, limit=5)
             
             return stats
     
@@ -128,7 +134,23 @@ class DatabaseService:
             ),
             desc(Issue.created_at)
         ).limit(limit).all()
-        return [self._issue_to_dict(i) for i in issues]
+        return [self._issue_to_dict(i, session) for i in issues]
+    
+    def _get_open_equipment_issues(self, session: Session, limit: int = 5) -> List[Dict]:
+        """Get open equipment issues for dashboard."""
+        issues = session.query(EquipmentIssue).filter(
+            EquipmentIssue.status.in_(['open', 'in_progress'])
+        ).order_by(
+            # Priority order: critical > high > medium > low
+            case(
+                (EquipmentIssue.priority == 'critical', 1),
+                (EquipmentIssue.priority == 'high', 2),
+                (EquipmentIssue.priority == 'medium', 3),
+                else_=4
+            ),
+            desc(EquipmentIssue.created_at)
+        ).limit(limit).all()
+        return [self._equipment_issue_to_dict(i) for i in issues]
     
     # ==================== Samples ====================
     
@@ -137,6 +159,8 @@ class DatabaseService:
         search: Optional[str] = None,
         status: Optional[str] = None,
         material: Optional[str] = None,
+        lab_id: Optional[int] = None,
+        project_id: Optional[int] = None,
         page: int = 1,
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
@@ -165,6 +189,12 @@ class DatabaseService:
             
             if material:
                 query = query.filter(Sample.material.ilike(f"%{material}%"))
+            
+            if lab_id:
+                query = query.filter(Sample.lab_id == lab_id)
+            
+            if project_id:
+                query = query.filter(Sample.project_id == project_id)
             
             # Get total count
             total = query.count()
@@ -239,7 +269,7 @@ class DatabaseService:
                 'procedure_type': run.procedure.procedure_type if run.procedure else None,
                 'run_number': run.run_number,
                 'status': run.status,
-                'operator': run.operator,
+                'created_by': run.created_by,
                 'started_at': run.started_at.isoformat() if run.started_at else None,
                 'completed_at': run.completed_at.isoformat() if run.completed_at else None,
                 'notes': run.notes,
@@ -368,6 +398,7 @@ class DatabaseService:
                 'id': p.id,
                 'name': p.name,
                 'code': p.code,
+                'lab_id': p.lab_id,
                 'display': f"{p.name}" + (f" ({p.code})" if p.code else "")
             } for p in projects]
     
@@ -381,6 +412,19 @@ class DatabaseService:
                 'chemical_formula': p.chemical_formula,
                 'display': f"{p.name}" + (f" ({p.chemical_formula})" if p.chemical_formula else "")
             } for p in precursors]
+    
+    def get_instruments_simple_list(self) -> List[Dict]:
+        """Get a simple list of all instruments for dropdowns."""
+        with self.session_scope() as session:
+            instruments = session.query(Instrument).filter(
+                Instrument.status != 'retired'
+            ).order_by(Instrument.name).all()
+            return [{
+                'id': i.id,
+                'name': i.name,
+                'model': i.model,
+                'display': f"{i.name}" + (f" ({i.model})" if i.model else "")
+            } for i in instruments]
     
     def get_equipment_simple_list(self) -> List[Dict]:
         """Get a simple list of all equipment for dropdowns."""
@@ -465,10 +509,27 @@ class DatabaseService:
         search: Optional[str] = None,
         status: Optional[str] = None,
         sample_id: Optional[int] = None,
+        queue_id: Optional[int] = None,
+        lab_id: Optional[int] = None,
+        project_id: Optional[int] = None,
         page: int = 1,
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
-        """Get paginated list of scans with optional filtering."""
+        """Get paginated list of scans with optional filtering.
+        
+        Args:
+            search: Search term for scan_name, project_name, or scan_id
+            status: Filter by status
+            sample_id: Filter by sample
+            queue_id: Filter by parent queue (scans are children of queues)
+            lab_id: Filter by lab
+            project_id: Filter by project
+            page: Page number (1-indexed)
+            per_page: Items per page
+            
+        Returns:
+            Tuple of (list of scan dicts, total count)
+        """
         with self.session_scope() as session:
             query = session.query(Scan)
             
@@ -488,18 +549,35 @@ class DatabaseService:
             if sample_id:
                 query = query.filter(Scan.sample_id == sample_id)
             
+            if queue_id:
+                query = query.filter(Scan.queue_id == queue_id)
+            
+            if project_id:
+                query = query.filter(Scan.project_id == project_id)
+            elif lab_id:
+                # Filter by direct lab_id or through project
+                query = query.filter(
+                    or_(
+                        Scan.lab_id == lab_id,
+                        Scan.project_id.in_(
+                            session.query(Project.id).filter(Project.lab_id == lab_id)
+                        )
+                    )
+                )
+            
             total = query.count()
             offset = (page - 1) * per_page
-            scans = query.order_by(desc(Scan.created_at)).offset(offset).limit(per_page).all()
+            scans = query.options(joinedload(Scan.queue)).order_by(desc(Scan.created_at)).offset(offset).limit(per_page).all()
             
             return [self._scan_to_dict(s) for s in scans], total
     
     def get_scan(self, scan_id: int) -> Optional[Dict]:
-        """Get a single scan by ID with measurement data."""
+        """Get a single scan by ID with measurement data and parent queue."""
         with self.session_scope() as session:
             scan = session.query(Scan).options(
                 joinedload(Scan.sample),
                 joinedload(Scan.measurement_objects),
+                joinedload(Scan.queue),
             ).filter(Scan.id == scan_id).first()
             
             if not scan:
@@ -507,6 +585,7 @@ class DatabaseService:
             
             result = self._scan_to_dict(scan)
             result['sample'] = self._sample_to_dict(scan.sample) if scan.sample else None
+            result['queue'] = self._queue_to_dict(scan.queue) if scan.queue else None
             result['measurement_objects'] = [
                 self._measurement_object_to_dict(mo) 
                 for mo in scan.measurement_objects
@@ -535,6 +614,177 @@ class DatabaseService:
                 for p in points
             ]
 
+    def get_visualization_data(self, scan_id: int) -> Dict[str, Dict]:
+        """Get measurement data organized for visualization.
+        
+        Returns data grouped by measurement object with metadata for proper charting.
+        Each measurement object gets its own data set with column information.
+        
+        Args:
+            scan_id: Database ID of the scan
+            
+        Returns:
+            Dictionary mapping measurement names to visualization data:
+            {
+                'Voltage_Meter': {
+                    'id': 1,
+                    'name': 'Voltage_Meter',
+                    'columns': ['current', 'voltage'],
+                    'unit': 'V',
+                    'instrument_name': 'IV_Voltage_Meter',
+                    'x_column': 'current',  # First column for X-axis
+                    'y_column': 'voltage',  # Second column for Y-axis
+                    'data_points': [
+                        {'x': -0.001, 'y': -0.016, 'index': 0},
+                        ...
+                    ],
+                    'all_values': [  # All raw values for table display
+                        {'current': -0.001, 'voltage': -0.016, 'sequence_index': 0},
+                        ...
+                    ]
+                }
+            }
+        """
+        result = {}
+        
+        with self.session_scope() as session:
+            # Get all measurement objects for this scan with their data
+            measurement_objects = session.query(MeasurementObject).filter(
+                MeasurementObject.scan_id == scan_id
+            ).all()
+            
+            for mo in measurement_objects:
+                columns = mo.columns or []
+                
+                # Determine X and Y columns
+                if len(columns) >= 2:
+                    x_column = columns[0]
+                    y_column = columns[1]
+                elif len(columns) == 1:
+                    x_column = None  # Will use sequence_index
+                    y_column = columns[0]
+                else:
+                    x_column = None
+                    y_column = None
+                
+                # Get data points for this measurement object
+                points = session.query(MeasurementDataPoint).filter(
+                    MeasurementDataPoint.measurement_object_id == mo.id
+                ).order_by(MeasurementDataPoint.sequence_index).all()
+                
+                # Build chart-ready data
+                chart_data = []
+                all_values = []
+                
+                for p in points:
+                    values = p.values or {}
+                    
+                    # For chart: extract X and Y values
+                    if x_column and x_column in values:
+                        x_val = values[x_column]
+                    else:
+                        x_val = p.sequence_index
+                    
+                    if y_column and y_column in values:
+                        y_val = values[y_column]
+                    else:
+                        # If no y_column, try to get the first value
+                        y_val = next(iter(values.values()), None) if values else None
+                    
+                    chart_data.append({
+                        'x': x_val,
+                        'y': y_val,
+                        'index': p.sequence_index
+                    })
+                    
+                    # For table: all values plus metadata
+                    row = dict(values)
+                    row['sequence_index'] = p.sequence_index
+                    row['timestamp'] = p.timestamp.isoformat() if p.timestamp else None
+                    if p.extra_data:
+                        row['extra_data'] = p.extra_data
+                    all_values.append(row)
+                
+                result[mo.name] = {
+                    'id': mo.id,
+                    'name': mo.name,
+                    'columns': columns,
+                    'unit': mo.unit,
+                    'instrument_name': mo.instrument_name,
+                    'data_type': mo.data_type,
+                    'x_column': x_column or 'sequence_index',
+                    'y_column': y_column,
+                    'data_points': chart_data,
+                    'all_values': all_values,
+                    'point_count': len(points)
+                }
+        
+        return result
+
+    def generate_scan_csv(self, scan_id: int, columns: List[str] = None, include_metadata: bool = True) -> str:
+        """Generate CSV content for scan data export.
+        
+        Args:
+            scan_id: Database ID of the scan
+            columns: List of columns to include (None = all)
+            include_metadata: Whether to include header comments with metadata
+            
+        Returns:
+            CSV content as string, or None if scan not found
+        """
+        import csv
+        import io
+        from datetime import datetime
+        
+        with self.session_scope() as session:
+            scan = session.query(Scan).get(scan_id)
+            if not scan:
+                return None
+            
+            # Get visualization data to build CSV
+            viz_data = self.get_visualization_data(scan_id)
+            
+            output = io.StringIO()
+            
+            # Write metadata header
+            if include_metadata:
+                output.write(f"# PyBirch Scan Export\n")
+                output.write(f"# Scan ID: {scan.id}\n")
+                output.write(f"# Scan Name: {scan.scan_name or 'Unnamed'}\n")
+                output.write(f"# Scan Type: {scan.scan_type or '-'}\n")
+                output.write(f"# Project: {scan.project_name or '-'}\n")
+                output.write(f"# Queue ID: {scan.queue_id or '-'}\n")
+                output.write(f"# Export Date: {datetime.now().isoformat()}\n")
+                output.write(f"#\n")
+            
+            # For each measurement object, write a section
+            for mo_name, data in viz_data.items():
+                if include_metadata:
+                    output.write(f"# Measurement Object: {mo_name}\n")
+                    output.write(f"# Instrument: {data.get('instrument_name', '-')}\n")
+                    output.write(f"# Unit: {data.get('unit', '-')}\n")
+                    output.write(f"# Total Points: {data.get('point_count', 0)}\n")
+                    output.write(f"#\n")
+                
+                # Determine columns to include
+                all_cols = ['sequence_index'] + (data.get('columns') or []) + ['timestamp']
+                if columns:
+                    # Filter to requested columns
+                    csv_cols = [c for c in all_cols if c in columns]
+                else:
+                    csv_cols = all_cols
+                
+                # Write CSV data
+                writer = csv.DictWriter(output, fieldnames=csv_cols, extrasaction='ignore')
+                writer.writeheader()
+                
+                for row in data.get('all_values', []):
+                    writer.writerow(row)
+                
+                output.write("\n")  # Blank line between measurement objects
+            
+            return output.getvalue()
+
     def _scan_to_dict(self, scan: Scan) -> Dict:
         """Convert Scan model to dictionary."""
         return {
@@ -542,7 +792,7 @@ class DatabaseService:
             'scan_id': scan.scan_id,
             'scan_name': scan.scan_name,
             'project_name': scan.project_name,
-            'owner': scan.owner,
+            'created_by': scan.created_by,
             'status': scan.status,
             'scan_type': scan.scan_type,
             'job_type': scan.job_type,
@@ -551,10 +801,13 @@ class DatabaseService:
             'duration_seconds': float(scan.duration_seconds) if scan.duration_seconds else None,
             'sample_id': scan.sample_id,
             'queue_id': scan.queue_id,
+            'queue_name': scan.queue.name if scan.queue else None,
             'notes': scan.notes,
             'wandb_link': scan.wandb_link,
             'created_at': scan.created_at.isoformat() if scan.created_at else None,
             'pybirch_uri': f"pybirch://scan/{scan.id}",
+            'lab_id': scan.lab_id,
+            'project_id': scan.project_id,
         }
     
     def _measurement_object_to_dict(self, mo: MeasurementObject) -> Dict:
@@ -727,6 +980,53 @@ class DatabaseService:
             ).first()
             return self._measurement_object_to_dict(mo) if mo else None
     
+    def get_scan_measurements(self, scan_id: int) -> List[Dict]:
+        """Get all measurement objects for a scan.
+        
+        Args:
+            scan_id: Database scan ID
+            
+        Returns:
+            List of measurement objects as dictionaries
+        """
+        with self.session_scope() as session:
+            measurements = session.query(MeasurementObject).filter(
+                MeasurementObject.scan_id == scan_id
+            ).all()
+            return [self._measurement_object_to_dict(mo) for mo in measurements]
+    
+    def get_measurement_data_points(
+        self,
+        measurement_id: int,
+        page: int = 1,
+        per_page: int = 1000
+    ) -> List[Dict]:
+        """Get data points for a measurement.
+        
+        Args:
+            measurement_id: Measurement object ID
+            page: Page number (1-indexed)
+            per_page: Items per page (default 1000)
+            
+        Returns:
+            List of data points as dictionaries
+        """
+        with self.session_scope() as session:
+            points = session.query(MeasurementDataPoint).filter(
+                MeasurementDataPoint.measurement_id == measurement_id
+            ).order_by(
+                MeasurementDataPoint.sequence_index
+            ).offset((page - 1) * per_page).limit(per_page).all()
+            
+            return [{
+                'id': point.id,
+                'measurement_id': point.measurement_id,
+                'sequence_index': point.sequence_index,
+                'values': point.values,
+                'timestamp': point.timestamp.isoformat() if point.timestamp else None,
+                'extra_data': point.extra_data,
+            } for point in points]
+    
     def create_data_point(
         self,
         measurement_id: int,
@@ -783,7 +1083,7 @@ class DatabaseService:
             points = []
             for i, dp in enumerate(data_points):
                 point = MeasurementDataPoint(
-                    measurement_id=measurement_id,
+                    measurement_object_id=measurement_id,  # Fixed: use measurement_object_id not measurement_id
                     values=dp.get('values', dp),
                     sequence_index=dp.get('sequence_index', i),
                     timestamp=dp.get('timestamp', datetime.now()),
@@ -794,12 +1094,38 @@ class DatabaseService:
             session.bulk_save_objects(points)
             return len(points)
 
+    def get_data_point_count(
+        self,
+        scan_id: int,
+        measurement_name: Optional[str] = None,
+    ) -> int:
+        """Get count of data points for a scan.
+        
+        Args:
+            scan_id: Database scan ID
+            measurement_name: Optional measurement name to filter by
+            
+        Returns:
+            Count of data points
+        """
+        with self.session_scope() as session:
+            query = session.query(func.count(MeasurementDataPoint.id)).join(
+                MeasurementObject
+            ).filter(MeasurementObject.scan_id == scan_id)
+            
+            if measurement_name:
+                query = query.filter(MeasurementObject.name == measurement_name)
+            
+            return query.scalar() or 0
+
     # ==================== Queues ====================
     
     def get_queues(
         self,
         search: Optional[str] = None,
         status: Optional[str] = None,
+        lab_id: Optional[int] = None,
+        project_id: Optional[int] = None,
         page: int = 1,
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
@@ -818,6 +1144,19 @@ class DatabaseService:
             
             if status:
                 query = query.filter(Queue.status == status)
+            
+            if project_id:
+                query = query.filter(Queue.project_id == project_id)
+            elif lab_id:
+                # Filter by direct lab_id or through project
+                query = query.filter(
+                    or_(
+                        Queue.lab_id == lab_id,
+                        Queue.project_id.in_(
+                            session.query(Project.id).filter(Project.lab_id == lab_id)
+                        )
+                    )
+                )
             
             total = query.count()
             offset = (page - 1) * per_page
@@ -855,10 +1194,12 @@ class DatabaseService:
             'started_at': queue.started_at.isoformat() if queue.started_at else None,
             'completed_at': queue.completed_at.isoformat() if queue.completed_at else None,
             'sample_id': queue.sample_id,
-            'operator': queue.operator,
+            'created_by': queue.created_by,
             'notes': queue.notes,
             'created_at': queue.created_at.isoformat() if queue.created_at else None,
             'pybirch_uri': f"pybirch://queue/{queue.id}",
+            'lab_id': queue.lab_id,
+            'project_id': queue.project_id,
         }
     
     def create_queue(self, data: Dict[str, Any]) -> Dict:
@@ -1038,6 +1379,565 @@ class DatabaseService:
                 for log in logs
             ]
     
+    def get_instrument_by_name(self, name: str) -> Optional[Dict]:
+        """Get instrument by name.
+        
+        Args:
+            name: Instrument name
+            
+        Returns:
+            Instrument as dictionary, or None if not found
+        """
+        with self.session_scope() as session:
+            instrument = session.query(Instrument).filter(Instrument.name == name).first()
+            return self._instrument_to_dict(instrument) if instrument else None
+
+    # ==================== Instruments (PyBirch-compatible devices) ====================
+    
+    def get_instruments_list(
+        self,
+        search: Optional[str] = None,
+        instrument_type: Optional[str] = None,
+        status: Optional[str] = None,
+        lab_id: Optional[int] = None,
+        page: int = 1,
+        per_page: int = 20
+    ) -> Tuple[List[Dict], int]:
+        """Get paginated list of instruments."""
+        with self.session_scope() as session:
+            query = session.query(Instrument)
+            
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        Instrument.name.ilike(search_term),
+                        Instrument.manufacturer.ilike(search_term),
+                        Instrument.model.ilike(search_term),
+                        Instrument.pybirch_class.ilike(search_term)
+                    )
+                )
+            
+            if instrument_type:
+                query = query.filter(Instrument.instrument_type == instrument_type)
+            
+            if status:
+                query = query.filter(Instrument.status == status)
+            
+            if lab_id:
+                query = query.filter(Instrument.lab_id == lab_id)
+            
+            total = query.count()
+            offset = (page - 1) * per_page
+            instruments = query.order_by(Instrument.name).offset(offset).limit(per_page).all()
+            
+            return [self._instrument_to_dict(i) for i in instruments], total
+    
+    def get_instrument(self, instrument_id: int) -> Optional[Dict]:
+        """Get a single instrument by ID."""
+        with self.session_scope() as session:
+            instrument = session.query(Instrument).filter(Instrument.id == instrument_id).first()
+            return self._instrument_to_dict(instrument) if instrument else None
+    
+    def create_instrument(self, data: Dict[str, Any]) -> Dict:
+        """Create new instrument."""
+        with self.session_scope() as session:
+            instrument = Instrument(**data)
+            session.add(instrument)
+            session.flush()
+            return self._instrument_to_dict(instrument)
+    
+    def update_instrument(self, instrument_id: int, data: Dict) -> Optional[Dict]:
+        """Update an existing instrument."""
+        with self.session_scope() as session:
+            instrument = session.query(Instrument).filter(Instrument.id == instrument_id).first()
+            if not instrument:
+                return None
+            
+            for field in ['name', 'instrument_type', 'pybirch_class', 'manufacturer', 'model',
+                          'serial_number', 'adapter', 'location', 'status', 'specifications',
+                          'calibration_date', 'next_calibration_date', 'lab_id', 'equipment_id']:
+                if field in data:
+                    setattr(instrument, field, data[field])
+            
+            session.flush()
+            return self._instrument_to_dict(instrument)
+    
+    def delete_instrument(self, instrument_id: int) -> bool:
+        """Delete an instrument by ID."""
+        with self.session_scope() as session:
+            instrument = session.query(Instrument).filter(Instrument.id == instrument_id).first()
+            if not instrument:
+                return False
+            session.delete(instrument)
+            return True
+    
+    def _instrument_to_dict(self, instrument: Instrument) -> Dict:
+        """Convert Instrument model to dictionary."""
+        return {
+            'id': instrument.id,
+            'name': instrument.name,
+            'instrument_type': instrument.instrument_type,
+            'pybirch_class': instrument.pybirch_class,
+            'manufacturer': instrument.manufacturer,
+            'model': instrument.model,
+            'serial_number': instrument.serial_number,
+            'adapter': instrument.adapter,
+            'location': instrument.location,
+            'status': instrument.status,
+            'specifications': instrument.specifications,
+            'lab_id': instrument.lab_id,
+            'equipment_id': instrument.equipment_id,
+            'calibration_date': instrument.calibration_date.isoformat() if instrument.calibration_date else None,
+            'next_calibration_date': instrument.next_calibration_date.isoformat() if instrument.next_calibration_date else None,
+            'created_at': instrument.created_at.isoformat() if instrument.created_at else None,
+        }
+
+    # ==================== Instrument Definitions (Stored Code) ====================
+    
+    def create_instrument_definition(self, data: Dict[str, Any]) -> Dict:
+        """Create a new instrument definition.
+        
+        Args:
+            data: Dictionary with definition fields:
+                - name: Class name (required, unique)
+                - display_name: Human-readable name (required)
+                - instrument_type: 'movement' or 'measurement' (required)
+                - source_code: Python source code (required)
+                - base_class: Base class name (required)
+                - description, category, manufacturer, etc. (optional)
+        
+        Returns:
+            Created definition as dictionary
+        """
+        from database.models import InstrumentDefinition, InstrumentDefinitionVersion
+        
+        with self.session_scope() as session:
+            definition = InstrumentDefinition(
+                name=data['name'],
+                display_name=data['display_name'],
+                description=data.get('description'),
+                instrument_type=data['instrument_type'],
+                category=data.get('category'),
+                manufacturer=data.get('manufacturer'),
+                source_code=data['source_code'],
+                base_class=data['base_class'],
+                dependencies=data.get('dependencies'),
+                settings_schema=data.get('settings_schema'),
+                default_settings=data.get('default_settings'),
+                data_columns=data.get('data_columns'),
+                data_units=data.get('data_units'),
+                position_column=data.get('position_column'),
+                position_units=data.get('position_units'),
+                lab_id=data.get('lab_id'),
+                is_public=data.get('is_public', False),
+                is_builtin=data.get('is_builtin', False),
+                is_approved=data.get('is_approved', True),
+                created_by=data.get('created_by'),
+            )
+            session.add(definition)
+            session.flush()
+            
+            # Create initial version
+            version = InstrumentDefinitionVersion(
+                definition_id=definition.id,
+                version=1,
+                source_code=data['source_code'],
+                change_summary='Initial version',
+                created_by=data.get('created_by'),
+            )
+            session.add(version)
+            session.flush()
+            
+            return self._instrument_definition_to_dict(definition)
+    
+    def get_instrument_definitions(
+        self,
+        instrument_type: Optional[str] = None,
+        category: Optional[str] = None,
+        lab_id: Optional[int] = None,
+        include_public: bool = True,
+        include_builtin: bool = True,
+        search: Optional[str] = None,
+    ) -> List[Dict]:
+        """Get instrument definitions.
+        
+        Args:
+            instrument_type: Filter by 'movement' or 'measurement'
+            category: Filter by category (e.g., 'Lock-In Amplifier')
+            lab_id: Filter by lab (also includes public/builtin if flags set)
+            include_public: Include public definitions from other labs
+            include_builtin: Include built-in PyBirch definitions
+            search: Search in name, display_name, description
+        
+        Returns:
+            List of definitions as dictionaries
+        """
+        from database.models import InstrumentDefinition
+        
+        with self.session_scope() as session:
+            query = session.query(InstrumentDefinition)
+            
+            # Apply type filter
+            if instrument_type:
+                query = query.filter(InstrumentDefinition.instrument_type == instrument_type)
+            
+            # Apply category filter
+            if category:
+                query = query.filter(InstrumentDefinition.category == category)
+            
+            # Apply lab/visibility filter
+            if lab_id is not None:
+                filters = [InstrumentDefinition.lab_id == lab_id]
+                if include_public:
+                    filters.append(InstrumentDefinition.is_public == True)
+                if include_builtin:
+                    filters.append(InstrumentDefinition.is_builtin == True)
+                query = query.filter(or_(*filters))
+            
+            # Apply search filter
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        InstrumentDefinition.name.ilike(search_term),
+                        InstrumentDefinition.display_name.ilike(search_term),
+                        InstrumentDefinition.description.ilike(search_term),
+                    )
+                )
+            
+            # Only approved definitions
+            query = query.filter(InstrumentDefinition.is_approved == True)
+            
+            definitions = query.order_by(InstrumentDefinition.display_name).all()
+            return [self._instrument_definition_to_dict(d) for d in definitions]
+    
+    def get_instrument_definition(self, definition_id: int) -> Optional[Dict]:
+        """Get a single instrument definition by ID."""
+        from database.models import InstrumentDefinition
+        
+        with self.session_scope() as session:
+            definition = session.query(InstrumentDefinition).filter(
+                InstrumentDefinition.id == definition_id
+            ).first()
+            return self._instrument_definition_to_dict(definition) if definition else None
+    
+    def get_instrument_definition_by_name(self, name: str) -> Optional[Dict]:
+        """Get an instrument definition by class name."""
+        from database.models import InstrumentDefinition
+        
+        with self.session_scope() as session:
+            definition = session.query(InstrumentDefinition).filter(
+                InstrumentDefinition.name == name
+            ).first()
+            return self._instrument_definition_to_dict(definition) if definition else None
+    
+    def update_instrument_definition(
+        self, 
+        definition_id: int, 
+        data: Dict[str, Any],
+        change_summary: Optional[str] = None,
+        updated_by: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """Update an instrument definition.
+        
+        If source_code is changed, creates a new version.
+        
+        Args:
+            definition_id: ID of definition to update
+            data: Fields to update
+            change_summary: Description of changes (for version history)
+            updated_by: Username making the change
+        
+        Returns:
+            Updated definition as dictionary
+        """
+        from database.models import InstrumentDefinition, InstrumentDefinitionVersion
+        
+        with self.session_scope() as session:
+            definition = session.query(InstrumentDefinition).filter(
+                InstrumentDefinition.id == definition_id
+            ).first()
+            
+            if not definition:
+                return None
+            
+            # Check if source code changed
+            old_source = definition.source_code
+            new_source = data.get('source_code', old_source)
+            source_changed = new_source != old_source
+            
+            # Update fields
+            updatable_fields = [
+                'display_name', 'description', 'category', 'manufacturer',
+                'source_code', 'base_class', 'dependencies', 'settings_schema',
+                'default_settings', 'data_columns', 'data_units',
+                'position_column', 'position_units', 'is_public', 'is_approved',
+            ]
+            
+            for field in updatable_fields:
+                if field in data:
+                    setattr(definition, field, data[field])
+            
+            # If source code changed, create new version
+            if source_changed:
+                definition.version += 1
+                
+                version = InstrumentDefinitionVersion(
+                    definition_id=definition.id,
+                    version=definition.version,
+                    source_code=new_source,
+                    change_summary=change_summary or 'Updated',
+                    created_by=updated_by,
+                )
+                session.add(version)
+            
+            session.flush()
+            return self._instrument_definition_to_dict(definition)
+    
+    def delete_instrument_definition(self, definition_id: int) -> bool:
+        """Delete an instrument definition and all its versions."""
+        from database.models import InstrumentDefinition
+        
+        with self.session_scope() as session:
+            definition = session.query(InstrumentDefinition).filter(
+                InstrumentDefinition.id == definition_id
+            ).first()
+            
+            if not definition:
+                return False
+            
+            session.delete(definition)
+            return True
+    
+    def get_instrument_definition_versions(self, definition_id: int) -> List[Dict]:
+        """Get version history for an instrument definition."""
+        from database.models import InstrumentDefinitionVersion
+        
+        with self.session_scope() as session:
+            versions = session.query(InstrumentDefinitionVersion).filter(
+                InstrumentDefinitionVersion.definition_id == definition_id
+            ).order_by(InstrumentDefinitionVersion.version.desc()).all()
+            
+            return [{
+                'id': v.id,
+                'definition_id': v.definition_id,
+                'version': v.version,
+                'source_code': v.source_code,
+                'change_summary': v.change_summary,
+                'created_by': v.created_by,
+                'created_at': v.created_at.isoformat() if v.created_at else None,
+            } for v in versions]
+    
+    def _instrument_definition_to_dict(self, definition) -> Dict:
+        """Convert InstrumentDefinition model to dictionary."""
+        if not definition:
+            return {}
+        return {
+            'id': definition.id,
+            'name': definition.name,
+            'display_name': definition.display_name,
+            'description': definition.description,
+            'instrument_type': definition.instrument_type,
+            'category': definition.category,
+            'manufacturer': definition.manufacturer,
+            'source_code': definition.source_code,
+            'base_class': definition.base_class,
+            'dependencies': definition.dependencies,
+            'settings_schema': definition.settings_schema,
+            'default_settings': definition.default_settings,
+            'data_columns': definition.data_columns,
+            'data_units': definition.data_units,
+            'position_column': definition.position_column,
+            'position_units': definition.position_units,
+            'lab_id': definition.lab_id,
+            'version': definition.version,
+            'is_public': definition.is_public,
+            'is_builtin': definition.is_builtin,
+            'is_approved': definition.is_approved,
+            'created_by': definition.created_by,
+            'created_at': definition.created_at.isoformat() if definition.created_at else None,
+            'updated_at': definition.updated_at.isoformat() if definition.updated_at else None,
+        }
+    
+    # ==================== Computer Bindings ====================
+    
+    def bind_instrument_to_computer(
+        self,
+        instrument_id: int,
+        computer_name: str,
+        computer_id: Optional[str] = None,
+        username: Optional[str] = None,
+        adapter: Optional[str] = None,
+        adapter_type: Optional[str] = None,
+        is_primary: bool = True,
+    ) -> Dict:
+        """Bind an instrument to a computer.
+        
+        Creates or updates a computer binding for the instrument.
+        
+        Args:
+            instrument_id: ID of the instrument
+            computer_name: Hostname of the computer
+            computer_id: MAC address or UUID (optional)
+            username: OS username (optional)
+            adapter: VISA address or connection string
+            adapter_type: 'GPIB', 'USB', 'Serial', 'TCP', etc.
+            is_primary: Whether this is the primary computer for this instrument
+        
+        Returns:
+            Binding as dictionary
+        """
+        from database.models import ComputerBinding
+        from datetime import datetime
+        
+        with self.session_scope() as session:
+            # Check if binding exists
+            binding = session.query(ComputerBinding).filter(
+                ComputerBinding.instrument_id == instrument_id,
+                ComputerBinding.computer_name == computer_name,
+            ).first()
+            
+            if binding:
+                # Update existing
+                if computer_id:
+                    binding.computer_id = computer_id
+                if username:
+                    binding.username = username
+                if adapter:
+                    binding.adapter = adapter
+                if adapter_type:
+                    binding.adapter_type = adapter_type
+                binding.is_primary = is_primary
+                binding.last_connected = datetime.utcnow()
+            else:
+                # Create new
+                binding = ComputerBinding(
+                    instrument_id=instrument_id,
+                    computer_name=computer_name,
+                    computer_id=computer_id,
+                    username=username,
+                    adapter=adapter,
+                    adapter_type=adapter_type,
+                    is_primary=is_primary,
+                    last_connected=datetime.utcnow(),
+                )
+                session.add(binding)
+            
+            session.flush()
+            return self._computer_binding_to_dict(binding)
+    
+    def get_computer_bindings(
+        self,
+        computer_name: Optional[str] = None,
+        instrument_id: Optional[int] = None,
+    ) -> List[Dict]:
+        """Get computer bindings.
+        
+        Args:
+            computer_name: Filter by computer hostname
+            instrument_id: Filter by instrument ID
+        
+        Returns:
+            List of bindings with instrument details
+        """
+        from database.models import ComputerBinding, Instrument, InstrumentDefinition
+        
+        with self.session_scope() as session:
+            query = session.query(ComputerBinding).join(Instrument)
+            
+            if computer_name:
+                query = query.filter(ComputerBinding.computer_name == computer_name)
+            
+            if instrument_id:
+                query = query.filter(ComputerBinding.instrument_id == instrument_id)
+            
+            bindings = query.all()
+            
+            result = []
+            for binding in bindings:
+                binding_dict = self._computer_binding_to_dict(binding)
+                binding_dict['instrument'] = self._instrument_to_dict(binding.instrument)
+                
+                # Include definition if available
+                if binding.instrument.definition_id:
+                    definition = session.query(InstrumentDefinition).filter(
+                        InstrumentDefinition.id == binding.instrument.definition_id
+                    ).first()
+                    if definition:
+                        binding_dict['instrument']['definition'] = self._instrument_definition_to_dict(definition)
+                
+                result.append(binding_dict)
+            
+            return result
+    
+    def update_computer_binding_settings(
+        self,
+        binding_id: int,
+        settings: Dict[str, Any],
+    ) -> Optional[Dict]:
+        """Update the last_settings for a computer binding.
+        
+        Args:
+            binding_id: ID of the binding
+            settings: Current instrument settings to save
+        
+        Returns:
+            Updated binding as dictionary
+        """
+        from database.models import ComputerBinding
+        from datetime import datetime
+        
+        with self.session_scope() as session:
+            binding = session.query(ComputerBinding).filter(
+                ComputerBinding.id == binding_id
+            ).first()
+            
+            if not binding:
+                return None
+            
+            binding.last_settings = settings
+            binding.last_connected = datetime.utcnow()
+            session.flush()
+            
+            return self._computer_binding_to_dict(binding)
+    
+    def delete_computer_binding(self, binding_id: int) -> bool:
+        """Delete a computer binding."""
+        from database.models import ComputerBinding
+        
+        with self.session_scope() as session:
+            binding = session.query(ComputerBinding).filter(
+                ComputerBinding.id == binding_id
+            ).first()
+            
+            if not binding:
+                return False
+            
+            session.delete(binding)
+            return True
+    
+    def _computer_binding_to_dict(self, binding) -> Dict:
+        """Convert ComputerBinding model to dictionary."""
+        if not binding:
+            return {}
+        return {
+            'id': binding.id,
+            'instrument_id': binding.instrument_id,
+            'computer_name': binding.computer_name,
+            'computer_id': binding.computer_id,
+            'username': binding.username,
+            'adapter': binding.adapter,
+            'adapter_type': binding.adapter_type,
+            'is_primary': binding.is_primary,
+            'last_connected': binding.last_connected.isoformat() if binding.last_connected else None,
+            'last_settings': binding.last_settings,
+            'created_at': binding.created_at.isoformat() if binding.created_at else None,
+            'updated_at': binding.updated_at.isoformat() if binding.updated_at else None,
+        }
+
+    # ==================== Equipment (Large lab equipment) ====================
+    
     def get_equipment_by_name(self, name: str) -> Optional[Dict]:
         """Get equipment by name.
         
@@ -1050,14 +1950,14 @@ class DatabaseService:
         with self.session_scope() as session:
             equipment = session.query(Equipment).filter(Equipment.name == name).first()
             return self._equipment_to_dict(equipment) if equipment else None
-
-    # ==================== Equipment ====================
     
     def get_equipment_list(
         self,
         search: Optional[str] = None,
         equipment_type: Optional[str] = None,
         status: Optional[str] = None,
+        lab_id: Optional[int] = None,
+        owner_id: Optional[int] = None,
         page: int = 1,
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
@@ -1071,7 +1971,8 @@ class DatabaseService:
                     or_(
                         Equipment.name.ilike(search_term),
                         Equipment.manufacturer.ilike(search_term),
-                        Equipment.model.ilike(search_term)
+                        Equipment.model.ilike(search_term),
+                        Equipment.description.ilike(search_term)
                     )
                 )
             
@@ -1080,6 +1981,12 @@ class DatabaseService:
             
             if status:
                 query = query.filter(Equipment.status == status)
+            
+            if lab_id:
+                query = query.filter(Equipment.lab_id == lab_id)
+            
+            if owner_id:
+                query = query.filter(Equipment.owner_id == owner_id)
             
             total = query.count()
             offset = (page - 1) * per_page
@@ -1108,31 +2015,247 @@ class DatabaseService:
             if not equipment:
                 return None
             
-            for field in ['name', 'equipment_type', 'pybirch_class', 'manufacturer', 'model',
-                          'serial_number', 'adapter', 'location', 'status', 'specifications']:
+            for field in ['name', 'equipment_type', 'description', 'manufacturer', 'model',
+                          'serial_number', 'location', 'room', 'status', 'owner_id',
+                          'purchase_date', 'warranty_expiration', 'last_maintenance_date',
+                          'next_maintenance_date', 'maintenance_interval_days', 'specifications',
+                          'documentation_url', 'lab_id']:
                 if field in data:
                     setattr(equipment, field, data[field])
             
             session.flush()
             return self._equipment_to_dict(equipment)
     
+    def delete_equipment(self, equipment_id: int) -> bool:
+        """Delete equipment by ID."""
+        with self.session_scope() as session:
+            equipment = session.query(Equipment).filter(Equipment.id == equipment_id).first()
+            if not equipment:
+                return False
+            session.delete(equipment)
+            return True
+    
     def _equipment_to_dict(self, equipment: Equipment) -> Dict:
         """Convert Equipment model to dictionary."""
+        owner_name = None
+        if equipment.owner:
+            owner_name = equipment.owner.name or equipment.owner.username
         return {
             'id': equipment.id,
             'name': equipment.name,
             'equipment_type': equipment.equipment_type,
-            'pybirch_class': equipment.pybirch_class,
+            'description': equipment.description,
             'manufacturer': equipment.manufacturer,
             'model': equipment.model,
             'serial_number': equipment.serial_number,
-            'adapter': equipment.adapter,
             'location': equipment.location,
+            'room': equipment.room,
             'status': equipment.status,
+            'owner_id': equipment.owner_id,
+            'owner_name': owner_name,
+            'purchase_date': equipment.purchase_date.isoformat() if equipment.purchase_date else None,
+            'warranty_expiration': equipment.warranty_expiration.isoformat() if equipment.warranty_expiration else None,
+            'last_maintenance_date': equipment.last_maintenance_date.isoformat() if equipment.last_maintenance_date else None,
+            'next_maintenance_date': equipment.next_maintenance_date.isoformat() if equipment.next_maintenance_date else None,
+            'maintenance_interval_days': equipment.maintenance_interval_days,
             'specifications': equipment.specifications,
-            'calibration_date': equipment.calibration_date.isoformat() if equipment.calibration_date else None,
-            'next_calibration_date': equipment.next_calibration_date.isoformat() if equipment.next_calibration_date else None,
+            'documentation_url': equipment.documentation_url,
+            'lab_id': equipment.lab_id,
             'created_at': equipment.created_at.isoformat() if equipment.created_at else None,
+            'updated_at': equipment.updated_at.isoformat() if equipment.updated_at else None,
+        }
+
+    # ==================== Equipment Issues ====================
+    
+    def get_equipment_issues(
+        self,
+        equipment_id: Optional[int] = None,
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+        category: Optional[str] = None,
+        assignee_id: Optional[int] = None,
+        reporter_id: Optional[int] = None,
+        page: int = 1,
+        per_page: int = 20
+    ) -> Tuple[List[Dict], int]:
+        """Get paginated list of equipment issues."""
+        with self.session_scope() as session:
+            query = session.query(EquipmentIssue)
+            
+            if equipment_id:
+                query = query.filter(EquipmentIssue.equipment_id == equipment_id)
+            
+            if status:
+                query = query.filter(EquipmentIssue.status == status)
+            
+            if priority:
+                query = query.filter(EquipmentIssue.priority == priority)
+            
+            if category:
+                query = query.filter(EquipmentIssue.category == category)
+            
+            if assignee_id:
+                query = query.filter(EquipmentIssue.assignee_id == assignee_id)
+            
+            if reporter_id:
+                query = query.filter(EquipmentIssue.reporter_id == reporter_id)
+            
+            total = query.count()
+            offset = (page - 1) * per_page
+            issues = query.order_by(EquipmentIssue.created_at.desc()).offset(offset).limit(per_page).all()
+            
+            return [self._equipment_issue_to_dict(i) for i in issues], total
+    
+    def get_equipment_issue(self, issue_id: int) -> Optional[Dict]:
+        """Get a single equipment issue by ID."""
+        with self.session_scope() as session:
+            issue = session.query(EquipmentIssue).filter(EquipmentIssue.id == issue_id).first()
+            return self._equipment_issue_to_dict(issue) if issue else None
+    
+    def create_equipment_issue(self, data: Dict[str, Any]) -> Dict:
+        """Create new equipment issue."""
+        with self.session_scope() as session:
+            # If no assignee specified but equipment has an owner, default to owner
+            if 'assignee_id' not in data or data['assignee_id'] is None:
+                equipment = session.query(Equipment).filter(Equipment.id == data.get('equipment_id')).first()
+                if equipment and equipment.owner_id:
+                    data['assignee_id'] = equipment.owner_id
+            
+            issue = EquipmentIssue(**data)
+            session.add(issue)
+            session.flush()
+            return self._equipment_issue_to_dict(issue)
+    
+    def update_equipment_issue(self, issue_id: int, data: Dict) -> Optional[Dict]:
+        """Update an existing equipment issue."""
+        with self.session_scope() as session:
+            issue = session.query(EquipmentIssue).filter(EquipmentIssue.id == issue_id).first()
+            if not issue:
+                return None
+            
+            for field in ['title', 'description', 'category', 'priority', 'status',
+                          'assignee_id', 'error_message', 'steps_to_reproduce',
+                          'resolution', 'cost', 'downtime_hours', 'resolved_at']:
+                if field in data:
+                    setattr(issue, field, data[field])
+            
+            session.flush()
+            return self._equipment_issue_to_dict(issue)
+    
+    def _equipment_issue_to_dict(self, issue: EquipmentIssue) -> Dict:
+        """Convert EquipmentIssue model to dictionary."""
+        reporter_name = None
+        if issue.reporter:
+            reporter_name = issue.reporter.name or issue.reporter.username
+        assignee_name = None
+        if issue.assignee:
+            assignee_name = issue.assignee.name or issue.assignee.username
+        equipment_name = None
+        if issue.equipment:
+            equipment_name = issue.equipment.name
+        return {
+            'id': issue.id,
+            'equipment_id': issue.equipment_id,
+            'equipment_name': equipment_name,
+            'title': issue.title,
+            'description': issue.description,
+            'category': issue.category,
+            'priority': issue.priority,
+            'status': issue.status,
+            'reporter_id': issue.reporter_id,
+            'reporter_name': reporter_name,
+            'assignee_id': issue.assignee_id,
+            'assignee_name': assignee_name,
+            'error_message': issue.error_message,
+            'steps_to_reproduce': issue.steps_to_reproduce,
+            'resolution': issue.resolution,
+            'cost': float(issue.cost) if issue.cost else None,
+            'downtime_hours': float(issue.downtime_hours) if issue.downtime_hours else None,
+            'resolved_at': issue.resolved_at.isoformat() if issue.resolved_at else None,
+            'created_at': issue.created_at.isoformat() if issue.created_at else None,
+            'updated_at': issue.updated_at.isoformat() if issue.updated_at else None,
+        }
+
+    # ==================== Equipment Images ====================
+    
+    def get_equipment_images(self, equipment_id: int) -> List[Dict]:
+        """Get all images for an equipment."""
+        with self.session_scope() as session:
+            images = session.query(EquipmentImage).filter(
+                EquipmentImage.equipment_id == equipment_id
+            ).order_by(EquipmentImage.is_primary.desc(), EquipmentImage.created_at.desc()).all()
+            return [self._equipment_image_to_dict(img) for img in images]
+    
+    def add_equipment_image(self, equipment_id: int, filename: str, file_path: str,
+                            original_filename: Optional[str] = None,
+                            file_size: Optional[int] = None,
+                            mime_type: Optional[str] = None,
+                            caption: Optional[str] = None,
+                            is_primary: bool = False,
+                            uploaded_by: Optional[str] = None) -> Dict:
+        """Add an image to equipment."""
+        with self.session_scope() as session:
+            # If this is marked as primary, unset any existing primary
+            if is_primary:
+                session.query(EquipmentImage).filter(
+                    EquipmentImage.equipment_id == equipment_id,
+                    EquipmentImage.is_primary == True
+                ).update({'is_primary': False})
+            
+            image = EquipmentImage(
+                equipment_id=equipment_id,
+                filename=filename,
+                file_path=file_path,
+                original_filename=original_filename,
+                file_size=file_size,
+                mime_type=mime_type,
+                caption=caption,
+                is_primary=is_primary,
+                uploaded_by=uploaded_by
+            )
+            session.add(image)
+            session.flush()
+            return self._equipment_image_to_dict(image)
+    
+    def delete_equipment_image(self, image_id: int) -> bool:
+        """Delete an equipment image."""
+        with self.session_scope() as session:
+            image = session.query(EquipmentImage).filter(EquipmentImage.id == image_id).first()
+            if image:
+                session.delete(image)
+                return True
+            return False
+    
+    def set_primary_equipment_image(self, equipment_id: int, image_id: int) -> bool:
+        """Set an image as the primary image for equipment."""
+        with self.session_scope() as session:
+            # Unset all primary images for this equipment
+            session.query(EquipmentImage).filter(
+                EquipmentImage.equipment_id == equipment_id
+            ).update({'is_primary': False})
+            
+            # Set the specified image as primary
+            result = session.query(EquipmentImage).filter(
+                EquipmentImage.id == image_id,
+                EquipmentImage.equipment_id == equipment_id
+            ).update({'is_primary': True})
+            
+            return result > 0
+    
+    def _equipment_image_to_dict(self, image: EquipmentImage) -> Dict:
+        """Convert EquipmentImage model to dictionary."""
+        return {
+            'id': image.id,
+            'equipment_id': image.equipment_id,
+            'filename': image.filename,
+            'original_filename': image.original_filename,
+            'file_path': image.file_path,
+            'file_size': image.file_size,
+            'mime_type': image.mime_type,
+            'caption': image.caption,
+            'is_primary': image.is_primary,
+            'uploaded_by': image.uploaded_by,
+            'created_at': image.created_at.isoformat() if image.created_at else None,
         }
     
     # ==================== Precursors ====================
@@ -1141,6 +2264,8 @@ class DatabaseService:
         self,
         search: Optional[str] = None,
         state: Optional[str] = None,
+        lab_id: Optional[int] = None,
+        project_id: Optional[int] = None,
         page: int = 1,
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
@@ -1160,6 +2285,19 @@ class DatabaseService:
             
             if state:
                 query = query.filter(Precursor.state == state)
+            
+            if project_id:
+                query = query.filter(Precursor.project_id == project_id)
+            elif lab_id:
+                # Filter by direct lab_id or through project
+                query = query.filter(
+                    or_(
+                        Precursor.lab_id == lab_id,
+                        Precursor.project_id.in_(
+                            session.query(Project.id).filter(Project.lab_id == lab_id)
+                        )
+                    )
+                )
             
             total = query.count()
             offset = (page - 1) * per_page
@@ -1190,12 +2328,21 @@ class DatabaseService:
             
             for field in ['name', 'chemical_formula', 'cas_number', 'supplier', 'lot_number',
                           'purity', 'state', 'status', 'concentration', 'concentration_unit',
-                          'storage_conditions', 'safety_info']:
+                          'storage_conditions', 'safety_info', 'lab_id', 'project_id']:
                 if field in data:
                     setattr(precursor, field, data[field])
             
             session.flush()
             return self._precursor_to_dict(precursor)
+    
+    def delete_precursor(self, precursor_id: int) -> bool:
+        """Delete a precursor by ID."""
+        with self.session_scope() as session:
+            precursor = session.query(Precursor).filter(Precursor.id == precursor_id).first()
+            if not precursor:
+                return False
+            session.delete(precursor)
+            return True
     
     def _precursor_to_dict(self, precursor: Precursor) -> Dict:
         """Convert Precursor model to dictionary."""
@@ -1214,6 +2361,8 @@ class DatabaseService:
             'storage_conditions': precursor.storage_conditions,
             'expiration_date': precursor.expiration_date.isoformat() if precursor.expiration_date else None,
             'created_at': precursor.created_at.isoformat() if precursor.created_at else None,
+            'lab_id': precursor.lab_id,
+            'project_id': precursor.project_id,
         }
     
     # ==================== Procedures ====================
@@ -1222,6 +2371,8 @@ class DatabaseService:
         self,
         search: Optional[str] = None,
         procedure_type: Optional[str] = None,
+        lab_id: Optional[int] = None,
+        project_id: Optional[int] = None,
         page: int = 1,
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
@@ -1240,6 +2391,19 @@ class DatabaseService:
             
             if procedure_type:
                 query = query.filter(Procedure.procedure_type == procedure_type)
+            
+            if project_id:
+                query = query.filter(Procedure.project_id == project_id)
+            elif lab_id:
+                # Filter by direct lab_id or through project
+                query = query.filter(
+                    or_(
+                        Procedure.lab_id == lab_id,
+                        Procedure.project_id.in_(
+                            session.query(Project.id).filter(Project.lab_id == lab_id)
+                        )
+                    )
+                )
             
             total = query.count()
             offset = (page - 1) * per_page
@@ -1283,7 +2447,7 @@ class DatabaseService:
                     'sample_sample_id': run.sample.sample_id if run.sample else None,
                     'run_number': run.run_number,
                     'status': run.status,
-                    'operator': run.operator,
+                    'created_by': run.created_by,
                     'started_at': run.started_at.isoformat() if run.started_at else None,
                     'completed_at': run.completed_at.isoformat() if run.completed_at else None,
                     'weather_conditions': run.weather_conditions,
@@ -1292,6 +2456,72 @@ class DatabaseService:
             ]
             
             return result
+    
+    def get_fabrication_runs(
+        self,
+        sample_id: Optional[int] = None,
+        procedure_id: Optional[int] = None,
+        status: Optional[str] = None,
+        page: int = 1,
+        per_page: int = 20
+    ) -> Tuple[List[Dict], int]:
+        """Get paginated list of fabrication runs with optional filtering."""
+        with self.session_scope() as session:
+            query = session.query(FabricationRun)
+            
+            if sample_id:
+                query = query.filter(FabricationRun.sample_id == sample_id)
+            if procedure_id:
+                query = query.filter(FabricationRun.procedure_id == procedure_id)
+            if status:
+                query = query.filter(FabricationRun.status == status)
+            
+            total = query.count()
+            runs = query.order_by(FabricationRun.created_at.desc()).offset(
+                (page - 1) * per_page
+            ).limit(per_page).all()
+            
+            return [{
+                'id': run.id,
+                'sample_id': run.sample_id,
+                'sample_name': run.sample.name if run.sample else None,
+                'sample_sample_id': run.sample.sample_id if run.sample else None,
+                'procedure_id': run.procedure_id,
+                'procedure_name': run.procedure.name if run.procedure else None,
+                'run_number': run.run_number,
+                'status': run.status,
+                'created_by': run.created_by,
+                'started_at': run.started_at.isoformat() if run.started_at else None,
+                'completed_at': run.completed_at.isoformat() if run.completed_at else None,
+                'weather_conditions': run.weather_conditions,
+                'created_at': run.created_at.isoformat() if run.created_at else None,
+            } for run in runs], total
+    
+    def get_fabrication_run(self, run_id: int) -> Optional[Dict]:
+        """Get a single fabrication run by ID."""
+        with self.session_scope() as session:
+            run = session.query(FabricationRun).filter(FabricationRun.id == run_id).first()
+            if not run:
+                return None
+            return {
+                'id': run.id,
+                'sample_id': run.sample_id,
+                'sample_name': run.sample.name if run.sample else None,
+                'sample_sample_id': run.sample.sample_id if run.sample else None,
+                'procedure_id': run.procedure_id,
+                'procedure_name': run.procedure.name if run.procedure else None,
+                'run_number': run.run_number,
+                'status': run.status,
+                'created_by': run.created_by,
+                'operator': run.operator,
+                'started_at': run.started_at.isoformat() if run.started_at else None,
+                'completed_at': run.completed_at.isoformat() if run.completed_at else None,
+                'actual_parameters': run.actual_parameters,
+                'notes': run.notes,
+                'results': run.results,
+                'weather_conditions': run.weather_conditions,
+                'created_at': run.created_at.isoformat() if run.created_at else None,
+            }
     
     def create_fabrication_run(self, data: Dict, fetch_weather: bool = True) -> Dict:
         """Create a new fabrication run, optionally fetching current weather.
@@ -1333,7 +2563,7 @@ class DatabaseService:
                 'procedure_id': run.procedure_id,
                 'run_number': run.run_number,
                 'status': run.status,
-                'operator': run.operator,
+                'created_by': run.created_by,
                 'started_at': run.started_at.isoformat() if run.started_at else None,
                 'weather_conditions': run.weather_conditions,
                 'created_at': run.created_at.isoformat() if run.created_at else None,
@@ -1346,7 +2576,7 @@ class DatabaseService:
             if not run:
                 return None
             
-            for field in ['procedure_id', 'run_number', 'status', 'operator', 
+            for field in ['procedure_id', 'run_number', 'status', 'created_by', 
                           'actual_parameters', 'notes', 'results']:
                 if field in data:
                     setattr(run, field, data[field])
@@ -1365,7 +2595,7 @@ class DatabaseService:
                 'procedure_id': run.procedure_id,
                 'run_number': run.run_number,
                 'status': run.status,
-                'operator': run.operator,
+                'created_by': run.created_by,
                 'started_at': run.started_at.isoformat() if run.started_at else None,
                 'completed_at': run.completed_at.isoformat() if run.completed_at else None,
                 'notes': run.notes,
@@ -1395,6 +2625,8 @@ class DatabaseService:
                 safety_requirements=data.get('safety_requirements'),
                 created_by=data.get('created_by'),
                 is_active=True,
+                lab_id=data.get('lab_id'),
+                project_id=data.get('project_id'),
             )
             session.add(procedure)
             session.flush()
@@ -1409,15 +2641,38 @@ class DatabaseService:
             
             for field in ['name', 'procedure_type', 'version', 'description', 'steps', 
                           'parameters', 'estimated_duration_minutes', 'safety_requirements', 
-                          'created_by', 'is_active']:
+                          'created_by', 'is_active', 'lab_id', 'project_id']:
                 if field in data:
                     setattr(procedure, field, data[field])
             
             session.flush()
             return self._procedure_to_dict(procedure)
     
+    def delete_procedure(self, procedure_id: int) -> bool:
+        """Delete a procedure by ID (soft delete by setting is_active to False)."""
+        with self.session_scope() as session:
+            procedure = session.query(Procedure).filter(Procedure.id == procedure_id).first()
+            if not procedure:
+                return False
+            # Soft delete - keep the record but mark as inactive
+            procedure.is_active = False
+            return True
+    
     def _procedure_to_dict(self, procedure: Procedure) -> Dict:
         """Convert Procedure model to dictionary."""
+        # Get linked equipment
+        equipment_list = []
+        if hasattr(procedure, 'equipment_associations') and procedure.equipment_associations:
+            for assoc in procedure.equipment_associations:
+                if assoc.equipment:
+                    equipment_list.append({
+                        'id': assoc.equipment.id,
+                        'name': assoc.equipment.name,
+                        'equipment_type': assoc.equipment.equipment_type,
+                        'role': assoc.role,
+                        'is_required': assoc.is_required,
+                    })
+        
         return {
             'id': procedure.id,
             'name': procedure.name,
@@ -1431,7 +2686,114 @@ class DatabaseService:
             'is_active': procedure.is_active,
             'created_at': procedure.created_at.isoformat() if procedure.created_at else None,
             'created_by': procedure.created_by,
+            'equipment': equipment_list,
+            'lab_id': procedure.lab_id,
+            'project_id': procedure.project_id,
         }
+    
+    # ==================== Procedure-Equipment Associations ====================
+    
+    def get_procedure_equipment(self, procedure_id: int) -> List[Dict]:
+        """Get all equipment linked to a procedure."""
+        with self.session_scope() as session:
+            associations = session.query(ProcedureEquipment).filter(
+                ProcedureEquipment.procedure_id == procedure_id
+            ).all()
+            
+            return [{
+                'id': a.id,
+                'procedure_id': a.procedure_id,
+                'equipment_id': a.equipment_id,
+                'equipment_name': a.equipment.name if a.equipment else None,
+                'equipment_type': a.equipment.equipment_type if a.equipment else None,
+                'role': a.role,
+                'is_required': a.is_required,
+                'notes': a.notes,
+            } for a in associations]
+    
+    def add_procedure_equipment(
+        self,
+        procedure_id: int,
+        equipment_id: int,
+        role: Optional[str] = None,
+        is_required: bool = True,
+        notes: Optional[str] = None
+    ) -> Dict:
+        """Link equipment to a procedure."""
+        with self.session_scope() as session:
+            # Check if association already exists
+            existing = session.query(ProcedureEquipment).filter(
+                ProcedureEquipment.procedure_id == procedure_id,
+                ProcedureEquipment.equipment_id == equipment_id
+            ).first()
+            
+            if existing:
+                # Update existing association
+                existing.role = role
+                existing.is_required = is_required
+                existing.notes = notes
+                session.flush()
+                return {
+                    'id': existing.id,
+                    'procedure_id': existing.procedure_id,
+                    'equipment_id': existing.equipment_id,
+                    'role': existing.role,
+                    'is_required': existing.is_required,
+                    'notes': existing.notes,
+                }
+            
+            # Create new association
+            association = ProcedureEquipment(
+                procedure_id=procedure_id,
+                equipment_id=equipment_id,
+                role=role,
+                is_required=is_required,
+                notes=notes
+            )
+            session.add(association)
+            session.flush()
+            
+            return {
+                'id': association.id,
+                'procedure_id': association.procedure_id,
+                'equipment_id': association.equipment_id,
+                'role': association.role,
+                'is_required': association.is_required,
+                'notes': association.notes,
+            }
+    
+    def remove_procedure_equipment(self, procedure_id: int, equipment_id: int) -> bool:
+        """Remove equipment link from a procedure."""
+        with self.session_scope() as session:
+            association = session.query(ProcedureEquipment).filter(
+                ProcedureEquipment.procedure_id == procedure_id,
+                ProcedureEquipment.equipment_id == equipment_id
+            ).first()
+            
+            if association:
+                session.delete(association)
+                return True
+            return False
+    
+    def update_procedure_equipment_list(self, procedure_id: int, equipment_ids: List[int]) -> None:
+        """Update the list of equipment linked to a procedure (replaces all associations)."""
+        with self.session_scope() as session:
+            # Remove all existing associations
+            session.query(ProcedureEquipment).filter(
+                ProcedureEquipment.procedure_id == procedure_id
+            ).delete()
+            
+            # Add new associations
+            for equipment_id in equipment_ids:
+                if equipment_id:
+                    association = ProcedureEquipment(
+                        procedure_id=procedure_id,
+                        equipment_id=equipment_id,
+                        is_required=True
+                    )
+                    session.add(association)
+            
+            session.flush()
     
     # ==================== Labs ====================
     
@@ -2238,7 +3600,8 @@ class DatabaseService:
             if not user:
                 return None
             
-            allowed_fields = ['name', 'email', 'role', 'lab_id', 'is_active', 'last_login', 'google_id']
+            allowed_fields = ['name', 'email', 'role', 'lab_id', 'is_active', 'last_login', 'google_id',
+                              'default_lab_id', 'default_project_id', 'phone', 'orcid', 'office_location']
             for field in allowed_fields:
                 if field in data:
                     setattr(user, field, data[field])
@@ -2261,6 +3624,50 @@ class DatabaseService:
             user.password_hash = password_hash
             session.flush()
             return True
+    
+    def get_user_preferences(self, user_id: int) -> Dict:
+        """Get user's default preferences for forms.
+        
+        Args:
+            user_id: The user's ID
+            
+        Returns:
+            Dictionary with user preferences (default_lab_id, default_project_id, pinned_instruments, etc.)
+        """
+        with self.session_scope() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                return {}
+            
+            return {
+                'default_lab_id': user.default_lab_id,
+                'default_project_id': user.default_project_id,
+                'pinned_instruments': [],  # TODO: implement when pinned instruments are stored
+            }
+    
+    def update_user_preferences(self, user_id: int, default_lab_id: Optional[int] = None, 
+                                 default_project_id: Optional[int] = None) -> Optional[Dict]:
+        """Update user's default preferences for forms.
+        
+        Args:
+            user_id: The user's ID
+            default_lab_id: Default lab to pre-fill in forms (None to clear)
+            default_project_id: Default project to pre-fill in forms (None to clear)
+            
+        Returns:
+            Updated user dict or None if user not found
+        """
+        with self.session_scope() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                return None
+            
+            # Allow setting to None to clear defaults
+            user.default_lab_id = default_lab_id
+            user.default_project_id = default_project_id
+            
+            session.flush()
+            return self._user_to_dict(user)
     
     def get_users(self, role: Optional[str] = None, page: int = 1, per_page: int = 20) -> Tuple[List[Dict], int]:
         """Get paginated list of users."""
@@ -2288,8 +3695,160 @@ class DatabaseService:
             'is_active': user.is_active,
             'last_login': user.last_login.isoformat() if user.last_login else None,
             'created_at': user.created_at.isoformat() if user.created_at else None,
+            'default_lab_id': user.default_lab_id,
+            'default_project_id': user.default_project_id,
+            'phone': user.phone,
+            'orcid': user.orcid,
+            'office_location': user.office_location,
         }
     
+    def get_user_profile_data(self, user_id: int) -> Dict:
+        """Get comprehensive user profile data including memberships and assignments.
+        
+        Returns user's lab memberships, project memberships, assigned equipment, and issues.
+        """
+        with self.session_scope() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                return {}
+            
+            # Get lab memberships by matching user email to lab member emails
+            lab_memberships = []
+            if user.email:
+                lab_members = session.query(LabMember).filter(
+                    LabMember.email == user.email,
+                    LabMember.is_active == True
+                ).all()
+                for lm in lab_members:
+                    lab_memberships.append({
+                        'id': lm.id,
+                        'lab_id': lm.lab_id,
+                        'lab_name': lm.lab.name if lm.lab else None,
+                        'role': lm.role,
+                        'title': lm.title,
+                        'joined_at': lm.joined_at.isoformat() if lm.joined_at else None,
+                    })
+            
+            # Get project memberships
+            project_memberships = []
+            if user.email:
+                # Get project memberships through lab memberships
+                for lm in lab_members if user.email else []:
+                    for pm in lm.project_memberships:
+                        if pm.is_active:
+                            project_memberships.append({
+                                'id': pm.id,
+                                'project_id': pm.project_id,
+                                'project_name': pm.project.name if pm.project else None,
+                                'project_code': pm.project.code if pm.project else None,
+                                'role': pm.role,
+                                'joined_at': pm.joined_at.isoformat() if pm.joined_at else None,
+                            })
+            
+            # Get assigned equipment (where user is owner)
+            assigned_equipment = []
+            for eq in user.owned_equipment:
+                assigned_equipment.append({
+                    'id': eq.id,
+                    'name': eq.name,
+                    'equipment_type': eq.equipment_type,
+                    'status': eq.status,
+                })
+            
+            # Get assigned issues (both general and equipment issues)
+            assigned_issues = []
+            for issue in user.issues_assigned:
+                assigned_issues.append({
+                    'id': issue.id,
+                    'title': issue.title,
+                    'status': issue.status,
+                    'priority': issue.priority,
+                    'type': 'general',
+                })
+            for eq_issue in user.equipment_issues_assigned:
+                assigned_issues.append({
+                    'id': eq_issue.id,
+                    'title': eq_issue.title,
+                    'status': eq_issue.status,
+                    'priority': eq_issue.priority,
+                    'type': 'equipment',
+                    'equipment_id': eq_issue.equipment_id,
+                    'equipment_name': eq_issue.equipment.name if eq_issue.equipment else None,
+                })
+            
+            return {
+                'lab_memberships': lab_memberships,
+                'project_memberships': project_memberships,
+                'assigned_equipment': assigned_equipment,
+                'assigned_issues': assigned_issues,
+            }
+    
+    # ==================== User Pins ====================
+    
+    def pin_item(self, user_id: int, entity_type: str, entity_id: int) -> bool:
+        """Pin an item for a user. Returns True if successfully pinned."""
+        with self.session_scope() as session:
+            # Check if already pinned
+            existing = session.query(UserPin).filter(
+                UserPin.user_id == user_id,
+                UserPin.entity_type == entity_type,
+                UserPin.entity_id == entity_id
+            ).first()
+            
+            if existing:
+                return True  # Already pinned
+            
+            pin = UserPin(
+                user_id=user_id,
+                entity_type=entity_type,
+                entity_id=entity_id
+            )
+            session.add(pin)
+            return True
+    
+    def unpin_item(self, user_id: int, entity_type: str, entity_id: int) -> bool:
+        """Unpin an item for a user. Returns True if successfully unpinned."""
+        with self.session_scope() as session:
+            pin = session.query(UserPin).filter(
+                UserPin.user_id == user_id,
+                UserPin.entity_type == entity_type,
+                UserPin.entity_id == entity_id
+            ).first()
+            
+            if pin:
+                session.delete(pin)
+                return True
+            return False
+    
+    def is_pinned(self, user_id: int, entity_type: str, entity_id: int) -> bool:
+        """Check if an item is pinned by a user."""
+        with self.session_scope() as session:
+            return session.query(UserPin).filter(
+                UserPin.user_id == user_id,
+                UserPin.entity_type == entity_type,
+                UserPin.entity_id == entity_id
+            ).first() is not None
+    
+    def get_pinned_ids(self, user_id: int, entity_type: str) -> List[int]:
+        """Get list of pinned entity IDs for a user and entity type."""
+        with self.session_scope() as session:
+            pins = session.query(UserPin.entity_id).filter(
+                UserPin.user_id == user_id,
+                UserPin.entity_type == entity_type
+            ).all()
+            return [p[0] for p in pins]
+    
+    def get_user_pins(self, user_id: int) -> Dict[str, List[int]]:
+        """Get all pinned items for a user, grouped by entity type."""
+        with self.session_scope() as session:
+            pins = session.query(UserPin).filter(UserPin.user_id == user_id).all()
+            result = {}
+            for pin in pins:
+                if pin.entity_type not in result:
+                    result[pin.entity_type] = []
+                result[pin.entity_type].append(pin.entity_id)
+            return result
+
     # ==================== Issue Tracking ====================
     
     def get_issues(
@@ -2427,35 +3986,624 @@ class DatabaseService:
             'updated_at': issue.updated_at.isoformat() if issue.updated_at else None,
         }
     
+    # ==================== Entity Images ====================
+    
+    def get_entity_images(self, entity_type: str, entity_id: int) -> List[Dict]:
+        """Get all images for an entity."""
+        with self.session_scope() as session:
+            images = session.query(EntityImage).filter(
+                EntityImage.entity_type == entity_type,
+                EntityImage.entity_id == entity_id
+            ).order_by(EntityImage.created_at.desc()).all()
+            
+            return [self._image_to_dict(img) for img in images]
+    
+    def get_image(self, image_id: int) -> Optional[Dict]:
+        """Get a single image by ID."""
+        with self.session_scope() as session:
+            image = session.query(EntityImage).filter(EntityImage.id == image_id).first()
+            return self._image_to_dict(image) if image else None
+    
+    def create_entity_image(self, data: Dict[str, Any]) -> Dict:
+        """Create a new entity image record."""
+        with self.session_scope() as session:
+            image = EntityImage(
+                entity_type=data['entity_type'],
+                entity_id=data['entity_id'],
+                filename=data['filename'],
+                stored_filename=data['stored_filename'],
+                name=data.get('name'),
+                description=data.get('description'),
+                file_size_bytes=data.get('file_size_bytes'),
+                mime_type=data.get('mime_type'),
+                width=data.get('width'),
+                height=data.get('height'),
+                uploaded_by=data.get('uploaded_by'),
+            )
+            session.add(image)
+            session.flush()
+            return self._image_to_dict(image)
+    
+    def update_entity_image(self, image_id: int, data: Dict[str, Any]) -> Optional[Dict]:
+        """Update an entity image's metadata."""
+        with self.session_scope() as session:
+            image = session.query(EntityImage).filter(EntityImage.id == image_id).first()
+            if not image:
+                return None
+            
+            if 'name' in data:
+                image.name = data['name']
+            if 'description' in data:
+                image.description = data['description']
+            
+            session.flush()
+            return self._image_to_dict(image)
+    
+    def delete_entity_image(self, image_id: int) -> Optional[str]:
+        """Delete an entity image. Returns the stored filename for file cleanup."""
+        with self.session_scope() as session:
+            image = session.query(EntityImage).filter(EntityImage.id == image_id).first()
+            if not image:
+                return None
+            
+            stored_filename = image.stored_filename
+            session.delete(image)
+            return stored_filename
+    
+    def _image_to_dict(self, image: EntityImage) -> Dict:
+        """Convert EntityImage to dictionary."""
+        return {
+            'id': image.id,
+            'entity_type': image.entity_type,
+            'entity_id': image.entity_id,
+            'filename': image.filename,
+            'stored_filename': image.stored_filename,
+            'name': image.name,
+            'description': image.description,
+            'file_size_bytes': image.file_size_bytes,
+            'mime_type': image.mime_type,
+            'width': image.width,
+            'height': image.height,
+            'uploaded_by': image.uploaded_by,
+            'created_at': image.created_at.isoformat() if image.created_at else None,
+        }
+    
     # ==================== Search ====================
     
-    def global_search(self, query: str, limit: int = 10) -> Dict[str, List[Dict]]:
-        """Search across all entity types."""
+    def advanced_search(
+        self,
+        query: str = None,
+        include_terms: List[str] = None,
+        exclude_terms: List[str] = None,
+        entity_types: List[str] = None,
+        boolean_mode: str = 'AND',  # 'AND' or 'OR'
+        # Field-specific filters
+        status: str = None,
+        owner: str = None,
+        material: str = None,
+        substrate: str = None,
+        lab_id: int = None,
+        project_id: int = None,
+        # Date range filters
+        created_after: str = None,
+        created_before: str = None,
+        # Pagination
+        page: int = 1,
+        per_page: int = 20
+    ) -> Dict[str, Any]:
+        """
+        Advanced search across all entity types with complex filtering.
+        
+        Args:
+            query: Main search query
+            include_terms: List of terms that MUST be present
+            exclude_terms: List of terms that MUST NOT be present
+            entity_types: List of entity types to search (samples, scans, queues, equipment, precursors, procedures)
+            boolean_mode: 'AND' (all terms must match) or 'OR' (any term can match)
+            status: Filter by status
+            owner: Filter by owner/operator/created_by
+            material: Filter by material (samples)
+            substrate: Filter by substrate (samples)
+            lab_id: Filter by lab
+            project_id: Filter by project
+            created_after: Filter items created after this date (YYYY-MM-DD)
+            created_before: Filter items created before this date (YYYY-MM-DD)
+            page: Page number
+            per_page: Results per page
+            
+        Returns:
+            Dict with results by entity type, totals, and metadata
+        """
+        from datetime import datetime
+        
+        # Default to all entity types
+        if not entity_types:
+            entity_types = ['samples', 'scans', 'queues', 'equipment', 'precursors', 'procedures']
+        
         results = {
             'samples': [],
             'scans': [],
             'queues': [],
             'equipment': [],
             'precursors': [],
+            'procedures': [],
+            'totals': {},
+            'grand_total': 0,
+            'page': page,
+            'per_page': per_page,
+        }
+        
+        # Parse dates
+        date_after = None
+        date_before = None
+        if created_after:
+            try:
+                date_after = datetime.strptime(created_after, '%Y-%m-%d')
+            except ValueError:
+                pass
+        if created_before:
+            try:
+                date_before = datetime.strptime(created_before, '%Y-%m-%d')
+            except ValueError:
+                pass
+        
+        with self.session_scope() as session:
+            # Search Samples
+            if 'samples' in entity_types:
+                sample_query = session.query(Sample)
+                sample_query = self._apply_text_filters(
+                    sample_query, Sample, query, include_terms, exclude_terms, boolean_mode,
+                    text_fields=['sample_id', 'name', 'material', 'description', 'substrate', 'created_by']
+                )
+                if status:
+                    sample_query = sample_query.filter(Sample.status == status)
+                if owner:
+                    sample_query = sample_query.filter(Sample.created_by.ilike(f'%{owner}%'))
+                if material:
+                    sample_query = sample_query.filter(Sample.material.ilike(f'%{material}%'))
+                if substrate:
+                    sample_query = sample_query.filter(Sample.substrate.ilike(f'%{substrate}%'))
+                if lab_id:
+                    sample_query = sample_query.filter(Sample.lab_id == lab_id)
+                if project_id:
+                    sample_query = sample_query.filter(Sample.project_id == project_id)
+                if date_after:
+                    sample_query = sample_query.filter(Sample.created_at >= date_after)
+                if date_before:
+                    sample_query = sample_query.filter(Sample.created_at <= date_before)
+                
+                results['totals']['samples'] = sample_query.count()
+                samples = sample_query.order_by(desc(Sample.created_at)).offset((page-1)*per_page).limit(per_page).all()
+                results['samples'] = [self._sample_to_dict(s) for s in samples]
+            
+            # Search Scans
+            if 'scans' in entity_types:
+                scan_query = session.query(Scan)
+                scan_query = self._apply_text_filters(
+                    scan_query, Scan, query, include_terms, exclude_terms, boolean_mode,
+                    text_fields=['scan_id', 'scan_name', 'project_name', 'created_by', 'notes']
+                )
+                if status:
+                    scan_query = scan_query.filter(Scan.status == status)
+                if owner:
+                    scan_query = scan_query.filter(Scan.created_by.ilike(f'%{owner}%'))
+                if project_id:
+                    scan_query = scan_query.filter(Scan.project_id == project_id)
+                elif lab_id:
+                    scan_query = scan_query.join(Project, Scan.project_id == Project.id).filter(Project.lab_id == lab_id)
+                if date_after:
+                    scan_query = scan_query.filter(Scan.created_at >= date_after)
+                if date_before:
+                    scan_query = scan_query.filter(Scan.created_at <= date_before)
+                
+                results['totals']['scans'] = scan_query.count()
+                scans = scan_query.order_by(desc(Scan.created_at)).offset((page-1)*per_page).limit(per_page).all()
+                results['scans'] = [self._scan_to_dict(s) for s in scans]
+            
+            # Search Queues
+            if 'queues' in entity_types:
+                queue_query = session.query(Queue)
+                queue_query = self._apply_text_filters(
+                    queue_query, Queue, query, include_terms, exclude_terms, boolean_mode,
+                    text_fields=['queue_id', 'name', 'created_by', 'notes']
+                )
+                if status:
+                    queue_query = queue_query.filter(Queue.status == status)
+                if owner:
+                    queue_query = queue_query.filter(Queue.created_by.ilike(f'%{owner}%'))
+                if project_id:
+                    queue_query = queue_query.filter(Queue.project_id == project_id)
+                elif lab_id:
+                    queue_query = queue_query.join(Project, Queue.project_id == Project.id).filter(Project.lab_id == lab_id)
+                if date_after:
+                    queue_query = queue_query.filter(Queue.created_at >= date_after)
+                if date_before:
+                    queue_query = queue_query.filter(Queue.created_at <= date_before)
+                
+                results['totals']['queues'] = queue_query.count()
+                queues = queue_query.order_by(desc(Queue.created_at)).offset((page-1)*per_page).limit(per_page).all()
+                results['queues'] = [self._queue_to_dict(q) for q in queues]
+            
+            # Search Equipment
+            if 'equipment' in entity_types:
+                equip_query = session.query(Equipment)
+                equip_query = self._apply_text_filters(
+                    equip_query, Equipment, query, include_terms, exclude_terms, boolean_mode,
+                    text_fields=['name', 'manufacturer', 'model', 'serial_number', 'location']
+                )
+                if status:
+                    equip_query = equip_query.filter(Equipment.status == status)
+                if lab_id:
+                    equip_query = equip_query.filter(Equipment.lab_id == lab_id)
+                if date_after:
+                    equip_query = equip_query.filter(Equipment.created_at >= date_after)
+                if date_before:
+                    equip_query = equip_query.filter(Equipment.created_at <= date_before)
+                
+                results['totals']['equipment'] = equip_query.count()
+                equipment = equip_query.order_by(Equipment.name).offset((page-1)*per_page).limit(per_page).all()
+                results['equipment'] = [self._equipment_to_dict(e) for e in equipment]
+            
+            # Search Precursors
+            if 'precursors' in entity_types:
+                prec_query = session.query(Precursor)
+                prec_query = self._apply_text_filters(
+                    prec_query, Precursor, query, include_terms, exclude_terms, boolean_mode,
+                    text_fields=['name', 'chemical_formula', 'supplier', 'cas_number', 'lot_number']
+                )
+                if status:
+                    prec_query = prec_query.filter(Precursor.status == status)
+                if project_id:
+                    prec_query = prec_query.filter(Precursor.project_id == project_id)
+                elif lab_id:
+                    prec_query = prec_query.join(Project, Precursor.project_id == Project.id).filter(Project.lab_id == lab_id)
+                if date_after:
+                    prec_query = prec_query.filter(Precursor.created_at >= date_after)
+                if date_before:
+                    prec_query = prec_query.filter(Precursor.created_at <= date_before)
+                
+                results['totals']['precursors'] = prec_query.count()
+                precursors = prec_query.order_by(Precursor.name).offset((page-1)*per_page).limit(per_page).all()
+                results['precursors'] = [self._precursor_to_dict(p) for p in precursors]
+            
+            # Search Procedures
+            if 'procedures' in entity_types:
+                proc_query = session.query(Procedure).filter(Procedure.is_active == True)
+                proc_query = self._apply_text_filters(
+                    proc_query, Procedure, query, include_terms, exclude_terms, boolean_mode,
+                    text_fields=['name', 'description', 'procedure_type', 'created_by']
+                )
+                if owner:
+                    proc_query = proc_query.filter(Procedure.created_by.ilike(f'%{owner}%'))
+                if project_id:
+                    proc_query = proc_query.filter(Procedure.project_id == project_id)
+                elif lab_id:
+                    proc_query = proc_query.join(Project, Procedure.project_id == Project.id).filter(Project.lab_id == lab_id)
+                if date_after:
+                    proc_query = proc_query.filter(Procedure.created_at >= date_after)
+                if date_before:
+                    proc_query = proc_query.filter(Procedure.created_at <= date_before)
+                
+                results['totals']['procedures'] = proc_query.count()
+                procedures = proc_query.order_by(Procedure.name).offset((page-1)*per_page).limit(per_page).all()
+                results['procedures'] = [self._procedure_to_dict(p) for p in procedures]
+        
+        # Calculate grand total
+        results['grand_total'] = sum(results['totals'].values())
+        
+        return results
+    
+    def _apply_text_filters(
+        self,
+        query,
+        model,
+        search_query: str,
+        include_terms: List[str],
+        exclude_terms: List[str],
+        boolean_mode: str,
+        text_fields: List[str]
+    ):
+        """Apply text-based filters to a query."""
+        filters = []
+        
+        # Build search terms list
+        search_terms = []
+        if search_query:
+            search_terms.append(search_query)
+        if include_terms:
+            search_terms.extend(include_terms)
+        
+        # Apply include filters
+        if search_terms:
+            for term in search_terms:
+                term_filter = []
+                for field_name in text_fields:
+                    if hasattr(model, field_name):
+                        field = getattr(model, field_name)
+                        term_filter.append(field.ilike(f'%{term}%'))
+                if term_filter:
+                    filters.append(or_(*term_filter))
+        
+        # Combine filters based on boolean mode
+        if filters:
+            if boolean_mode == 'OR':
+                query = query.filter(or_(*filters))
+            else:  # AND
+                query = query.filter(and_(*filters))
+        
+        # Apply exclude filters
+        if exclude_terms:
+            for term in exclude_terms:
+                for field_name in text_fields:
+                    if hasattr(model, field_name):
+                        field = getattr(model, field_name)
+                        query = query.filter(~field.ilike(f'%{term}%') | (field == None))
+        
+        return query
+    
+    def get_search_field_values(self) -> Dict[str, List[str]]:
+        """Get unique values for searchable fields to populate filter dropdowns."""
+        with self.session_scope() as session:
+            result = {
+                'statuses': [],
+                'materials': [],
+                'substrates': [],
+                'owners': [],
+                'equipment_types': [],
+                'procedure_types': [],
+            }
+            
+            # Get unique statuses from samples
+            statuses = session.query(Sample.status).distinct().all()
+            result['statuses'] = sorted([s[0] for s in statuses if s[0]])
+            
+            # Get unique materials
+            materials = session.query(Sample.material).distinct().all()
+            result['materials'] = sorted([m[0] for m in materials if m[0]])
+            
+            # Get unique substrates
+            substrates = session.query(Sample.substrate).distinct().all()
+            result['substrates'] = sorted([s[0] for s in substrates if s[0]])
+            
+            # Get unique owners from multiple tables
+            owners = set()
+            sample_creators = session.query(Sample.created_by).distinct().all()
+            owners.update([o[0] for o in sample_creators if o[0]])
+            scan_creators = session.query(Scan.created_by).distinct().all()
+            owners.update([o[0] for o in scan_creators if o[0]])
+            queue_creators = session.query(Queue.created_by).distinct().all()
+            owners.update([o[0] for o in queue_creators if o[0]])
+            proc_creators = session.query(Procedure.created_by).distinct().all()
+            owners.update([o[0] for o in proc_creators if o[0]])
+            result['owners'] = sorted(list(owners))
+            
+            # Get unique equipment types
+            equip_types = session.query(Equipment.equipment_type).distinct().all()
+            result['equipment_types'] = sorted([e[0] for e in equip_types if e[0]])
+            
+            # Get unique procedure types
+            proc_types = session.query(Procedure.procedure_type).distinct().all()
+            result['procedure_types'] = sorted([p[0] for p in proc_types if p[0]])
+            
+            return result
+    
+    def global_search(self, query: str, limit: int = 20) -> Dict[str, List[Dict]]:
+        """
+        Comprehensive search across all entity types and all text fields.
+        Returns results with match context showing which fields matched.
+        """
+        results = {
+            'labs': [],
+            'projects': [],
+            'samples': [],
+            'scans': [],
+            'queues': [],
+            'instruments': [],
+            'equipment': [],
+            'precursors': [],
+            'procedures': [],
         }
         
         if not query or len(query) < 2:
             return results
         
-        samples, _ = self.get_samples(search=query, per_page=limit)
-        results['samples'] = samples
+        # Split query into terms for multi-word search
+        terms = [t.strip() for t in query.lower().split() if t.strip()]
         
-        scans, _ = self.get_scans(search=query, per_page=limit)
-        results['scans'] = scans
+        def get_match_context(fields_dict: Dict[str, str], max_len: int = 60) -> List[str]:
+            """
+            Find which fields contain any search terms and return formatted context.
+            Returns list of strings like "field: ...context with match..."
+            """
+            matches = []
+            for field_name, value in fields_dict.items():
+                if not value:
+                    continue
+                value_lower = str(value).lower()
+                for term in terms:
+                    if term in value_lower:
+                        # Found a match - format the context
+                        idx = value_lower.find(term)
+                        start = max(0, idx - 20)
+                        end = min(len(value), idx + len(term) + 20)
+                        snippet = value[start:end]
+                        
+                        # Add ellipses if truncated
+                        if start > 0:
+                            snippet = '...' + snippet
+                        if end < len(value):
+                            snippet = snippet + '...'
+                        
+                        # Truncate if still too long
+                        if len(snippet) > max_len:
+                            snippet = snippet[:max_len-3] + '...'
+                        
+                        matches.append(f"{field_name}: {snippet}")
+                        break  # Only one match per field
+            return matches
         
-        queues, _ = self.get_queues(search=query, per_page=limit)
-        results['queues'] = queues
+        def matches_all_terms(fields_dict: Dict[str, str]) -> bool:
+            """Check if all search terms appear somewhere in any field values."""
+            combined = ' '.join((str(v) or '').lower() for v in fields_dict.values())
+            return all(term in combined for term in terms)
         
-        equipment, _ = self.get_equipment_list(search=query, per_page=limit)
-        results['equipment'] = equipment
-        
-        precursors, _ = self.get_precursors(search=query, per_page=limit)
-        results['precursors'] = precursors
+        with self.session_scope() as session:
+            # Search Labs
+            labs = session.query(Lab).filter(Lab.is_active == True).all()
+            for lab in labs:
+                fields = {
+                    'name': lab.name, 'code': lab.code, 'university': lab.university,
+                    'department': lab.department, 'description': lab.description
+                }
+                if matches_all_terms(fields):
+                    lab_dict = self._lab_to_dict(lab)
+                    lab_dict['match_context'] = get_match_context(fields)
+                    results['labs'].append(lab_dict)
+                    if len(results['labs']) >= limit:
+                        break
+            
+            # Search Projects (include lab name in search)
+            projects = session.query(Project).options(joinedload(Project.lab)).all()
+            for proj in projects:
+                lab_name = proj.lab.name if proj.lab else ''
+                fields = {
+                    'name': proj.name, 'code': proj.code, 'description': proj.description,
+                    'lab': lab_name
+                }
+                if matches_all_terms(fields):
+                    proj_dict = self._project_to_dict(proj)
+                    proj_dict['lab_name'] = lab_name
+                    proj_dict['match_context'] = get_match_context(fields)
+                    results['projects'].append(proj_dict)
+                    if len(results['projects']) >= limit:
+                        break
+            
+            # Search Samples (include lab/project names in search)
+            samples = session.query(Sample).options(
+                joinedload(Sample.lab),
+                joinedload(Sample.project)
+            ).all()
+            for s in samples:
+                lab_name = s.lab.name if s.lab else ''
+                proj_name = s.project.name if s.project else ''
+                fields = {
+                    'sample_id': s.sample_id, 'name': s.name, 'material': s.material,
+                    'substrate': s.substrate, 'description': s.description,
+                    'storage_location': s.storage_location, 'sample_type': s.sample_type,
+                    'created_by': s.created_by, 'lab': lab_name, 'project': proj_name
+                }
+                if matches_all_terms(fields):
+                    sample_dict = self._sample_to_dict(s)
+                    sample_dict['lab_name'] = lab_name
+                    sample_dict['project_name_display'] = proj_name
+                    sample_dict['match_context'] = get_match_context(fields)
+                    results['samples'].append(sample_dict)
+                    if len(results['samples']) >= limit:
+                        break
+            
+            # Search Scans (include lab/project names in search)
+            scans = session.query(Scan).options(
+                joinedload(Scan.project).joinedload(Project.lab)
+            ).all()
+            for sc in scans:
+                proj = sc.project
+                lab_name = proj.lab.name if proj and proj.lab else ''
+                proj_name = proj.name if proj else ''
+                fields = {
+                    'scan_id': sc.scan_id, 'scan_name': sc.scan_name,
+                    'project_name': sc.project_name, 'scan_type': sc.scan_type,
+                    'job_type': sc.job_type, 'notes': sc.notes, 'created_by': sc.created_by,
+                    'lab': lab_name, 'project': proj_name
+                }
+                if matches_all_terms(fields):
+                    scan_dict = self._scan_to_dict(sc)
+                    scan_dict['lab_name'] = lab_name
+                    scan_dict['match_context'] = get_match_context(fields)
+                    results['scans'].append(scan_dict)
+                    if len(results['scans']) >= limit:
+                        break
+            
+            # Search Queues (include lab/project names in search)
+            queues = session.query(Queue).options(
+                joinedload(Queue.project).joinedload(Project.lab)
+            ).all()
+            for q in queues:
+                proj = q.project
+                lab_name = proj.lab.name if proj and proj.lab else ''
+                proj_name = proj.name if proj else ''
+                fields = {
+                    'queue_id': q.queue_id, 'name': q.name, 'notes': q.notes,
+                    'created_by': q.created_by, 'lab': lab_name, 'project': proj_name
+                }
+                if matches_all_terms(fields):
+                    queue_dict = self._queue_to_dict(q)
+                    queue_dict['lab_name'] = lab_name
+                    queue_dict['match_context'] = get_match_context(fields)
+                    results['queues'].append(queue_dict)
+                    if len(results['queues']) >= limit:
+                        break
+            
+            # Search Instruments (PyBirch devices)
+            instrument_list = session.query(Instrument).filter(Instrument.status != 'retired').all()
+            for i in instrument_list:
+                fields = {
+                    'name': i.name, 'manufacturer': i.manufacturer, 'model': i.model,
+                    'serial_number': i.serial_number, 'location': i.location,
+                    'instrument_type': i.instrument_type, 'pybirch_class': i.pybirch_class,
+                    'adapter': i.adapter
+                }
+                if matches_all_terms(fields):
+                    inst_dict = self._instrument_to_dict(i)
+                    inst_dict['match_context'] = get_match_context(fields)
+                    results['instruments'].append(inst_dict)
+                    if len(results['instruments']) >= limit:
+                        break
+            
+            # Search Equipment (large lab equipment)
+            equipment_list = session.query(Equipment).filter(Equipment.status != 'retired').all()
+            for e in equipment_list:
+                fields = {
+                    'name': e.name, 'manufacturer': e.manufacturer, 'model': e.model,
+                    'serial_number': e.serial_number, 'location': e.location,
+                    'equipment_type': e.equipment_type, 'description': e.description or '',
+                    'room': e.room or ''
+                }
+                if matches_all_terms(fields):
+                    eq_dict = self._equipment_to_dict(e)
+                    eq_dict['match_context'] = get_match_context(fields)
+                    results['equipment'].append(eq_dict)
+                    if len(results['equipment']) >= limit:
+                        break
+            
+            # Search Precursors
+            precursors = session.query(Precursor).filter(Precursor.status != 'expired').all()
+            for p in precursors:
+                fields = {
+                    'name': p.name, 'chemical_formula': p.chemical_formula,
+                    'cas_number': p.cas_number, 'supplier': p.supplier,
+                    'lot_number': p.lot_number, 'state': p.state,
+                    'storage_conditions': p.storage_conditions, 'safety_info': p.safety_info
+                }
+                if matches_all_terms(fields):
+                    prec_dict = self._precursor_to_dict(p)
+                    prec_dict['match_context'] = get_match_context(fields)
+                    results['precursors'].append(prec_dict)
+                    if len(results['precursors']) >= limit:
+                        break
+            
+            # Search Procedures
+            procedures = session.query(Procedure).filter(Procedure.is_active == True).all()
+            for proc in procedures:
+                fields = {
+                    'name': proc.name, 'procedure_type': proc.procedure_type,
+                    'description': proc.description, 'created_by': proc.created_by
+                }
+                if matches_all_terms(fields):
+                    proc_dict = self._procedure_to_dict(proc)
+                    proc_dict['match_context'] = get_match_context(fields)
+                    results['procedures'].append(proc_dict)
+                    if len(results['procedures']) >= limit:
+                        break
         
         return results
 

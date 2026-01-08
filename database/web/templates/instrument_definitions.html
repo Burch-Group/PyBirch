@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Instrument Definitions - PyBirch Database{% endblock %}
+
+{% block extra_head %}
+<style>
+    .definition-type {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        text-transform: uppercase;
+    }
+    .definition-type.measurement {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+    }
+    .definition-type.movement {
+        background: rgba(16, 185, 129, 0.1);
+        color: #10b981;
+    }
+    .code-preview {
+        font-family: 'Courier New', monospace;
+        font-size: 0.75rem;
+        background: #1e293b;
+        color: #e2e8f0;
+        padding: 8px;
+        border-radius: 4px;
+        max-height: 60px;
+        overflow: hidden;
+        white-space: pre;
+    }
+    .base-class {
+        font-family: 'Courier New', monospace;
+        background: rgba(148, 163, 184, 0.1);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Instrument Definitions</h1>
+        <a href="{{ url_for('main.instrument_definition_new') }}" class="btn btn-primary">+ New Definition</a>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search definitions..." 
+                   value="{{ search }}" class="filter-input">
+            <select name="type" class="filter-select">
+                <option value="">All Types</option>
+                <option value="measurement" {% if instrument_type == 'measurement' %}selected{% endif %}>Measurement</option>
+                <option value="movement" {% if instrument_type == 'movement' %}selected{% endif %}>Movement</option>
+            </select>
+            <select name="category" class="filter-select">
+                <option value="">All Categories</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search or instrument_type or category %}
+                <a href="{{ url_for('main.instrument_definitions') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} definition(s) found</p>
+    
+    {% if definitions %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Display Name</th>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>Base Class</th>
+                    <th>Version</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in definitions %}
+                <tr>
+                    <td><code>{{ item.name }}</code></td>
+                    <td><a href="{{ url_for('main.instrument_definition_detail', definition_id=item.id) }}">{{ item.display_name }}</a></td>
+                    <td><span class="definition-type {{ item.instrument_type }}">{{ item.instrument_type }}</span></td>
+                    <td>{{ item.category or '-' }}</td>
+                    <td><span class="base-class">{{ item.base_class }}</span></td>
+                    <td>v{{ item.version }}</td>
+                    <td>
+                        <a href="{{ url_for('main.instrument_definition_detail', definition_id=item.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.instrument_definition_edit', definition_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                        <a href="{{ url_for('main.instrument_definition_duplicate', definition_id=item.id) }}" class="btn btn-sm btn-secondary">Duplicate</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            <p>No instrument definitions found.</p>
+            <a href="{{ url_for('main.instrument_definition_new') }}" class="btn btn-primary">Create your first definition</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

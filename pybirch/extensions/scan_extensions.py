@@ -1,6 +1,9 @@
+from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
-from pybirch.scan.movements import MovementItem
+
+if TYPE_CHECKING:
+    from pybirch.scan.movements import MovementItem
 
 class ScanExtension:
     """Base class for all scan extensions in the PyBirch framework."""
@@ -16,7 +19,7 @@ class ScanExtension:
         """This method is run when a scan saves data."""
         pass
 
-    def move_to_positions(self, items_to_move: list[tuple[MovementItem, float]]):
+    def move_to_positions(self, items_to_move: list[tuple["MovementItem", float]]):
         """This method is run when a scan moves instruments to position."""
         pass
 

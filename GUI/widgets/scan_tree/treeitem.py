@@ -1,13 +1,18 @@
 # Copyright (C) 2022 The Qt Company Ltd.
 # SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Callable
 import sys, os
+import logging
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from pybirch.scan.movements import Movement, VisaMovement, MovementItem
 from pybirch.scan.measurements import Measurement, VisaMeasurement, MeasurementItem
-from typing import Callable
+from pybirch.scan.protocols import is_movement, is_measurement
+from pybirch.scan.traverser import TreeTraverser, propagate as _propagate
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 ## NEEDS TO BE TESTED ##
 class InstrumentTreeItem:
@@ -32,7 +37,13 @@ class InstrumentTreeItem:
             self.adapter = ""
         else:
             self.name = self.instrument_object.instrument.nickname
-            self.type = self.instrument_object.instrument.__base_class__().__name__
+            # Use protocol-based type detection
+            if is_movement(self.instrument_object.instrument):
+                self.type = "Movement"
+            elif is_measurement(self.instrument_object.instrument):
+                self.type = "Measurement"
+            else:
+                self.type = "Unknown"
             self.adapter = self.instrument_object.instrument.adapter
 
         self.child_items: list[InstrumentTreeItem] = []
@@ -42,12 +53,12 @@ class InstrumentTreeItem:
         self.columns = [self.name, self.type, self.adapter, self.semaphore]
 
         # Initialize indices for Movement objects if not provided
-        print(f"Initializing InstrumentTreeItem for instrument: {self.name if self.name else 'None'}")
+        logger.debug(f"Initializing InstrumentTreeItem for instrument: {self.name if self.name else 'None'}")
         if instrument_object is None:
-            print("No instrument object provided.")
+            logger.debug("No instrument object provided.")
             self.item_indices = []
             self.final_indices = []
-        elif instrument_object.instrument.__base_class__() is Movement:
+        elif is_movement(instrument_object.instrument):
             if not self.item_indices:
                 self.item_indices = [0]
             if not self.final_indices:
@@ -124,7 +135,13 @@ class InstrumentTreeItem:
             self.adapter = ""
         else:
             self.name = self.instrument_object.instrument.nickname
-            self.type = self.instrument_object.instrument.__base_class__().__name__
+            # Use protocol-based type detection
+            if is_movement(self.instrument_object.instrument):
+                self.type = "Movement"
+            elif is_measurement(self.instrument_object.instrument):
+                self.type = "Measurement"
+            else:
+                self.type = "Unknown"
             self.adapter = self.instrument_object.instrument.adapter
 
         self.columns = [self.name, self.type, self.adapter, self.semaphore]
@@ -176,10 +193,16 @@ class InstrumentTreeItem:
             return Qt.CheckState.PartiallyChecked
 
     def finished(self) -> bool:
+        has_item_indices = bool(self.item_indices)
+        has_final_indices = bool(self.final_indices)
+        
         if self.item_indices and self.final_indices:
-            return self.item_indices == self.final_indices
+            result = self.item_indices == self.final_indices
+            print(f"[finished] item='{self.name}': item_indices={self.item_indices}, final_indices={self.final_indices} -> finished={result}")
+            return result
         
         # All other items are finished when they have been performed once
+        print(f"[finished] item='{self.name}': has_item_indices={has_item_indices}, has_final_indices={has_final_indices} -> finished=True (default)")
         return True
     
     def reset_children_indices(self):
@@ -192,13 +215,25 @@ class InstrumentTreeItem:
         self.reset_children_indices()
 
     def move_next(self) -> pd.DataFrame | bool:
+        print(f"[move_next] item='{self.name}': instrument_object={self.instrument_object is not None}")
+        # Check if instrument_object exists before accessing it
+        if self.instrument_object is None:
+            print(f"[move_next] item='{self.name}': FAILED - no instrument_object!")
+            logger.warning(f"move_next called on item {self.name} with no instrument_object")
+            return False
+        if self.instrument_object.instrument is None:
+            print(f"[move_next] item='{self.name}': FAILED - instrument_object has no instrument!")
+            logger.warning(f"move_next called on item {self.name} with no instrument")
+            return False
+        print(f"[move_next] item='{self.name}': instrument={type(self.instrument_object.instrument).__name__}")
+            
         if not self._runtime_initialized:
             self._runtime_initialized = True
             self.instrument_object.instrument.initialize()
             self.instrument_object.instrument.settings = self.instrument_object.settings
 
         
-        if self.instrument_object.instrument.__base_class__() is Movement:
+        if is_movement(self.instrument_object.instrument):
             if not self.item_indices or not self.final_indices:
                 return False
             for i in reversed(range(len(self.item_indices))):
@@ -207,31 +242,64 @@ class InstrumentTreeItem:
                 else:
                     self.reset_indices()
                 self.instrument_object.instrument.position = self.instrument_object.positions[self.item_indices[i]]  #type: ignore
-                print(f"Moved to position {self.instrument_object.instrument.position}, with index {self.item_indices[i]} out of {self.final_indices[i]}")
+                logger.debug(f"Moved to position {self.instrument_object.instrument.position}, with index {self.item_indices[i]} out of {self.final_indices[i]}")
                 return True
             return False
         
-        elif self.instrument_object.instrument.__base_class__() is Measurement:
+        elif is_measurement(self.instrument_object.instrument):
             self.item_indices = [1]
-            print(f"Performing measurement with instrument {self.instrument_object.instrument.name}")
+            logger.debug(f"Performing measurement with instrument {self.instrument_object.instrument.name}")
             return self.instrument_object.instrument.measurement_df() #type: ignore
         
         return False
 
     def serialize(self) -> dict:
+        # Convert movement_positions to list if it's a numpy array
+        movement_positions = self.movement_positions
+        if hasattr(movement_positions, 'tolist'):  # numpy array
+            movement_positions = movement_positions.tolist()
+        elif not isinstance(movement_positions, list):
+            movement_positions = list(movement_positions) if movement_positions else []
+        
+        # Convert item_indices and final_indices to lists if they're numpy arrays
+        item_indices = self.item_indices
+        if hasattr(item_indices, 'tolist'):  # numpy array
+            item_indices = item_indices.tolist()
+        elif not isinstance(item_indices, list):
+            item_indices = list(item_indices) if item_indices else []
+            
+        final_indices = self.final_indices
+        if hasattr(final_indices, 'tolist'):  # numpy array
+            final_indices = final_indices.tolist()
+        elif not isinstance(final_indices, list):
+            final_indices = list(final_indices) if final_indices else []
+        
         data = {
             "name": self.name,
             "type": self.type,
             "adapter": self.adapter,
             "semaphore": self.semaphore,
-            "item_indices": self.item_indices,
-            "final_indices": self.final_indices,
-            "movement_positions": self.movement_positions,
+            "item_indices": item_indices,
+            "final_indices": final_indices,
+            "movement_positions": movement_positions,
             "movement_entries": self.movement_entries,
             "checked": self.checked,
             "instrument_object": self.instrument_object.serialize() if self.instrument_object else None,
             "child_items": [child.serialize() for child in self.child_items]
         }
+        #Traverse through the tree and find if any of the data is a numpy array. If so, raise an error and log the problematic data.
+        def check_for_numpy(data):
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    if hasattr(value, 'tolist'):
+                        logger.error(f"Numpy array found in key '{key}': {value}")
+                        raise ValueError(f"Numpy array found in key '{key}'")
+                    check_for_numpy(value)
+            elif isinstance(data, list):
+                for item in data:
+                    check_for_numpy(item)
+        
+        check_for_numpy(data)
         return data
     
     @staticmethod
@@ -309,82 +377,17 @@ class InstrumentTreeItem:
          
          return result
 
+    # FastForward is now imported from traverser module
+    # Keep as inner class alias for backward compatibility
+    FastForward = TreeTraverser
 
-    class FastForward:
-        def __init__(self, current_item: InstrumentTreeItem):
-            self.current_item: InstrumentTreeItem = current_item
-            self.stack: list[InstrumentTreeItem] = []
-            self.done: bool = False
-            self.semaphore: list[str] = []
-            self.type: dict[str, list[str]] = {}
-            self.adapter: dict[str, list[str]] = {}
-            self.unique_ids: list[str] = []
-            self.final_item: InstrumentTreeItem | None = None
-
-        def check_if_last(self, next: InstrumentTreeItem) -> bool:
-            if next.adapter in self.adapter.keys() and next.semaphore and next.semaphore not in self.adapter[next.adapter]:
-                return True
-
-            if self.type.keys() and next.type not in self.type.keys() and (
-                (next.semaphore and all(next.semaphore not in sems for sems in self.type.values())) 
-                or not next.semaphore): # Completely legible pythonic syntax... nothing to see here
-                print(f"Type check failed for type '{next.type}', current types: {list(self.type.keys())}")
-                return True
-            else:
-                print(f"Type check passed for type '{next.type}', current types: {list(self.type.keys())}")
-            
-            if next.semaphore and self.semaphore and next.semaphore not in self.semaphore:
-                print(f"Semaphore '{next.semaphore}' not in current semaphores: {self.semaphore}")
-                return True
-            
-            if next.unique_id() in self.unique_ids:
-                return True
-            
-            return False
-
-        def new_item(self, item: InstrumentTreeItem):
-            self.current_item = item
-            self.current_item.reset_children_indices()
-            if self.check_if_last(item):
-                self.final_item = item
-                self.done = True
-                print(f"FastForward reached final item: {item.name}")
-                return self
-            print(f"FastForward adding item: {item.name}")
-            if item.semaphore and item.semaphore not in self.semaphore:
-                self.semaphore.append(item.semaphore)
-
-            if item.unique_id() not in self.unique_ids:
-                self.unique_ids.append(item.unique_id())
-
-            for characteristic in ['type', 'adapter']:
-                value = getattr(item, characteristic)
-                print(f"Processing characteristic '{characteristic}' with value '{value}'")
-                if value:
-                    getattr(self, characteristic)[value] = (getattr(self, characteristic).get(value, []) + [item.semaphore]) if item.semaphore else getattr(self, characteristic).get(value, [])
-
-            self.stack.append(item)
-
-            return self
-
-    def propagate(self, ff: FastForward) -> FastForward:
-        if self.child_items and not self.finished():
-            return ff.new_item(self.child_items[0])
-        elif self.parent_item and self != self.parent_item.last_child():
-            next_sibling = self.parent_item.child(self.child_number() + 1)
-            return ff.new_item(next_sibling)
-        elif self.parent_item:
-            next_item = self.parent_item
-            while next_item.finished():
-                if next_item.parent():
-                    next_item = next_item.parent()
-                else:
-                    ff.done = True
-                    return ff
-            return ff.new_item(next_item)
-        else:
-            ff.done = True
-            return ff
+    def propagate(self, ff: TreeTraverser) -> TreeTraverser:
+        """
+        Propagate traversal to the next item in the tree.
+        
+        This is a convenience method that delegates to the traverser module.
+        """
+        return _propagate(self, ff)
         
     def is_ancestor_of(self, descendant: 'InstrumentTreeItem') -> bool:
         """Check if this item is an ancestor of the given descendant item."""
@@ -394,8 +397,6 @@ class InstrumentTreeItem:
                 return True
             current = current.parent_item
         return False
-        
-    
 
 
 

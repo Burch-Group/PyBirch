@@ -1,8 +1,20 @@
+"""
+PyBirch Measurement Module
+
+This module provides base classes for measurement instruments in the PyBirch
+framework. Measurements are instruments that collect data (multimeters, lock-ins, etc.)
+"""
+
+import logging
+from typing import Callable, Optional
+
 import numpy as np
 import pandas as pd
 from pymeasure.instruments import Instrument
-from typing import Callable, Optional
 from pymeasure.instruments.keithley import Keithley2400
+
+logger = logging.getLogger(__name__)
+
 
 class Measurement:
     """Base class for measurement tools in the PyBirch framework."""
@@ -65,16 +77,17 @@ class Measurement:
             "type": self.__base_class__().__name__,
             "pybirch_class": self.__class__.__name__,
             "adapter": getattr(self, 'adapter', ''),
-            "data_units": self.data_units,
-            "data_columns": self.data_columns,
+            "data_units": self.data_units.tolist(),
+            "data_columns": self.data_columns.tolist(),
         }
 
     def deserialize(self, data: dict, initialize: bool = False):
         self.name = data.get("name", self.name)
         self.nickname = data.get("nickname", self.nickname)
         self.adapter = data.get("adapter", getattr(self, 'adapter', ''))
-        self.data_units = data.get("data_units", self.data_units)
-        self.data_columns = data.get("data_columns", self.data_columns)
+        # data units and columns should be np.ndarrays
+        self.data_units = np.array(data.get("data_units", self.data_units))
+        self.data_columns = np.array(data.get("data_columns", self.data_columns))
         if "settings" in data:
             self.settings = data["settings"]
 
@@ -100,7 +113,7 @@ class VisaMeasurement(Measurement):
         try:
             self.status = self.check_connection()
         except Exception as e:
-            print(f"Failed to initialize instrument {self.name} with adapter {adapter}: {e}")
+            logger.error(f"Failed to initialize instrument {self.name} with adapter {adapter}: {e}")
             self.status = False
 
 

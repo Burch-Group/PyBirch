@@ -65,5 +65,6 @@ Items:
 - [ ] Available Extensions List
 - [x] Pinecone Database
 - [x] Database Web Interface
+- [ ] **GUI-Database Integration** (see [docs/GUI_DATABASE_INTEGRATION.md](docs/GUI_DATABASE_INTEGRATION.md))
 - [ ] Maybe: Autogenerate Acquisition, Movement objects from PyMeasure instruments
 - [ ] Maybe: Autofind devices using 2D scans, add folder for data passing between scans...

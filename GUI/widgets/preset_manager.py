@@ -146,11 +146,27 @@ class PresetManager:
         if not preset_file.exists():
             return None
         
+        # Check if file is empty before trying to load
+        if preset_file.stat().st_size == 0:
+            print(f"Queue preset {index} file is empty, removing corrupted file")
+            try:
+                preset_file.unlink()
+            except Exception:
+                pass
+            return None
+        
         try:
             with open(preset_file, 'rb') as f:
                 queue = pickle.load(f)
                 if isinstance(queue, Queue):
                     return queue
+        except (EOFError, pickle.UnpicklingError) as e:
+            # File is corrupted, remove it
+            print(f"Queue preset {index} is corrupted, removing: {e}")
+            try:
+                preset_file.unlink()
+            except Exception:
+                pass
         except Exception as e:
             print(f"Error loading queue preset: {e}")
         
@@ -177,9 +193,12 @@ class PresetManager:
         return self.settings.get("queue_preset_names", [""] * self.MAX_PRESETS)
     
     def queue_preset_exists(self, index: int) -> bool:
-        """Check if a queue preset exists."""
+        """Check if a queue preset exists and is valid."""
         preset_file = self.queue_path / f"preset_{index}.pkl"
-        return preset_file.exists()
+        if not preset_file.exists():
+            return False
+        # Also check file is not empty (corrupted)
+        return preset_file.stat().st_size > 0
     
     # Scan preset methods
     def save_scan_preset(self, index: int, scan: Scan, name: str = "") -> bool:
@@ -227,11 +246,27 @@ class PresetManager:
         if not preset_file.exists():
             return None
         
+        # Check if file is empty before trying to load
+        if preset_file.stat().st_size == 0:
+            print(f"Scan preset {index} file is empty, removing corrupted file")
+            try:
+                preset_file.unlink()
+            except Exception:
+                pass
+            return None
+        
         try:
             with open(preset_file, 'rb') as f:
                 scan = pickle.load(f)
                 if isinstance(scan, Scan):
                     return scan
+        except (EOFError, pickle.UnpicklingError) as e:
+            # File is corrupted, remove it
+            print(f"Scan preset {index} is corrupted, removing: {e}")
+            try:
+                preset_file.unlink()
+            except Exception:
+                pass
         except Exception as e:
             print(f"Error loading scan preset: {e}")
         
@@ -258,9 +293,12 @@ class PresetManager:
         return self.settings.get("scan_preset_names", [""] * self.MAX_PRESETS)
     
     def scan_preset_exists(self, index: int) -> bool:
-        """Check if a scan preset exists."""
+        """Check if a scan preset exists and is valid."""
         preset_file = self.scan_path / f"preset_{index}.pkl"
-        return preset_file.exists()
+        if not preset_file.exists():
+            return False
+        # Also check file is not empty (corrupted)
+        return preset_file.stat().st_size > 0
 
 
 class PresetDialog(QtWidgets.QDialog):

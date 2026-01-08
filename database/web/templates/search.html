@@ -2,32 +2,200 @@
 
 {% block title %}Search Results - PyBirch Database{% endblock %}
 
+{% block extra_head %}
+<style>
+.search-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.search-header h1 {
+    margin: 0;
+}
+
+.search-toggle {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.search-toggle a {
+    padding: 0.5rem 1rem;
+    border-radius: var(--border-radius);
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.search-toggle a.active {
+    background: var(--color-primary);
+    color: white;
+}
+
+.search-form-box {
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    gap: 0.75rem;
+}
+
+.search-form-box input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+}
+
+.search-form-box input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+}
+
+.search-result-card .result-meta {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    margin-top: 0.25rem;
+}
+
+.search-result-card .result-meta span {
+    margin-right: 0.75rem;
+}
+
+.search-result-card .match-context {
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    background: var(--color-bg-tertiary);
+    padding: 0.35rem 0.5rem;
+    border-radius: var(--border-radius-sm);
+    margin-top: 0.35rem;
+    font-family: var(--font-mono, monospace);
+}
+
+.search-result-card .match-context span {
+    display: inline-block;
+    margin-right: 1rem;
+}
+
+.search-hint {
+    background: #f0f7ff;
+    border: 1px solid #cce5ff;
+    border-radius: var(--border-radius);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    color: #004085;
+}
+
+.search-hint strong {
+    color: #003366;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="search-page">
-    <h1>Search Results</h1>
+    <div class="search-header">
+        <h1>Search</h1>
+        <div class="search-toggle">
+            <a href="{{ url_for('main.search') }}" class="active">Simple</a>
+            <a href="{{ url_for('main.advanced_search') }}">Advanced</a>
+        </div>
+    </div>
+    
+    <form class="search-form-box" method="GET" action="{{ url_for('main.search') }}">
+        <input type="text" name="q" value="{{ query }}" placeholder="Search all fields: names, materials, labs, formulas...">
+        <button type="submit" class="btn btn-primary">Search</button>
+    </form>
+    
+    {% if not query %}
+    <div class="search-hint">
+        <strong>Tip:</strong> Search works across all fields. Try searching for a material like "silicon", 
+        a lab name like "Ma Lab", a chemical formula like "SiO2", or any combination of terms.
+    </div>
+    {% endif %}
     
     {% if query %}
         <p class="search-summary">Results for "<strong>{{ query }}</strong>"</p>
         
-        {% set total_results = results.samples|length + results.scans|length + results.queues|length + results.equipment|length + results.precursors|length %}
+        {% set total_results = (results.labs|default([])|length) + (results.projects|default([])|length) + (results.samples|default([])|length) + (results.scans|default([])|length) + (results.queues|default([])|length) + (results.instruments|default([])|length) + (results.equipment|default([])|length) + (results.precursors|default([])|length) + (results.procedures|default([])|length) %}
         
         {% if total_results == 0 %}
             <div class="empty-state">
                 <p>No results found for "{{ query }}"</p>
-                <p>Try a different search term or browse the categories above.</p>
+                <p>Try different search terms or use fewer words.</p>
             </div>
         {% else %}
             <p class="result-count">Found {{ total_results }} result(s)</p>
             
+            {% if results.labs %}
+            <div class="search-section">
+                <h2>Labs ({{ results.labs|length }})</h2>
+                <div class="search-results">
+                    {% for lab in results.labs %}
+                    <div class="search-result-card">
+                        <h3><a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}">{{ lab.name }}</a></h3>
+                        <div class="result-meta">
+                            {% if lab.university %}<span>{{ lab.university }}</span>{% endif %}
+                            {% if lab.department %}<span>{{ lab.department }}</span>{% endif %}
+                        </div>
+                        {% if lab.match_context %}
+                        <div class="match-context">
+                            {% for ctx in lab.match_context %}<span>{{ ctx }}</span>{% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if results.projects %}
+            <div class="search-section">
+                <h2>Projects ({{ results.projects|length }})</h2>
+                <div class="search-results">
+                    {% for proj in results.projects %}
+                    <div class="search-result-card">
+                        <h3><a href="{{ url_for('main.project_detail', project_id=proj.id) }}">{{ proj.name }}</a></h3>
+                        <div class="result-meta">
+                            {% if proj.lab_name %}<span>{{ proj.lab_name }}</span>{% endif %}
+                            {% if proj.code %}<span>{{ proj.code }}</span>{% endif %}
+                        </div>
+                        <span class="status-badge status-{{ proj.status }}">{{ proj.status }}</span>
+                        {% if proj.match_context %}
+                        <div class="match-context">
+                            {% for ctx in proj.match_context %}<span>{{ ctx }}</span>{% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
             {% if results.samples %}
             <div class="search-section">
-                <h2>🧪 Samples ({{ results.samples|length }})</h2>
+                <h2>Samples ({{ results.samples|length }})</h2>
                 <div class="search-results">
                     {% for sample in results.samples %}
                     <div class="search-result-card">
                         <h3><a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}">{{ sample.sample_id }}</a></h3>
-                        <p>{{ sample.name or sample.material or 'No description' }}</p>
+                        <div class="result-meta">
+                            {% if sample.name %}<span>{{ sample.name }}</span>{% endif %}
+                            {% if sample.material %}<span>{{ sample.material }}</span>{% endif %}
+                            {% if sample.substrate %}<span>{{ sample.substrate }}</span>{% endif %}
+                            {% if sample.lab_name %}<span>{{ sample.lab_name }}</span>{% endif %}
+                        </div>
                         <span class="status-badge status-{{ sample.status }}">{{ sample.status }}</span>
+                        {% if sample.match_context %}
+                        <div class="match-context">
+                            {% for ctx in sample.match_context %}<span>{{ ctx }}</span>{% endfor %}
+                        </div>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -36,14 +204,23 @@
             
             {% if results.scans %}
             <div class="search-section">
-                <h2>📊 Scans ({{ results.scans|length }})</h2>
+                <h2>Scans ({{ results.scans|length }})</h2>
                 <div class="search-results">
                     {% for scan in results.scans %}
                     <div class="search-result-card">
                         <h3><a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or 'Unnamed Scan' }}</a></h3>
-                        <p>{{ scan.project_name or 'No project' }}</p>
+                        <div class="result-meta">
+                            {% if scan.project_name %}<span>{{ scan.project_name }}</span>{% endif %}
+                            {% if scan.scan_type %}<span>{{ scan.scan_type }}</span>{% endif %}
+                            {% if scan.lab_name %}<span>{{ scan.lab_name }}</span>{% endif %}
+                        </div>
                         <span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span>
-                        <a href="{{ scan.pybirch_uri }}" class="open-link" title="Open in PyBirch">🚀</a>
+                        <a href="{{ scan.pybirch_uri }}" class="open-link" title="Open in PyBirch">Open</a>
+                        {% if scan.match_context %}
+                        <div class="match-context">
+                            {% for ctx in scan.match_context %}<span>{{ ctx }}</span>{% endfor %}
+                        </div>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -52,14 +229,47 @@
             
             {% if results.queues %}
             <div class="search-section">
-                <h2>📋 Queues ({{ results.queues|length }})</h2>
+                <h2>Queues ({{ results.queues|length }})</h2>
                 <div class="search-results">
                     {% for queue in results.queues %}
                     <div class="search-result-card">
                         <h3><a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}">{{ queue.name or queue.queue_id }}</a></h3>
-                        <p>{{ queue.total_scans }} scan(s)</p>
+                        <div class="result-meta">
+                            <span>{{ queue.total_scans }} scan(s)</span>
+                            {% if queue.lab_name %}<span>{{ queue.lab_name }}</span>{% endif %}
+                        </div>
                         <span class="status-badge status-{{ queue.status }}">{{ queue.status }}</span>
-                        <a href="{{ queue.pybirch_uri }}" class="open-link" title="Open in PyBirch">🚀</a>
+                        <a href="{{ queue.pybirch_uri }}" class="open-link" title="Open in PyBirch">Open</a>
+                        {% if queue.match_context %}
+                        <div class="match-context">
+                            {% for ctx in queue.match_context %}<span>{{ ctx }}</span>{% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if results.instruments %}
+            <div class="search-section">
+                <h2>🔬 Instruments ({{ results.instruments|length }})</h2>
+                <div class="search-results">
+                    {% for item in results.instruments %}
+                    <div class="search-result-card">
+                        <h3><a href="{{ url_for('main.instrument_detail', instrument_id=item.id) }}">{{ item.name }}</a></h3>
+                        <div class="result-meta">
+                            {% if item.manufacturer %}<span>{{ item.manufacturer }}</span>{% endif %}
+                            {% if item.model %}<span>{{ item.model }}</span>{% endif %}
+                            {% if item.pybirch_class %}<span class="badge">{{ item.pybirch_class }}</span>{% endif %}
+                            {% if item.location %}<span>{{ item.location }}</span>{% endif %}
+                        </div>
+                        <span class="status-badge status-{{ item.status }}">{{ item.status }}</span>
+                        {% if item.match_context %}
+                        <div class="match-context">
+                            {% for ctx in item.match_context %}<span>{{ ctx }}</span>{% endfor %}
+                        </div>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -68,13 +278,22 @@
             
             {% if results.equipment %}
             <div class="search-section">
-                <h2>🔧 Equipment ({{ results.equipment|length }})</h2>
+                <h2>🏭 Equipment ({{ results.equipment|length }})</h2>
                 <div class="search-results">
                     {% for item in results.equipment %}
                     <div class="search-result-card">
                         <h3><a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}">{{ item.name }}</a></h3>
-                        <p>{{ item.manufacturer }} {{ item.model }}</p>
+                        <div class="result-meta">
+                            {% if item.manufacturer %}<span>{{ item.manufacturer }}</span>{% endif %}
+                            {% if item.model %}<span>{{ item.model }}</span>{% endif %}
+                            {% if item.location %}<span>{{ item.location }}</span>{% endif %}
+                        </div>
                         <span class="status-badge status-{{ item.status }}">{{ item.status }}</span>
+                        {% if item.match_context %}
+                        <div class="match-context">
+                            {% for ctx in item.match_context %}<span>{{ ctx }}</span>{% endfor %}
+                        </div>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -83,12 +302,43 @@
             
             {% if results.precursors %}
             <div class="search-section">
-                <h2>⚗️ Precursors ({{ results.precursors|length }})</h2>
+                <h2>Precursors ({{ results.precursors|length }})</h2>
                 <div class="search-results">
                     {% for item in results.precursors %}
                     <div class="search-result-card">
                         <h3><a href="{{ url_for('main.precursor_detail', precursor_id=item.id) }}">{{ item.name }}</a></h3>
-                        <p>{{ item.chemical_formula or 'No formula' }} | {{ item.supplier or 'Unknown supplier' }}</p>
+                        <div class="result-meta">
+                            {% if item.chemical_formula %}<span>{{ item.chemical_formula }}</span>{% endif %}
+                            {% if item.supplier %}<span>{{ item.supplier }}</span>{% endif %}
+                            {% if item.state %}<span>{{ item.state }}</span>{% endif %}
+                        </div>
+                        {% if item.match_context %}
+                        <div class="match-context">
+                            {% for ctx in item.match_context %}<span>{{ ctx }}</span>{% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if results.procedures %}
+            <div class="search-section">
+                <h2>Procedures ({{ results.procedures|length }})</h2>
+                <div class="search-results">
+                    {% for proc in results.procedures %}
+                    <div class="search-result-card">
+                        <h3><a href="{{ url_for('main.procedure_detail', procedure_id=proc.id) }}">{{ proc.name }}</a></h3>
+                        <div class="result-meta">
+                            {% if proc.procedure_type %}<span>{{ proc.procedure_type }}</span>{% endif %}
+                            {% if proc.version %}<span>v{{ proc.version }}</span>{% endif %}
+                        </div>
+                        {% if proc.match_context %}
+                        <div class="match-context">
+                            {% for ctx in proc.match_context %}<span>{{ ctx }}</span>{% endfor %}
+                        </div>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -97,7 +347,8 @@
         {% endif %}
     {% else %}
         <div class="empty-state">
-            <p>Enter a search term to find samples, scans, equipment, and more.</p>
+            <p>Enter a search term to find samples, scans, instruments, equipment, and more.</p>
+            <p>For more specific searches, try <a href="{{ url_for('main.advanced_search') }}">Advanced Search</a>.</p>
         </div>
     {% endif %}
 </div>

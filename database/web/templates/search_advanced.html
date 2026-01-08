@@ -1,0 +1,862 @@
+{% extends "base.html" %}
+
+{% block title %}Advanced Search - PyBirch Database{% endblock %}
+
+{% block extra_head %}
+<style>
+/* Advanced Search Styles */
+.search-page {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.search-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.search-header h1 {
+    margin: 0;
+}
+
+.search-toggle {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.search-toggle a {
+    padding: 0.5rem 1rem;
+    border-radius: var(--border-radius);
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.search-toggle a.active {
+    background: var(--color-primary);
+    color: white;
+}
+
+/* Search Form */
+.search-form-card {
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.search-main-input {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.search-main-input input {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    border: 2px solid var(--color-border);
+    border-radius: var(--border-radius);
+}
+
+.search-main-input input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+}
+
+/* Advanced Options Toggle */
+.advanced-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    color: var(--color-primary);
+    font-weight: 500;
+    margin-bottom: 1rem;
+    user-select: none;
+}
+
+.advanced-toggle .toggle-icon {
+    transition: transform 0.2s ease;
+}
+
+.advanced-toggle.open .toggle-icon {
+    transform: rotate(90deg);
+}
+
+/* Advanced Options Panel */
+.advanced-options {
+    display: none;
+    border-top: 1px solid var(--color-border);
+    padding-top: 1rem;
+    margin-top: 1rem;
+}
+
+.advanced-options.show {
+    display: block;
+}
+
+.options-section {
+    margin-bottom: 1.25rem;
+}
+
+.options-section h3 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    margin-bottom: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.options-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.form-group label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+}
+
+.form-group input,
+.form-group select {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    font-size: 0.9rem;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+}
+
+.form-group .help-text {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+/* Boolean Mode Toggle */
+.boolean-toggle {
+    display: inline-flex;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+}
+
+.boolean-toggle label {
+    padding: 0.4rem 1rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    background: var(--color-bg-secondary);
+    transition: all 0.15s ease;
+}
+
+.boolean-toggle input {
+    display: none;
+}
+
+.boolean-toggle input:checked + label {
+    background: var(--color-primary);
+    color: white;
+}
+
+/* Entity Type Checkboxes */
+.entity-checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.entity-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.entity-checkbox input {
+    width: 16px;
+    height: 16px;
+}
+
+.entity-checkbox label {
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+/* Search Actions */
+.search-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+}
+
+/* Results Section */
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.results-count {
+    font-size: 1.1rem;
+    color: var(--color-text-secondary);
+}
+
+.results-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid var(--color-border);
+}
+
+.results-tab {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.15s ease;
+}
+
+.results-tab:hover {
+    color: var(--color-primary);
+}
+
+.results-tab.active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+}
+
+.results-tab .tab-count {
+    background: var(--color-bg-tertiary);
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.8rem;
+    margin-left: 0.35rem;
+}
+
+.results-tab.active .tab-count {
+    background: var(--color-primary);
+    color: white;
+}
+
+/* Results Panel */
+.results-panel {
+    display: none;
+}
+
+.results-panel.active {
+    display: block;
+}
+
+.result-card {
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    transition: border-color 0.15s ease;
+}
+
+.result-card:hover {
+    border-color: var(--color-primary);
+}
+
+.result-main {
+    flex: 1;
+}
+
+.result-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.result-title a {
+    color: var(--color-text-primary);
+}
+
+.result-title a:hover {
+    color: var(--color-primary);
+}
+
+.result-meta {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+}
+
+.result-meta span {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.result-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+/* No Results */
+.no-results {
+    text-align: center;
+    padding: 3rem;
+    color: var(--color-text-secondary);
+}
+
+.no-results-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+/* Active Filters Display */
+.active-filters-display {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: #e7f3ff;
+    border-radius: var(--border-radius);
+}
+
+.active-filter-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--color-primary);
+    color: white;
+    border-radius: 20px;
+    font-size: 0.8rem;
+}
+
+/* Pagination */
+.pagination {
+    display: flex;
+    justify-content: center;
+    gap: 0.25rem;
+    margin-top: 1.5rem;
+}
+
+.pagination a,
+.pagination span {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+}
+
+.pagination a:hover {
+    background: var(--color-bg-tertiary);
+}
+
+.pagination .current {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="search-page">
+    <div class="search-header">
+        <h1>Advanced Search</h1>
+        <div class="search-toggle">
+            <a href="{{ url_for('main.search') }}">Simple</a>
+            <a href="{{ url_for('main.advanced_search') }}" class="active">Advanced</a>
+        </div>
+    </div>
+    
+    <div class="search-form-card">
+        <form method="GET" action="{{ url_for('main.advanced_search') }}" id="advanced-search-form">
+            <!-- Main Search Input -->
+            <div class="search-main-input">
+                <input type="text" name="q" value="{{ query }}" placeholder="Enter search terms...">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </div>
+            
+            <!-- Advanced Options Toggle -->
+            <div class="advanced-toggle {% if has_search_criteria and (include_terms or exclude_terms or status or owner or material or substrate or created_after or created_before or entity_types) %}open{% endif %}" onclick="toggleAdvancedOptions()">
+                <span class="toggle-icon">▶</span>
+                <span>Advanced Options</span>
+            </div>
+            
+            <!-- Advanced Options Panel -->
+            <div class="advanced-options {% if has_search_criteria and (include_terms or exclude_terms or status or owner or material or substrate or created_after or created_before or entity_types) %}show{% endif %}" id="advanced-options">
+                
+                <!-- Include/Exclude Terms -->
+                <div class="options-section">
+                    <h3>Text Matching</h3>
+                    <div class="options-row">
+                        <div class="form-group">
+                            <label for="include">Must Include (comma-separated)</label>
+                            <input type="text" name="include" id="include" value="{{ include_terms }}" placeholder="term1, term2, ...">
+                            <span class="help-text">All these terms must appear</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="exclude">Must Exclude (comma-separated)</label>
+                            <input type="text" name="exclude" id="exclude" value="{{ exclude_terms }}" placeholder="term1, term2, ...">
+                            <span class="help-text">These terms must NOT appear</span>
+                        </div>
+                        <div class="form-group">
+                            <label>Boolean Mode</label>
+                            <div class="boolean-toggle">
+                                <input type="radio" name="mode" id="mode-and" value="AND" {% if boolean_mode == 'AND' %}checked{% endif %}>
+                                <label for="mode-and">AND</label>
+                                <input type="radio" name="mode" id="mode-or" value="OR" {% if boolean_mode == 'OR' %}checked{% endif %}>
+                                <label for="mode-or">OR</label>
+                            </div>
+                            <span class="help-text">AND = all terms, OR = any term</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Entity Types -->
+                <div class="options-section">
+                    <h3>Search In</h3>
+                    <div class="entity-checkboxes">
+                        <div class="entity-checkbox">
+                            <input type="checkbox" name="types" value="samples" id="type-samples" {% if not entity_types or 'samples' in entity_types %}checked{% endif %}>
+                            <label for="type-samples">🧪 Samples</label>
+                        </div>
+                        <div class="entity-checkbox">
+                            <input type="checkbox" name="types" value="scans" id="type-scans" {% if not entity_types or 'scans' in entity_types %}checked{% endif %}>
+                            <label for="type-scans">📊 Scans</label>
+                        </div>
+                        <div class="entity-checkbox">
+                            <input type="checkbox" name="types" value="queues" id="type-queues" {% if not entity_types or 'queues' in entity_types %}checked{% endif %}>
+                            <label for="type-queues">📋 Queues</label>
+                        </div>
+                        <div class="entity-checkbox">
+                            <input type="checkbox" name="types" value="instruments" id="type-instruments" {% if not entity_types or 'instruments' in entity_types %}checked{% endif %}>
+                            <label for="type-instruments">🔬 Instruments</label>
+                        </div>
+                        <div class="entity-checkbox">
+                            <input type="checkbox" name="types" value="equipment" id="type-equipment" {% if not entity_types or 'equipment' in entity_types %}checked{% endif %}>
+                            <label for="type-equipment">🏭 Equipment</label>
+                        </div>
+                        <div class="entity-checkbox">
+                            <input type="checkbox" name="types" value="precursors" id="type-precursors" {% if not entity_types or 'precursors' in entity_types %}checked{% endif %}>
+                            <label for="type-precursors">⚗️ Precursors</label>
+                        </div>
+                        <div class="entity-checkbox">
+                            <input type="checkbox" name="types" value="procedures" id="type-procedures" {% if not entity_types or 'procedures' in entity_types %}checked{% endif %}>
+                            <label for="type-procedures">📝 Procedures</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Field-Specific Filters -->
+                <div class="options-section">
+                    <h3>Field Filters</h3>
+                    <div class="options-row">
+                        <div class="form-group">
+                            <label for="status">Status</label>
+                            <select name="status" id="status">
+                                <option value="">Any status</option>
+                                {% for s in field_values.statuses %}
+                                <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="owner">Owner / Operator</label>
+                            <select name="owner" id="owner">
+                                <option value="">Any owner</option>
+                                {% for o in field_values.owners %}
+                                <option value="{{ o }}" {% if owner == o %}selected{% endif %}>{{ o }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="material">Material (Samples)</label>
+                            <select name="material" id="material">
+                                <option value="">Any material</option>
+                                {% for m in field_values.materials %}
+                                <option value="{{ m }}" {% if material == m %}selected{% endif %}>{{ m }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="substrate">Substrate (Samples)</label>
+                            <select name="substrate" id="substrate">
+                                <option value="">Any substrate</option>
+                                {% for s in field_values.substrates %}
+                                <option value="{{ s }}" {% if substrate == s %}selected{% endif %}>{{ s }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Lab/Project Filters -->
+                <div class="options-section">
+                    <h3>Organization</h3>
+                    <div class="options-row">
+                        <div class="form-group">
+                            <label for="lab_id">Lab</label>
+                            <select name="lab_id" id="lab_id" onchange="filterProjectsByLab()">
+                                <option value="">All labs</option>
+                                {% for lab in labs %}
+                                <option value="{{ lab.id }}" {% if lab_id == lab.id %}selected{% endif %}>{{ lab.display }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="project_id">Project</label>
+                            <select name="project_id" id="project_id">
+                                <option value="">All projects</option>
+                                {% for project in projects %}
+                                <option value="{{ project.id }}" data-lab-id="{{ project.lab_id }}" {% if project_id == project.id %}selected{% endif %}>{{ project.display }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Date Range -->
+                <div class="options-section">
+                    <h3>Date Range</h3>
+                    <div class="options-row">
+                        <div class="form-group">
+                            <label for="created_after">Created After</label>
+                            <input type="date" name="created_after" id="created_after" value="{{ created_after }}">
+                        </div>
+                        <div class="form-group">
+                            <label for="created_before">Created Before</label>
+                            <input type="date" name="created_before" id="created_before" value="{{ created_before }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Search Actions -->
+            <div class="search-actions">
+                <button type="submit" class="btn btn-primary">Search</button>
+                <a href="{{ url_for('main.advanced_search') }}" class="btn btn-secondary">Clear All</a>
+            </div>
+        </form>
+    </div>
+    
+    {% if results %}
+    <!-- Active Filters Display -->
+    {% if query or include_terms or exclude_terms or status or owner or material or substrate or lab_id or project_id or created_after or created_before %}
+    <div class="active-filters-display">
+        <strong>Active filters:</strong>
+        {% if query %}<span class="active-filter-tag">Query: {{ query }}</span>{% endif %}
+        {% if include_terms %}<span class="active-filter-tag">Include: {{ include_terms }}</span>{% endif %}
+        {% if exclude_terms %}<span class="active-filter-tag">Exclude: {{ exclude_terms }}</span>{% endif %}
+        {% if status %}<span class="active-filter-tag">Status: {{ status }}</span>{% endif %}
+        {% if owner %}<span class="active-filter-tag">Owner: {{ owner }}</span>{% endif %}
+        {% if material %}<span class="active-filter-tag">Material: {{ material }}</span>{% endif %}
+        {% if substrate %}<span class="active-filter-tag">Substrate: {{ substrate }}</span>{% endif %}
+        {% if created_after %}<span class="active-filter-tag">After: {{ created_after }}</span>{% endif %}
+        {% if created_before %}<span class="active-filter-tag">Before: {{ created_before }}</span>{% endif %}
+    </div>
+    {% endif %}
+    
+    <!-- Results Header -->
+    <div class="results-header">
+        <span class="results-count">Found <strong>{{ results.grand_total }}</strong> result(s)</span>
+    </div>
+    
+    {% if results.grand_total > 0 %}
+    <!-- Results Tabs -->
+    <div class="results-tabs" id="results-tabs">
+        {% if results.totals.get('samples', 0) > 0 %}
+        <div class="results-tab active" data-panel="samples">
+            🧪 Samples<span class="tab-count">{{ results.totals.samples }}</span>
+        </div>
+        {% endif %}
+        {% if results.totals.get('scans', 0) > 0 %}
+        <div class="results-tab {% if results.totals.get('samples', 0) == 0 %}active{% endif %}" data-panel="scans">
+            📊 Scans<span class="tab-count">{{ results.totals.scans }}</span>
+        </div>
+        {% endif %}
+        {% if results.totals.get('queues', 0) > 0 %}
+        <div class="results-tab {% if results.totals.get('samples', 0) == 0 and results.totals.get('scans', 0) == 0 %}active{% endif %}" data-panel="queues">
+            📋 Queues<span class="tab-count">{{ results.totals.queues }}</span>
+        </div>
+        {% endif %}
+        {% if results.totals.get('instruments', 0) > 0 %}
+        <div class="results-tab" data-panel="instruments">
+            🔬 Instruments<span class="tab-count">{{ results.totals.instruments }}</span>
+        </div>
+        {% endif %}
+        {% if results.totals.get('equipment', 0) > 0 %}
+        <div class="results-tab" data-panel="equipment">
+            🏭 Equipment<span class="tab-count">{{ results.totals.equipment }}</span>
+        </div>
+        {% endif %}
+        {% if results.totals.get('precursors', 0) > 0 %}
+        <div class="results-tab" data-panel="precursors">
+            ⚗️ Precursors<span class="tab-count">{{ results.totals.precursors }}</span>
+        </div>
+        {% endif %}
+        {% if results.totals.get('procedures', 0) > 0 %}
+        <div class="results-tab" data-panel="procedures">
+            📝 Procedures<span class="tab-count">{{ results.totals.procedures }}</span>
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- Results Panels -->
+    {% if results.samples %}
+    <div class="results-panel active" id="panel-samples">
+        {% for sample in results.samples %}
+        <div class="result-card">
+            <div class="result-main">
+                <div class="result-title">
+                    <a href="{{ url_for('main.sample_detail', sample_id=sample.id) }}">{{ sample.sample_id }}</a>
+                </div>
+                <div class="result-meta">
+                    {% if sample.name %}<span>📌 {{ sample.name }}</span>{% endif %}
+                    {% if sample.material %}<span>🧱 {{ sample.material }}</span>{% endif %}
+                    {% if sample.created_by %}<span>👤 {{ sample.created_by }}</span>{% endif %}
+                    {% if sample.created_at %}<span>📅 {{ sample.created_at[:10] }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="result-actions">
+                <span class="status-badge status-{{ sample.status }}">{{ sample.status }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% if results.scans %}
+    <div class="results-panel {% if results.totals.get('samples', 0) == 0 %}active{% endif %}" id="panel-scans">
+        {% for scan in results.scans %}
+        <div class="result-card">
+            <div class="result-main">
+                <div class="result-title">
+                    <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or scan.scan_id }}</a>
+                </div>
+                <div class="result-meta">
+                    {% if scan.project_name %}<span>📁 {{ scan.project_name }}</span>{% endif %}
+                    {% if scan.created_by %}<span>👤 {{ scan.created_by }}</span>{% endif %}
+                    {% if scan.created_at %}<span>📅 {{ scan.created_at[:10] }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="result-actions">
+                <span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span>
+                <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% if results.queues %}
+    <div class="results-panel {% if results.totals.get('samples', 0) == 0 and results.totals.get('scans', 0) == 0 %}active{% endif %}" id="panel-queues">
+        {% for queue in results.queues %}
+        <div class="result-card">
+            <div class="result-main">
+                <div class="result-title">
+                    <a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}">{{ queue.name or queue.queue_id }}</a>
+                </div>
+                <div class="result-meta">
+                    <span>📊 {{ queue.total_scans }} scan(s)</span>
+                    {% if queue.created_by %}<span>👤 {{ queue.created_by }}</span>{% endif %}
+                    {% if queue.created_at %}<span>📅 {{ queue.created_at[:10] }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="result-actions">
+                <span class="status-badge status-{{ queue.status }}">{{ queue.status }}</span>
+                <a href="{{ queue.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% if results.instruments %}
+    <div class="results-panel" id="panel-instruments">
+        {% for item in results.instruments %}
+        <div class="result-card">
+            <div class="result-main">
+                <div class="result-title">
+                    <a href="{{ url_for('main.instrument_detail', instrument_id=item.id) }}">{{ item.name }}</a>
+                </div>
+                <div class="result-meta">
+                    {% if item.manufacturer %}<span>🏭 {{ item.manufacturer }}</span>{% endif %}
+                    {% if item.model %}<span>📦 {{ item.model }}</span>{% endif %}
+                    {% if item.pybirch_class %}<span class="badge">🔬 {{ item.pybirch_class }}</span>{% endif %}
+                    {% if item.location %}<span>📍 {{ item.location }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="result-actions">
+                <span class="status-badge status-{{ item.status }}">{{ item.status }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% if results.equipment %}
+    <div class="results-panel" id="panel-equipment">
+        {% for item in results.equipment %}
+        <div class="result-card">
+            <div class="result-main">
+                <div class="result-title">
+                    <a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}">{{ item.name }}</a>
+                </div>
+                <div class="result-meta">
+                    {% if item.manufacturer %}<span>🏭 {{ item.manufacturer }}</span>{% endif %}
+                    {% if item.model %}<span>📦 {{ item.model }}</span>{% endif %}
+                    {% if item.location %}<span>📍 {{ item.location }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="result-actions">
+                <span class="status-badge status-{{ item.status }}">{{ item.status }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% if results.precursors %}
+    <div class="results-panel" id="panel-precursors">
+        {% for item in results.precursors %}
+        <div class="result-card">
+            <div class="result-main">
+                <div class="result-title">
+                    <a href="{{ url_for('main.precursor_detail', precursor_id=item.id) }}">{{ item.name }}</a>
+                </div>
+                <div class="result-meta">
+                    {% if item.chemical_formula %}<span>🔬 {{ item.chemical_formula }}</span>{% endif %}
+                    {% if item.supplier %}<span>🏪 {{ item.supplier }}</span>{% endif %}
+                    {% if item.state %}<span>💧 {{ item.state }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="result-actions">
+                <span class="status-badge status-{{ item.status }}">{{ item.status }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% if results.procedures %}
+    <div class="results-panel" id="panel-procedures">
+        {% for item in results.procedures %}
+        <div class="result-card">
+            <div class="result-main">
+                <div class="result-title">
+                    <a href="{{ url_for('main.procedure_detail', procedure_id=item.id) }}">{{ item.name }}</a>
+                </div>
+                <div class="result-meta">
+                    {% if item.procedure_type %}<span>📋 {{ item.procedure_type }}</span>{% endif %}
+                    {% if item.version %}<span>🔖 v{{ item.version }}</span>{% endif %}
+                    {% if item.created_by %}<span>👤 {{ item.created_by }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="result-actions">
+                {% if item.estimated_duration_minutes %}
+                <span class="meta-badge">⏱️ {{ item.estimated_duration_minutes }} min</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% else %}
+    <div class="no-results">
+        <p>No results found matching your criteria.</p>
+        <p>Try adjusting your filters or search terms.</p>
+    </div>
+    {% endif %}
+    
+    {% elif has_search_criteria == False %}
+    <div class="no-results">
+        <p>Enter search terms or select filters to begin searching.</p>
+        <p>Use the advanced options to narrow down your search.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function toggleAdvancedOptions() {
+    const toggle = document.querySelector('.advanced-toggle');
+    const options = document.getElementById('advanced-options');
+    toggle.classList.toggle('open');
+    options.classList.toggle('show');
+}
+
+function filterProjectsByLab() {
+    const labSelect = document.getElementById('lab_id');
+    const projectSelect = document.getElementById('project_id');
+    const selectedLabId = labSelect.value;
+    
+    const projectOptions = projectSelect.querySelectorAll('option');
+    projectOptions.forEach(option => {
+        if (option.value === '') {
+            option.style.display = '';
+        } else {
+            const optionLabId = option.getAttribute('data-lab-id');
+            if (!selectedLabId || optionLabId === selectedLabId) {
+                option.style.display = '';
+            } else {
+                option.style.display = 'none';
+                if (option.selected) {
+                    projectSelect.value = '';
+                }
+            }
+        }
+    });
+}
+
+// Tab switching
+document.addEventListener('DOMContentLoaded', function() {
+    const tabs = document.querySelectorAll('.results-tab');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            // Remove active from all tabs and panels
+            tabs.forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.results-panel').forEach(p => p.classList.remove('active'));
+            
+            // Add active to clicked tab and corresponding panel
+            this.classList.add('active');
+            const panelId = 'panel-' + this.getAttribute('data-panel');
+            const panel = document.getElementById(panelId);
+            if (panel) panel.classList.add('active');
+        });
+    });
+    
+    // Initialize project filter
+    filterProjectsByLab();
+});
+</script>
+{% endblock %}

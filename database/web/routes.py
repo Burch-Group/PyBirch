@@ -7,7 +7,7 @@ Flask route handlers for the web UI and REST API.
 from datetime import datetime
 from functools import wraps
 from io import BytesIO
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, session, g, send_file, Response
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, session, g, send_file, Response, current_app
 from database.services import get_db_service
 
 # Main blueprint for HTML pages
@@ -78,6 +78,80 @@ def search():
     return render_template('search.html', query=query, results=results)
 
 
+@main_bp.route('/search/advanced')
+def advanced_search():
+    """Advanced search page with filters."""
+    db = get_db_service()
+    
+    # Get search parameters
+    query = request.args.get('q', '')
+    entity_types = request.args.getlist('types') or None
+    status = request.args.get('status') or None
+    lab_id = request.args.get('lab_id', type=int)
+    project_id = request.args.get('project_id', type=int)
+    created_after = request.args.get('created_after') or None
+    created_before = request.args.get('created_before') or None
+    page = request.args.get('page', 1, type=int)
+    
+    # Only run search if we have any criteria
+    results = {}
+    if query or entity_types or status or lab_id or project_id or created_after or created_before:
+        results = db.advanced_search(
+            query=query if query else None,
+            entity_types=entity_types,
+            status=status,
+            lab_id=lab_id,
+            project_id=project_id,
+            created_after=created_after,
+            created_before=created_before,
+            page=page,
+        )
+    
+    # Get labs and projects for filter dropdowns
+    labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
+    
+    return render_template('advanced_search.html',
+        query=query,
+        results=results,
+        entity_types=entity_types or [],
+        status=status,
+        lab_id=lab_id,
+        project_id=project_id,
+        created_after=created_after,
+        created_before=created_before,
+        page=page,
+        labs=labs,
+        projects=projects,
+    )
+
+
+# -------------------- Site-Wide Filters --------------------
+
+@main_bp.route('/set-site-filters', methods=['POST'])
+def set_site_filters():
+    """Set site-wide lab and project filters stored in session."""
+    lab_id = request.form.get('lab_id')
+    project_id = request.form.get('project_id')
+    
+    # Store in session
+    session['filter_lab_id'] = int(lab_id) if lab_id else None
+    session['filter_project_id'] = int(project_id) if project_id else None
+    
+    # Redirect back to the referring page or index
+    return redirect(request.referrer or url_for('main.index'))
+
+
+@main_bp.route('/clear-site-filters')
+def clear_site_filters():
+    """Clear site-wide lab and project filters."""
+    session.pop('filter_lab_id', None)
+    session.pop('filter_project_id', None)
+    
+    # Redirect back to the referring page or index
+    return redirect(request.referrer or url_for('main.index'))
+
+
 # -------------------- Samples --------------------
 
 @main_bp.route('/samples')
@@ -96,13 +170,19 @@ def samples():
     
     total_pages = (total + 19) // 20
     
+    # Get pinned sample IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'sample')
+    
     return render_template('samples.html',
         samples=samples_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
-        status=status
+        status=status,
+        pinned_ids=pinned_ids
     )
 
 
@@ -144,7 +224,10 @@ def sample_new():
             }
     
     if request.method == 'POST':
-        # Get project_id and parent_sample_id, converting empty strings to None
+        # Get lab_id, project_id and parent_sample_id, converting empty strings to None
+        lab_id = request.form.get('lab_id')
+        lab_id = int(lab_id) if lab_id else None
+        
         project_id = request.form.get('project_id')
         project_id = int(project_id) if project_id else None
         
@@ -161,6 +244,7 @@ def sample_new():
             'storage_location': request.form.get('storage_location'),
             'description': request.form.get('description'),
             'created_by': request.form.get('created_by'),
+            'lab_id': lab_id,
             'project_id': project_id,
             'parent_sample_id': parent_sample_id,
         }
@@ -192,9 +276,18 @@ def sample_new():
             flash(f'Error creating sample: {str(e)}', 'error')
     
     # Get dropdown data
+    labs = db.get_labs_simple_list()
     projects = db.get_projects_simple_list()
     samples_list = db.get_samples_simple_list()
     precursors = db.get_precursors_simple_list()
+    
+    # Get user defaults
+    default_lab_id = None
+    default_project_id = None
+    if g.current_user:
+        user_prefs = db.get_user_preferences(g.current_user['id'])
+        default_lab_id = user_prefs.get('default_lab_id')
+        default_project_id = user_prefs.get('default_project_id')
     
     # Use prefilled_sample if we have a template, otherwise create with generated ID
     if prefilled_sample:
@@ -207,11 +300,14 @@ def sample_new():
     return render_template('sample_form.html', 
                           sample=sample_data, 
                           action='Create',
+                          labs=labs,
                           projects=projects,
                           samples_list=samples_list,
                           precursors=precursors,
                           sample_precursors=[],
-                          template=template)
+                          template=template,
+                          default_lab_id=default_lab_id,
+                          default_project_id=default_project_id)
 
 
 @main_bp.route('/samples/<int:sample_id>/edit', methods=['GET', 'POST'])
@@ -225,7 +321,10 @@ def sample_edit(sample_id):
         return redirect(url_for('main.samples'))
     
     if request.method == 'POST':
-        # Get project_id and parent_sample_id, converting empty strings to None
+        # Get lab_id, project_id and parent_sample_id, converting empty strings to None
+        lab_id = request.form.get('lab_id')
+        lab_id = int(lab_id) if lab_id else None
+        
         project_id = request.form.get('project_id')
         project_id = int(project_id) if project_id else None
         
@@ -240,6 +339,7 @@ def sample_edit(sample_id):
             'status': request.form.get('status'),
             'storage_location': request.form.get('storage_location'),
             'description': request.form.get('description'),
+            'lab_id': lab_id,
             'project_id': project_id,
             'parent_sample_id': parent_sample_id,
         }
@@ -251,6 +351,7 @@ def sample_edit(sample_id):
             flash(f'Error updating sample: {str(e)}', 'error')
     
     # Get dropdown data
+    labs = db.get_labs_simple_list()
     projects = db.get_projects_simple_list()
     samples_list = db.get_samples_simple_list(exclude_id=sample_id)  # Exclude self
     precursors = db.get_precursors_simple_list()
@@ -259,10 +360,77 @@ def sample_edit(sample_id):
     return render_template('sample_form.html', 
                           sample=sample, 
                           action='Edit',
+                          labs=labs,
                           projects=projects,
                           samples_list=samples_list,
                           precursors=precursors,
                           sample_precursors=sample_precursors)
+
+
+@main_bp.route('/samples/<int:sample_id>/duplicate', methods=['GET', 'POST'])
+@login_required
+def sample_duplicate(sample_id):
+    """Duplicate a sample with a new ID."""
+    db = get_db_service()
+    original = db.get_sample(sample_id)
+    
+    if not original:
+        flash('Sample not found', 'error')
+        return redirect(url_for('main.samples'))
+    
+    if request.method == 'POST':
+        # Get lab_id, project_id and parent_sample_id, converting empty strings to None
+        lab_id = request.form.get('lab_id')
+        lab_id = int(lab_id) if lab_id else None
+        
+        project_id = request.form.get('project_id')
+        project_id = int(project_id) if project_id else None
+        
+        parent_sample_id = request.form.get('parent_sample_id')
+        parent_sample_id = int(parent_sample_id) if parent_sample_id else None
+        
+        data = {
+            'sample_id': request.form.get('sample_id'),
+            'name': request.form.get('name'),
+            'material': request.form.get('material'),
+            'sample_type': request.form.get('sample_type'),
+            'substrate': request.form.get('substrate'),
+            'status': request.form.get('status', 'active'),
+            'storage_location': request.form.get('storage_location'),
+            'description': request.form.get('description'),
+            'created_by': g.current_user.get('username') if g.current_user else None,
+            'lab_id': lab_id,
+            'project_id': project_id,
+            'parent_sample_id': parent_sample_id or sample_id,  # Default parent to original
+        }
+        try:
+            sample = db.create_sample(data)
+            flash(f'Sample {sample["sample_id"]} created from duplicate', 'success')
+            return redirect(url_for('main.sample_detail', sample_id=sample['id']))
+        except Exception as e:
+            flash(f'Error creating sample: {str(e)}', 'error')
+    
+    # Pre-fill form with original data but new ID
+    duplicated = original.copy()
+    duplicated['sample_id'] = db.generate_next_sample_id('S')
+    duplicated['name'] = f"{original['name']} (Copy)"
+    duplicated['parent_sample_id'] = sample_id
+    
+    # Get dropdown data
+    labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
+    samples_list = db.get_samples_simple_list()
+    precursors = db.get_precursors_simple_list()
+    
+    return render_template('sample_form.html',
+        sample=duplicated,
+        action='Duplicate',
+        labs=labs,
+        projects=projects,
+        samples_list=samples_list,
+        precursors=precursors,
+        sample_precursors=[],
+    )
 
 
 # -------------------- Fabrication Runs --------------------
@@ -503,13 +671,19 @@ def scans():
     
     total_pages = (total + 19) // 20
     
+    # Get pinned IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'scan')
+    
     return render_template('scans.html',
         scans=scans_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
-        status=status
+        status=status,
+        pinned_ids=pinned_ids
     )
 
 
@@ -525,7 +699,69 @@ def scan_detail(scan_id):
     # Get data points for visualization
     data_points = db.get_scan_data_points(scan_id)
     
-    return render_template('scan_detail.html', scan=scan, data_points=data_points)
+    # Get visualization data organized by measurement object
+    visualization_data = db.get_visualization_data(scan_id)
+    
+    return render_template('scan_detail.html', 
+                          scan=scan, 
+                          data_points=data_points,
+                          visualization_data=visualization_data)
+
+
+@main_bp.route('/scans/<int:scan_id>/download-csv')
+def download_scan_csv(scan_id):
+    """Download scan data as CSV file."""
+    import csv
+    from io import StringIO
+    
+    db = get_db_service()
+    scan = db.get_scan(scan_id)
+    if not scan:
+        flash('Scan not found', 'error')
+        return redirect(url_for('main.scans'))
+    
+    # Get visualization data which has all measurement data organized
+    visualization_data = db.get_visualization_data(scan_id)
+    
+    # Create CSV content
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    # Write header info
+    writer.writerow([f"# Scan: {scan.get('scan_id', scan_id)}"])
+    writer.writerow([f"# Name: {scan.get('name', 'Unnamed')}"])
+    writer.writerow([f"# Status: {scan.get('status', 'unknown')}"])
+    writer.writerow([f"# Created: {scan.get('created_at', '')}"])
+    writer.writerow([])
+    
+    # Write data for each measurement object
+    for name, data in visualization_data.items():
+        writer.writerow([f"# Measurement: {name}"])
+        
+        columns = data.get('columns', [])
+        if columns:
+            writer.writerow(['index'] + columns)
+        else:
+            writer.writerow(['index', 'x', 'y'])
+        
+        all_values = data.get('all_values', [])
+        for row in all_values:
+            if columns:
+                writer.writerow([row.get('sequence_index', '')] + [row.get(col, '') for col in columns])
+            else:
+                writer.writerow([row.get('sequence_index', ''), row.get('x', ''), row.get('y', '')])
+        
+        writer.writerow([])
+    
+    # Create response
+    output.seek(0)
+    filename = f"scan_{scan.get('scan_id', scan_id)}.csv"
+    
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
+    )
 
 
 # -------------------- Queues --------------------
@@ -546,13 +782,19 @@ def queues():
     
     total_pages = (total + 19) // 20
     
+    # Get pinned IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'queue')
+    
     return render_template('queues.html',
         queues=queues_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
-        status=status
+        status=status,
+        pinned_ids=pinned_ids
     )
 
 
@@ -585,13 +827,19 @@ def equipment():
     
     total_pages = (total + 19) // 20
     
+    # Get pinned IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'equipment')
+    
     return render_template('equipment.html',
         equipment=equipment_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
-        status=status
+        status=status,
+        pinned_ids=pinned_ids
     )
 
 
@@ -633,6 +881,7 @@ def equipment_new():
             }
     
     if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
         data = {
             'name': request.form.get('name'),
             'equipment_type': request.form.get('equipment_type'),
@@ -643,6 +892,7 @@ def equipment_new():
             'adapter': request.form.get('adapter'),
             'location': request.form.get('location'),
             'status': request.form.get('status', 'available'),
+            'lab_id': int(lab_id) if lab_id else None,
         }
         try:
             item = db.create_equipment(data)
@@ -651,7 +901,16 @@ def equipment_new():
         except Exception as e:
             flash(f'Error creating equipment: {str(e)}', 'error')
     
-    return render_template('equipment_form.html', equipment=prefilled, action='Create', template=template)
+    # Get labs for dropdown
+    labs = db.get_labs_simple_list()
+    
+    # Get user defaults
+    default_lab_id = None
+    if g.current_user:
+        user_prefs = db.get_user_preferences(g.current_user['id'])
+        default_lab_id = user_prefs.get('default_lab_id')
+    
+    return render_template('equipment_form.html', equipment=prefilled, action='Create', template=template, labs=labs, default_lab_id=default_lab_id)
 
 
 @main_bp.route('/equipment/<int:equipment_id>/edit', methods=['GET', 'POST'])
@@ -665,6 +924,7 @@ def equipment_edit(equipment_id):
         return redirect(url_for('main.equipment'))
     
     if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
         data = {
             'name': request.form.get('name'),
             'equipment_type': request.form.get('equipment_type'),
@@ -675,6 +935,7 @@ def equipment_edit(equipment_id):
             'adapter': request.form.get('adapter'),
             'location': request.form.get('location'),
             'status': request.form.get('status', 'available'),
+            'lab_id': int(lab_id) if lab_id else None,
         }
         try:
             updated = db.update_equipment(equipment_id, data)
@@ -683,7 +944,342 @@ def equipment_edit(equipment_id):
         except Exception as e:
             flash(f'Error updating equipment: {str(e)}', 'error')
     
-    return render_template('equipment_form.html', equipment=equipment, action='Edit')
+    # Get labs for dropdown
+    labs = db.get_labs_simple_list()
+    
+    return render_template('equipment_form.html', equipment=equipment, action='Edit', labs=labs)
+
+
+@main_bp.route('/equipment/<int:equipment_id>/duplicate', methods=['GET', 'POST'])
+@login_required
+def equipment_duplicate(equipment_id):
+    """Duplicate equipment with a new ID."""
+    db = get_db_service()
+    original = db.get_equipment(equipment_id)
+    
+    if not original:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        data = {
+            'name': request.form.get('name'),
+            'equipment_type': request.form.get('equipment_type'),
+            'pybirch_class': request.form.get('pybirch_class'),
+            'manufacturer': request.form.get('manufacturer'),
+            'model': request.form.get('model'),
+            'serial_number': request.form.get('serial_number'),
+            'adapter': request.form.get('adapter'),
+            'location': request.form.get('location'),
+            'status': request.form.get('status', 'available'),
+            'lab_id': int(lab_id) if lab_id else None,
+        }
+        try:
+            item = db.create_equipment(data)
+            flash(f'Equipment "{item["name"]}" created from duplicate', 'success')
+            return redirect(url_for('main.equipment_detail', equipment_id=item['id']))
+        except Exception as e:
+            flash(f'Error creating equipment: {str(e)}', 'error')
+    
+    # Pre-fill form with original data but new name
+    duplicated = original.copy()
+    duplicated['name'] = f"{original['name']} (Copy)"
+    duplicated['serial_number'] = ''  # Clear serial number for duplicate
+    
+    # Get labs for dropdown
+    labs = db.get_labs_simple_list()
+    
+    return render_template('equipment_form.html',
+        equipment=duplicated,
+        action='Duplicate',
+        labs=labs,
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/upload-image', methods=['POST'])
+@login_required
+def equipment_image_upload(equipment_id):
+    """Upload an image for equipment."""
+    import os
+    from werkzeug.utils import secure_filename
+    
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        return jsonify({'success': False, 'error': 'Equipment not found'}), 404
+    
+    if 'image' not in request.files:
+        return jsonify({'success': False, 'error': 'No image file provided'}), 400
+    
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'}), 400
+    
+    # Validate file type
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in allowed_extensions:
+        return jsonify({'success': False, 'error': 'Invalid file type'}), 400
+    
+    try:
+        # Save the file
+        upload_folder = os.path.join(current_app.root_path, 'static', 'uploads', 'equipment')
+        os.makedirs(upload_folder, exist_ok=True)
+        
+        filename = secure_filename(f"equipment_{equipment_id}_{file.filename}")
+        filepath = os.path.join(upload_folder, filename)
+        file.save(filepath)
+        
+        # Get file info
+        file_size = os.path.getsize(filepath)
+        mime_type = file.content_type
+        
+        # Check if this is the first image (make it primary)
+        existing_images = db.get_equipment_images(equipment_id)
+        is_primary = len(existing_images) == 0
+        
+        # Add image record to database
+        image_record = db.add_equipment_image(
+            equipment_id=equipment_id,
+            filename=filename,
+            file_path=f"/static/uploads/equipment/{filename}",
+            original_filename=file.filename,
+            file_size=file_size,
+            mime_type=mime_type,
+            is_primary=is_primary,
+            uploaded_by=g.current_user.get('username') if g.current_user else None
+        )
+        
+        return jsonify({'success': True, 'image': image_record})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main_bp.route('/equipment/<int:equipment_id>/images/<int:image_id>/set-primary', methods=['POST'])
+@login_required
+def equipment_image_set_primary(equipment_id, image_id):
+    """Set an image as the primary image for equipment."""
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    try:
+        db.set_primary_equipment_image(equipment_id, image_id)
+        flash('Primary image updated', 'success')
+    except Exception as e:
+        flash(f'Error setting primary image: {str(e)}', 'error')
+    
+    return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
+
+
+@main_bp.route('/equipment/<int:equipment_id>/images/<int:image_id>/delete', methods=['POST'])
+@login_required
+def equipment_image_delete(equipment_id, image_id):
+    """Delete an equipment image."""
+    import os
+    
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    try:
+        # Get image info before deleting
+        images = db.get_equipment_images(equipment_id)
+        image = next((img for img in images if img['id'] == image_id), None)
+        
+        if image:
+            # Delete the file
+            file_path = os.path.join(current_app.root_path, image['file_path'].lstrip('/'))
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            
+            # Delete database record
+            db.delete_equipment_image(image_id)
+            flash('Image deleted', 'success')
+        else:
+            flash('Image not found', 'error')
+    except Exception as e:
+        flash(f'Error deleting image: {str(e)}', 'error')
+    
+    return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
+
+
+# -------------------- Equipment Issues --------------------
+
+@main_bp.route('/equipment/<int:equipment_id>/issues')
+def equipment_issues(equipment_id):
+    """List issues for a specific piece of equipment."""
+    page = request.args.get('page', 1, type=int)
+    status = request.args.get('status', '')
+    priority = request.args.get('priority', '')
+    
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    issues, total = db.get_equipment_issues(
+        equipment_id=equipment_id,
+        status=status if status else None,
+        priority=priority if priority else None,
+        page=page
+    )
+    
+    total_pages = (total + 19) // 20
+    
+    return render_template('equipment_issues.html',
+        equipment=equipment,
+        issues=issues,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        status=status,
+        priority=priority,
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/issues/<int:issue_id>')
+def equipment_issue_detail(equipment_id, issue_id):
+    """View a specific equipment issue."""
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    issue = db.get_equipment_issue(issue_id)
+    if not issue:
+        flash('Issue not found', 'error')
+        return redirect(url_for('main.equipment_issues', equipment_id=equipment_id))
+    
+    return render_template('equipment_issue_detail.html',
+        equipment=equipment,
+        issue=issue,
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/issues/new', methods=['GET', 'POST'])
+@login_required
+def equipment_issue_new(equipment_id):
+    """Create a new issue for equipment."""
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    if request.method == 'POST':
+        assignee_id = request.form.get('assignee_id')
+        data = {
+            'equipment_id': equipment_id,
+            'title': request.form.get('title'),
+            'description': request.form.get('description'),
+            'priority': request.form.get('priority', 'medium'),
+            'category': request.form.get('category'),
+            'status': 'open',
+            'reported_by': g.current_user.get('username') if g.current_user else None,
+            'assignee_id': int(assignee_id) if assignee_id else None,
+        }
+        
+        try:
+            issue = db.create_equipment_issue(data)
+            flash(f'Issue "{issue["title"]}" reported successfully', 'success')
+            return redirect(url_for('main.equipment_issue_detail', equipment_id=equipment_id, issue_id=issue['id']))
+        except Exception as e:
+            flash(f'Error reporting issue: {str(e)}', 'error')
+    
+    # Get users for assignee dropdown
+    users, _ = db.get_users(per_page=1000)
+    
+    # Default assignee to equipment owner if available
+    default_assignee_id = equipment.get('owner_id') if equipment else None
+    
+    return render_template('equipment_issue_form.html',
+        equipment=equipment,
+        issue=None,
+        action='Report',
+        users=users,
+        default_assignee_id=default_assignee_id,
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/issues/<int:issue_id>/edit', methods=['GET', 'POST'])
+@login_required
+def equipment_issue_edit(equipment_id, issue_id):
+    """Edit an equipment issue."""
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    issue = db.get_equipment_issue(issue_id)
+    if not issue:
+        flash('Issue not found', 'error')
+        return redirect(url_for('main.equipment_issues', equipment_id=equipment_id))
+    
+    if request.method == 'POST':
+        assignee_id = request.form.get('assignee_id')
+        data = {
+            'title': request.form.get('title'),
+            'description': request.form.get('description'),
+            'priority': request.form.get('priority', 'medium'),
+            'category': request.form.get('category'),
+            'status': request.form.get('status', 'open'),
+            'resolution': request.form.get('resolution'),
+            'assignee_id': int(assignee_id) if assignee_id else None,
+        }
+        
+        try:
+            db.update_equipment_issue(issue_id, data)
+            flash(f'Issue updated successfully', 'success')
+            return redirect(url_for('main.equipment_issue_detail', equipment_id=equipment_id, issue_id=issue_id))
+        except Exception as e:
+            flash(f'Error updating issue: {str(e)}', 'error')
+    
+    # Get users for assignee dropdown
+    users, _ = db.get_users(per_page=1000)
+    
+    return render_template('equipment_issue_form.html',
+        equipment=equipment,
+        issue=issue,
+        action='Edit',
+        users=users,
+    )
+
+
+@main_bp.route('/equipment/issues')
+def all_equipment_issues():
+    """List all equipment issues across all equipment."""
+    page = request.args.get('page', 1, type=int)
+    status = request.args.get('status', '')
+    priority = request.args.get('priority', '')
+    category = request.args.get('category', '')
+    
+    db = get_db_service()
+    issues, total = db.get_equipment_issues(
+        status=status if status else None,
+        priority=priority if priority else None,
+        page=page
+    )
+    
+    total_pages = (total + 19) // 20
+    
+    return render_template('all_equipment_issues.html',
+        issues=issues,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        status=status,
+        priority=priority,
+        category=category,
+    )
 
 
 # -------------------- Precursors --------------------
@@ -702,12 +1298,18 @@ def precursors():
     
     total_pages = (total + 19) // 20
     
+    # Get pinned IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'precursor')
+    
     return render_template('precursors.html',
         precursors=precursors_list,
         page=page,
         total_pages=total_pages,
         total=total,
-        search=search
+        search=search,
+        pinned_ids=pinned_ids
     )
 
 
@@ -749,6 +1351,7 @@ def precursor_new():
             }
     
     if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
         data = {
             'name': request.form.get('name'),
             'chemical_formula': request.form.get('chemical_formula'),
@@ -759,6 +1362,7 @@ def precursor_new():
             'state': request.form.get('state'),
             'status': request.form.get('status', 'new'),
             'storage_conditions': request.form.get('storage_conditions'),
+            'lab_id': int(lab_id) if lab_id else None,
         }
         try:
             item = db.create_precursor(data)
@@ -767,7 +1371,16 @@ def precursor_new():
         except Exception as e:
             flash(f'Error creating precursor: {str(e)}', 'error')
     
-    return render_template('precursor_form.html', precursor=prefilled, action='Create', template=template)
+    # Get labs for dropdown
+    labs = db.get_labs_simple_list()
+    
+    # Get user defaults
+    default_lab_id = None
+    if g.current_user:
+        user_prefs = db.get_user_preferences(g.current_user['id'])
+        default_lab_id = user_prefs.get('default_lab_id')
+    
+    return render_template('precursor_form.html', precursor=prefilled, action='Create', template=template, labs=labs, default_lab_id=default_lab_id)
 
 
 @main_bp.route('/precursors/<int:precursor_id>/edit', methods=['GET', 'POST'])
@@ -781,6 +1394,7 @@ def precursor_edit(precursor_id):
         return redirect(url_for('main.precursors'))
     
     if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
         data = {
             'name': request.form.get('name'),
             'chemical_formula': request.form.get('chemical_formula'),
@@ -791,6 +1405,7 @@ def precursor_edit(precursor_id):
             'state': request.form.get('state'),
             'status': request.form.get('status', 'new'),
             'storage_conditions': request.form.get('storage_conditions'),
+            'lab_id': int(lab_id) if lab_id else None,
         }
         try:
             updated = db.update_precursor(precursor_id, data)
@@ -799,7 +1414,57 @@ def precursor_edit(precursor_id):
         except Exception as e:
             flash(f'Error updating precursor: {str(e)}', 'error')
     
-    return render_template('precursor_form.html', precursor=precursor, action='Edit')
+    # Get labs for dropdown
+    labs = db.get_labs_simple_list()
+    
+    return render_template('precursor_form.html', precursor=precursor, action='Edit', labs=labs)
+
+
+@main_bp.route('/precursors/<int:precursor_id>/duplicate', methods=['GET', 'POST'])
+@login_required
+def precursor_duplicate(precursor_id):
+    """Duplicate a precursor with a new ID."""
+    db = get_db_service()
+    original = db.get_precursor(precursor_id)
+    
+    if not original:
+        flash('Precursor not found', 'error')
+        return redirect(url_for('main.precursors'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        data = {
+            'name': request.form.get('name'),
+            'chemical_formula': request.form.get('chemical_formula'),
+            'cas_number': request.form.get('cas_number'),
+            'supplier': request.form.get('supplier'),
+            'lot_number': request.form.get('lot_number'),
+            'purity': float(request.form.get('purity')) if request.form.get('purity') else None,
+            'state': request.form.get('state'),
+            'status': request.form.get('status', 'new'),
+            'storage_conditions': request.form.get('storage_conditions'),
+            'lab_id': int(lab_id) if lab_id else None,
+        }
+        try:
+            item = db.create_precursor(data)
+            flash(f'Precursor "{item["name"]}" created from duplicate', 'success')
+            return redirect(url_for('main.precursor_detail', precursor_id=item['id']))
+        except Exception as e:
+            flash(f'Error creating precursor: {str(e)}', 'error')
+    
+    # Pre-fill form with original data but new name
+    duplicated = original.copy()
+    duplicated['name'] = f"{original['name']} (Copy)"
+    duplicated['lot_number'] = ''  # Clear lot number for duplicate
+    
+    # Get labs for dropdown
+    labs = db.get_labs_simple_list()
+    
+    return render_template('precursor_form.html',
+        precursor=duplicated,
+        action='Duplicate',
+        labs=labs,
+    )
 
 
 # -------------------- Procedures --------------------
@@ -820,13 +1485,19 @@ def procedures():
     
     total_pages = (total + 19) // 20
     
+    # Get pinned IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'procedure')
+    
     return render_template('procedures.html',
         procedures=procedures_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
-        procedure_type=procedure_type
+        procedure_type=procedure_type,
+        pinned_ids=pinned_ids
     )
 
 
@@ -885,6 +1556,7 @@ def procedure_new():
                         pass
                 steps.append(step)
         
+        lab_id = request.form.get('lab_id')
         data = {
             'name': request.form.get('name'),
             'procedure_type': request.form.get('procedure_type'),
@@ -894,6 +1566,7 @@ def procedure_new():
             'estimated_duration_minutes': int(request.form.get('estimated_duration_minutes')) if request.form.get('estimated_duration_minutes') else None,
             'safety_requirements': request.form.get('safety_requirements'),
             'created_by': request.form.get('created_by'),
+            'lab_id': int(lab_id) if lab_id else None,
         }
         try:
             procedure = db.create_procedure(data)
@@ -902,7 +1575,16 @@ def procedure_new():
         except Exception as e:
             flash(f'Error creating procedure: {str(e)}', 'error')
     
-    return render_template('procedure_form.html', procedure=prefilled, action='Create', template=template)
+    # Get labs for dropdown
+    labs = db.get_labs_simple_list()
+    
+    # Get user defaults
+    default_lab_id = None
+    if g.current_user:
+        user_prefs = db.get_user_preferences(g.current_user['id'])
+        default_lab_id = user_prefs.get('default_lab_id')
+    
+    return render_template('procedure_form.html', procedure=prefilled, action='Create', template=template, labs=labs, default_lab_id=default_lab_id)
 
 
 @main_bp.route('/procedures/<int:procedure_id>/edit', methods=['GET', 'POST'])
@@ -934,6 +1616,7 @@ def procedure_edit(procedure_id):
                         pass
                 steps.append(step)
         
+        lab_id = request.form.get('lab_id')
         data = {
             'name': request.form.get('name'),
             'procedure_type': request.form.get('procedure_type'),
@@ -943,6 +1626,7 @@ def procedure_edit(procedure_id):
             'estimated_duration_minutes': int(request.form.get('estimated_duration_minutes')) if request.form.get('estimated_duration_minutes') else None,
             'safety_requirements': request.form.get('safety_requirements'),
             'created_by': request.form.get('created_by'),
+            'lab_id': int(lab_id) if lab_id else None,
         }
         try:
             updated = db.update_procedure(procedure_id, data)
@@ -951,7 +1635,70 @@ def procedure_edit(procedure_id):
         except Exception as e:
             flash(f'Error updating procedure: {str(e)}', 'error')
     
-    return render_template('procedure_form.html', procedure=procedure, action='Edit')
+    # Get labs for dropdown
+    labs = db.get_labs_simple_list()
+    
+    return render_template('procedure_form.html', procedure=procedure, action='Edit', labs=labs)
+
+
+@main_bp.route('/procedures/<int:procedure_id>/duplicate', methods=['GET', 'POST'])
+def procedure_duplicate(procedure_id):
+    """Duplicate an existing procedure."""
+    db = get_db_service()
+    original = db.get_procedure(procedure_id)
+    if not original:
+        flash('Procedure not found', 'error')
+        return redirect(url_for('main.procedures'))
+    
+    if request.method == 'POST':
+        # Parse steps from form
+        steps = []
+        step_orders = request.form.getlist('step_order[]')
+        step_names = request.form.getlist('step_name[]')
+        step_descriptions = request.form.getlist('step_description[]')
+        step_durations = request.form.getlist('step_duration[]')
+        
+        for i in range(len(step_names)):
+            if step_names[i].strip():
+                step = {
+                    'order': int(step_orders[i]) if i < len(step_orders) and step_orders[i] else i + 1,
+                    'name': step_names[i],
+                    'description': step_descriptions[i] if i < len(step_descriptions) else '',
+                }
+                if i < len(step_durations) and step_durations[i]:
+                    try:
+                        step['duration_minutes'] = int(step_durations[i])
+                    except ValueError:
+                        pass
+                steps.append(step)
+        
+        lab_id = request.form.get('lab_id')
+        data = {
+            'name': request.form.get('name'),
+            'procedure_type': request.form.get('procedure_type'),
+            'version': request.form.get('version', '1.0'),
+            'description': request.form.get('description'),
+            'steps': steps if steps else None,
+            'estimated_duration_minutes': int(request.form.get('estimated_duration_minutes')) if request.form.get('estimated_duration_minutes') else None,
+            'safety_requirements': request.form.get('safety_requirements'),
+            'created_by': request.form.get('created_by'),
+            'lab_id': int(lab_id) if lab_id else None,
+        }
+        try:
+            new_procedure = db.create_procedure(data)
+            flash(f'Procedure "{new_procedure["name"]}" created successfully', 'success')
+            return redirect(url_for('main.procedure_detail', procedure_id=new_procedure['id']))
+        except Exception as e:
+            flash(f'Error creating procedure: {str(e)}', 'error')
+    
+    # Pre-fill with original data but modify the name
+    procedure = dict(original)
+    procedure['name'] = f"{original['name']} (Copy)"
+    
+    # Get labs for dropdown
+    labs = db.get_labs_simple_list()
+    
+    return render_template('procedure_form.html', procedure=procedure, action='Duplicate', labs=labs)
 
 
 # -------------------- Labs --------------------
@@ -1167,6 +1914,11 @@ def projects():
     
     total_pages = (total + 19) // 20
     
+    # Get pinned IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'project')
+    
     return render_template('projects.html',
         projects=projects_list,
         labs=labs_list,
@@ -1175,7 +1927,8 @@ def projects():
         total=total,
         search=search,
         status=status,
-        lab_id=lab_id
+        lab_id=lab_id,
+        pinned_ids=pinned_ids
     )
 
 
@@ -1592,21 +2345,55 @@ def profile():
     db = get_db_service()
     
     if request.method == 'POST':
-        data = {
-            'name': request.form.get('name'),
-            'email': request.form.get('email'),
-        }
+        form_type = request.form.get('form_type')
         
-        # Check if email is taken by another user
-        existing = db.get_user_by_email(data['email'])
-        if existing and existing['id'] != g.current_user['id']:
-            flash('Email already in use by another account', 'error')
-        else:
-            db.update_user(g.current_user['id'], data)
-            flash('Profile updated successfully', 'success')
+        if form_type == 'profile':
+            # Handle profile update (includes personal info)
+            data = {
+                'name': request.form.get('name'),
+                'email': request.form.get('email'),
+                'phone': request.form.get('phone'),
+                'orcid': request.form.get('orcid'),
+                'office_location': request.form.get('office_location'),
+            }
+            
+            # Check if email is taken by another user
+            existing = db.get_user_by_email(data['email'])
+            if existing and existing['id'] != g.current_user['id']:
+                flash('Email already in use by another account', 'error')
+            else:
+                db.update_user(g.current_user['id'], data)
+                flash('Profile updated successfully', 'success')
+                return redirect(url_for('main.profile'))
+        
+        elif form_type == 'preferences':
+            # Handle preferences update (default lab/project)
+            default_lab_id = int(request.form.get('default_lab_id')) if request.form.get('default_lab_id') else None
+            default_project_id = int(request.form.get('default_project_id')) if request.form.get('default_project_id') else None
+            db.update_user_preferences(g.current_user['id'], default_lab_id=default_lab_id, default_project_id=default_project_id)
+            flash('Preferences saved successfully', 'success')
             return redirect(url_for('main.profile'))
     
-    return render_template('profile.html')
+    user_preferences = db.get_user_preferences(g.current_user['id'])
+    profile_data = db.get_user_profile_data(g.current_user['id'])
+    
+    # Add user fields to preferences for template (phone, orcid, office_location are on User model)
+    user = db.get_user_by_id(g.current_user['id'])
+    if user:
+        user_preferences['phone'] = user.get('phone')
+        user_preferences['orcid'] = user.get('orcid')
+        user_preferences['office_location'] = user.get('office_location')
+    
+    # Get labs and projects for select dropdowns
+    labs, _ = db.get_labs(per_page=1000)
+    projects = db.get_projects_simple_list()
+    
+    return render_template('profile.html', 
+        user_preferences=user_preferences, 
+        profile_data=profile_data,
+        labs=labs,
+        projects=projects
+    )
 
 
 @main_bp.route('/change-password', methods=['POST'])
@@ -1703,6 +2490,105 @@ def google_login():
     except Exception as e:
         flash(f'Google login error: {str(e)}', 'error')
         return redirect(url_for('main.login'))
+
+
+# -------------------- User Pins --------------------
+
+@main_bp.route('/pin/<entity_type>/<int:entity_id>', methods=['GET', 'POST'])
+@login_required
+def pin_item(entity_type, entity_id):
+    """Pin an item for the current user."""
+    db = get_db_service()
+    
+    # Validate entity type
+    valid_types = ['sample', 'scan', 'queue', 'equipment', 'precursor', 'procedure', 'project', 'lab', 'instrument']
+    if entity_type not in valid_types:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'error': f'Invalid entity type: {entity_type}'})
+        flash(f'Invalid entity type: {entity_type}', 'error')
+        return redirect(request.referrer or url_for('main.index'))
+    
+    try:
+        db.pin_item(g.current_user['id'], entity_type, entity_id)
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': True, 'pinned': True})
+        flash(f'{entity_type.title()} pinned successfully', 'success')
+    except Exception as e:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'error': str(e)})
+        flash(f'Error pinning item: {str(e)}', 'error')
+    
+    return redirect(request.referrer or url_for('main.index'))
+
+
+@main_bp.route('/unpin/<entity_type>/<int:entity_id>', methods=['GET', 'POST'])
+@login_required
+def unpin_item(entity_type, entity_id):
+    """Unpin an item for the current user."""
+    db = get_db_service()
+    
+    # Validate entity type
+    valid_types = ['sample', 'scan', 'queue', 'equipment', 'precursor', 'procedure', 'project', 'lab', 'instrument']
+    if entity_type not in valid_types:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'error': f'Invalid entity type: {entity_type}'})
+        flash(f'Invalid entity type: {entity_type}', 'error')
+        return redirect(request.referrer or url_for('main.index'))
+    
+    try:
+        db.unpin_item(g.current_user['id'], entity_type, entity_id)
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': True, 'pinned': False})
+        flash(f'{entity_type.title()} unpinned', 'success')
+    except Exception as e:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'error': str(e)})
+        flash(f'Error unpinning item: {str(e)}', 'error')
+    
+    return redirect(request.referrer or url_for('main.index'))
+
+
+@api_bp.route('/pins/<entity_type>/<int:entity_id>', methods=['POST'])
+@login_required
+def api_pin_item(entity_type, entity_id):
+    """API endpoint to pin an item."""
+    db = get_db_service()
+    
+    valid_types = ['sample', 'scan', 'queue', 'equipment', 'precursor', 'procedure', 'project', 'lab', 'instrument']
+    if entity_type not in valid_types:
+        return jsonify({'success': False, 'error': f'Invalid entity type: {entity_type}'}), 400
+    
+    try:
+        db.pin_item(g.current_user['id'], entity_type, entity_id)
+        return jsonify({'success': True, 'pinned': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/pins/<entity_type>/<int:entity_id>', methods=['DELETE'])
+@login_required
+def api_unpin_item(entity_type, entity_id):
+    """API endpoint to unpin an item."""
+    db = get_db_service()
+    
+    valid_types = ['sample', 'scan', 'queue', 'equipment', 'precursor', 'procedure', 'project', 'lab', 'instrument']
+    if entity_type not in valid_types:
+        return jsonify({'success': False, 'error': f'Invalid entity type: {entity_type}'}), 400
+    
+    try:
+        db.unpin_item(g.current_user['id'], entity_type, entity_id)
+        return jsonify({'success': True, 'pinned': False})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/pins', methods=['GET'])
+@login_required
+def api_get_pins():
+    """Get all pinned items for the current user."""
+    db = get_db_service()
+    pins = db.get_user_pins(g.current_user['id'])
+    return jsonify({'pins': pins})
 
 
 # -------------------- Issue Tracking --------------------
@@ -1893,6 +2779,11 @@ def templates():
     total_pages = (total + 19) // 20
     projects = db.get_projects_simple_list()
     
+    # Get pinned IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'template')
+    
     return render_template('templates.html',
         templates=templates_list,
         page=page,
@@ -1904,7 +2795,8 @@ def templates():
         status=status,
         projects=projects,
         entity_types=TEMPLATE_ENTITY_TYPES,
-        status_options=TEMPLATE_STATUS_OPTIONS
+        status_options=TEMPLATE_STATUS_OPTIONS,
+        pinned_ids=pinned_ids
     )
 
 
@@ -2887,3 +3779,627 @@ def api_stats():
     db = get_db_service()
     stats = db.get_dashboard_stats()
     return jsonify(stats)
+
+
+@api_bp.route('/images/<entity_type>/<int:entity_id>/upload', methods=['POST'])
+@login_required
+def api_upload_entity_image(entity_type, entity_id):
+    """Upload an image for any entity type."""
+    import os
+    import uuid
+    from werkzeug.utils import secure_filename
+    
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'}), 400
+    
+    # Validate file type
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'}
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in allowed_extensions:
+        return jsonify({'success': False, 'error': 'Invalid file type'}), 400
+    
+    try:
+        # Generate unique filename
+        original_filename = secure_filename(file.filename)
+        stored_filename = f"{uuid.uuid4().hex}_{original_filename}"
+        
+        # Save file
+        upload_folder = os.path.join(current_app.root_path, 'static', 'uploads', 'images')
+        os.makedirs(upload_folder, exist_ok=True)
+        filepath = os.path.join(upload_folder, stored_filename)
+        file.save(filepath)
+        
+        # Get file info
+        file_size = os.path.getsize(filepath)
+        
+        db = get_db_service()
+        image = db.create_entity_image({
+            'entity_type': entity_type,
+            'entity_id': entity_id,
+            'filename': original_filename,
+            'stored_filename': stored_filename,
+            'file_size_bytes': file_size,
+            'mime_type': file.content_type,
+            'name': request.form.get('name', original_filename),
+            'uploaded_by': g.current_user.get('username') if g.current_user else None,
+        })
+        
+        return jsonify({
+            'success': True,
+            'image': image,
+            'url': f"/static/uploads/images/{stored_filename}"
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main_bp.route('/images/<int:image_id>/delete', methods=['POST'])
+@login_required
+def delete_entity_image(image_id):
+    """Delete an entity image."""
+    import os
+    
+    db = get_db_service()
+    
+    try:
+        # Delete returns the stored filename so we can remove the file
+        stored_filename = db.delete_entity_image(image_id)
+        
+        if stored_filename:
+            # Delete the actual file
+            filepath = os.path.join(current_app.root_path, 'static', 'uploads', 'images', stored_filename)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            flash('Image deleted', 'success')
+        else:
+            flash('Image not found', 'error')
+    except Exception as e:
+        flash(f'Error deleting image: {str(e)}', 'error')
+    
+    # Redirect back to referrer or home
+    return redirect(request.referrer or url_for('main.index'))
+
+
+@api_bp.route('/images/<int:image_id>', methods=['PUT'])
+@login_required
+def api_update_entity_image(image_id):
+    """Update an entity image's metadata."""
+    db = get_db_service()
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+    
+    try:
+        update_data = {}
+        if 'name' in data:
+            update_data['name'] = data['name']
+        if 'description' in data:
+            update_data['description'] = data['description']
+        
+        image = db.update_entity_image(image_id, update_data)
+        if image:
+            return jsonify({'success': True, 'image': image})
+        else:
+            return jsonify({'success': False, 'error': 'Image not found'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# -------------------- Instruments --------------------
+
+@main_bp.route('/instruments')
+def instruments():
+    """Instruments list page."""
+    page = request.args.get('page', 1, type=int)
+    search = request.args.get('search', '')
+    status = request.args.get('status', '')
+    
+    db = get_db_service()
+    instruments_list, total = db.get_instruments_list(
+        search=search if search else None,
+        status=status if status else None,
+        page=page
+    )
+    
+    total_pages = (total + 19) // 20
+    
+    # Get pinned instrument IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'instrument')
+    
+    return render_template('instruments.html',
+        instruments=instruments_list,
+        total=total,
+        page=page,
+        total_pages=total_pages,
+        search=search,
+        status=status,
+        pinned_ids=pinned_ids,
+    )
+
+
+@main_bp.route('/instruments/<int:instrument_id>')
+def instrument_detail(instrument_id):
+    """Instrument detail page."""
+    db = get_db_service()
+    instrument = db.get_instrument(instrument_id)
+    if not instrument:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.instruments'))
+    return render_template('instrument_detail.html', instrument=instrument)
+
+
+@main_bp.route('/instruments/new', methods=['GET', 'POST'])
+@login_required
+def instrument_new():
+    """Create new instrument page."""
+    db = get_db_service()
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        lab_id = int(lab_id) if lab_id else None
+        
+        data = {
+            'name': request.form.get('name'),
+            'instrument_type': request.form.get('instrument_type'),
+            'pybirch_class': request.form.get('pybirch_class'),
+            'adapter': request.form.get('adapter'),
+            'manufacturer': request.form.get('manufacturer'),
+            'model': request.form.get('model'),
+            'serial_number': request.form.get('serial_number'),
+            'description': request.form.get('description'),
+            'status': request.form.get('status', 'available'),
+            'lab_id': lab_id,
+            'created_by': g.current_user.get('username') if g.current_user else None,
+        }
+        
+        try:
+            instrument = db.create_instrument(data)
+            flash(f'Instrument "{instrument["name"]}" created successfully', 'success')
+            return redirect(url_for('main.instrument_detail', instrument_id=instrument['id']))
+        except Exception as e:
+            flash(f'Error creating instrument: {str(e)}', 'error')
+    
+    labs = db.get_labs_simple_list()
+    default_lab_id = None
+    if g.current_user:
+        user_prefs = db.get_user_preferences(g.current_user['id'])
+        default_lab_id = user_prefs.get('default_lab_id')
+    
+    return render_template('instrument_form.html',
+        instrument=None,
+        action='New',
+        labs=labs,
+        default_lab_id=default_lab_id,
+    )
+
+
+@main_bp.route('/instruments/<int:instrument_id>/edit', methods=['GET', 'POST'])
+@login_required
+def instrument_edit(instrument_id):
+    """Edit instrument page."""
+    db = get_db_service()
+    instrument = db.get_instrument(instrument_id)
+    
+    if not instrument:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.instruments'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        lab_id = int(lab_id) if lab_id else None
+        
+        data = {
+            'name': request.form.get('name'),
+            'instrument_type': request.form.get('instrument_type'),
+            'pybirch_class': request.form.get('pybirch_class'),
+            'adapter': request.form.get('adapter'),
+            'manufacturer': request.form.get('manufacturer'),
+            'model': request.form.get('model'),
+            'serial_number': request.form.get('serial_number'),
+            'description': request.form.get('description'),
+            'status': request.form.get('status', 'available'),
+            'lab_id': lab_id,
+        }
+        
+        try:
+            db.update_instrument(instrument_id, data)
+            flash(f'Instrument "{data["name"]}" updated successfully', 'success')
+            return redirect(url_for('main.instrument_detail', instrument_id=instrument_id))
+        except Exception as e:
+            flash(f'Error updating instrument: {str(e)}', 'error')
+    
+    labs = db.get_labs_simple_list()
+    
+    return render_template('instrument_form.html',
+        instrument=instrument,
+        action='Edit',
+        labs=labs,
+        default_lab_id=None,
+    )
+
+
+@main_bp.route('/instruments/<int:instrument_id>/delete', methods=['POST'])
+@login_required
+def instrument_delete(instrument_id):
+    """Delete an instrument."""
+    db = get_db_service()
+    instrument = db.get_instrument(instrument_id)
+    
+    if not instrument:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.instruments'))
+    
+    try:
+        db.delete_instrument(instrument_id)
+        flash(f'Instrument "{instrument["name"]}" deleted', 'success')
+    except Exception as e:
+        flash(f'Error deleting instrument: {str(e)}', 'error')
+    
+    return redirect(url_for('main.instruments'))
+
+
+@main_bp.route('/instruments/<int:instrument_id>/duplicate', methods=['GET', 'POST'])
+@login_required
+def instrument_duplicate(instrument_id):
+    """Duplicate an existing instrument."""
+    db = get_db_service()
+    original = db.get_instrument(instrument_id)
+    if not original:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.instruments'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        lab_id = int(lab_id) if lab_id else None
+        
+        data = {
+            'name': request.form.get('name'),
+            'instrument_type': request.form.get('instrument_type'),
+            'pybirch_class': request.form.get('pybirch_class'),
+            'adapter': request.form.get('adapter'),
+            'manufacturer': request.form.get('manufacturer'),
+            'model': request.form.get('model'),
+            'serial_number': request.form.get('serial_number'),
+            'description': request.form.get('description'),
+            'status': request.form.get('status', 'available'),
+            'lab_id': lab_id,
+        }
+        
+        try:
+            new_instrument = db.create_instrument(data)
+            flash(f'Instrument "{new_instrument["name"]}" created from duplicate', 'success')
+            return redirect(url_for('main.instrument_detail', instrument_id=new_instrument['id']))
+        except Exception as e:
+            flash(f'Error creating instrument: {str(e)}', 'error')
+    
+    # Pre-fill form with original data but new name
+    instrument = dict(original)
+    instrument['name'] = f"{original['name']} (Copy)"
+    instrument['serial_number'] = ''  # Clear serial number for duplicate
+    
+    labs = db.get_labs_simple_list()
+    
+    return render_template('instrument_form.html',
+        instrument=instrument,
+        action='Duplicate',
+        labs=labs,
+        default_lab_id=None,
+    )
+
+
+# -------------------- Instrument Definitions --------------------
+
+@main_bp.route('/instrument-definitions')
+def instrument_definitions():
+    """Instrument definitions list page."""
+    search = request.args.get('search', '')
+    instrument_type = request.args.get('type', '')
+    category = request.args.get('category', '')
+    
+    db = get_db_service()
+    definitions = db.get_instrument_definitions(
+        instrument_type=instrument_type if instrument_type else None,
+        category=category if category else None,
+        search=search if search else None,
+    )
+    
+    # Get unique categories for filter dropdown
+    categories = sorted(set(d['category'] for d in definitions if d.get('category')))
+    
+    return render_template('instrument_definitions.html',
+        definitions=definitions,
+        total=len(definitions),
+        search=search,
+        instrument_type=instrument_type,
+        category=category,
+        categories=categories,
+    )
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>')
+def instrument_definition_detail(definition_id):
+    """Instrument definition detail page."""
+    db = get_db_service()
+    definition = db.get_instrument_definition(definition_id)
+    if not definition:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    # Get version history
+    versions = db.get_instrument_definition_versions(definition_id)
+    
+    return render_template('instrument_definition_detail.html', 
+        definition=definition, 
+        versions=versions
+    )
+
+
+@main_bp.route('/instrument-definitions/new', methods=['GET', 'POST'])
+@login_required
+def instrument_definition_new():
+    """Create new instrument definition page."""
+    db = get_db_service()
+    
+    if request.method == 'POST':
+        data = {
+            'name': request.form.get('name', '').strip(),
+            'display_name': request.form.get('display_name', '').strip(),
+            'description': request.form.get('description', '').strip() or None,
+            'instrument_type': request.form.get('instrument_type'),
+            'category': request.form.get('category', '').strip() or None,
+            'manufacturer': request.form.get('manufacturer', '').strip() or None,
+            'source_code': request.form.get('source_code', ''),
+            'base_class': request.form.get('base_class', '').strip(),
+            'dependencies': request.form.get('dependencies', '').strip() or None,
+            'is_public': request.form.get('is_public') == 'on',
+            'created_by': g.current_user.get('username') if g.current_user else None,
+        }
+        
+        # Validate required fields
+        errors = []
+        if not data['name']:
+            errors.append('Class name is required')
+        if not data['display_name']:
+            errors.append('Display name is required')
+        if not data['instrument_type']:
+            errors.append('Instrument type is required')
+        if not data['source_code']:
+            errors.append('Source code is required')
+        if not data['base_class']:
+            errors.append('Base class is required')
+        
+        # Validate Python syntax
+        if data['source_code']:
+            try:
+                compile(data['source_code'], '<code>', 'exec')
+            except SyntaxError as e:
+                errors.append(f'Syntax error at line {e.lineno}: {e.msg}')
+        
+        if errors:
+            for error in errors:
+                flash(error, 'error')
+            return render_template('instrument_definition_form.html',
+                definition=data,
+                form_action=url_for('main.instrument_definition_new'),
+                form_title='New Instrument Definition',
+            )
+        
+        try:
+            definition = db.create_instrument_definition(data)
+            flash(f'Instrument definition "{definition["display_name"]}" created successfully', 'success')
+            return redirect(url_for('main.instrument_definition_detail', definition_id=definition['id']))
+        except Exception as e:
+            flash(f'Error creating instrument definition: {str(e)}', 'error')
+            return render_template('instrument_definition_form.html',
+                definition=data,
+                form_action=url_for('main.instrument_definition_new'),
+                form_title='New Instrument Definition',
+            )
+    
+    # GET request - show empty form with template
+    template_source = '''from pybirch.Instruments.measurement import Measurement
+# Or: from pybirch.Instruments.movement import Movement
+
+
+class MyInstrument(Measurement):
+    """A custom instrument class.
+    
+    Attributes:
+        Add your instrument attributes here.
+    """
+    
+    def __init__(self, name="MyInstrument"):
+        super().__init__(name=name)
+        # Initialize your instrument here
+    
+    def measure(self):
+        """Perform a measurement.
+        
+        Returns:
+            dict: Measurement results
+        """
+        # Implement measurement logic
+        return {"value": 0.0}
+    
+    def close(self):
+        """Clean up resources."""
+        super().close()
+'''
+    
+    return render_template('instrument_definition_form.html',
+        definition={'source_code': template_source, 'base_class': 'Measurement'},
+        form_action=url_for('main.instrument_definition_new'),
+        form_title='New Instrument Definition',
+    )
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/edit', methods=['GET', 'POST'])
+@login_required
+def instrument_definition_edit(definition_id):
+    """Edit instrument definition page."""
+    db = get_db_service()
+    definition = db.get_instrument_definition(definition_id)
+    
+    if not definition:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    if request.method == 'POST':
+        data = {
+            'display_name': request.form.get('display_name', '').strip(),
+            'description': request.form.get('description', '').strip() or None,
+            'category': request.form.get('category', '').strip() or None,
+            'manufacturer': request.form.get('manufacturer', '').strip() or None,
+            'source_code': request.form.get('source_code', ''),
+            'base_class': request.form.get('base_class', '').strip(),
+            'dependencies': request.form.get('dependencies', '').strip() or None,
+            'is_public': request.form.get('is_public') == 'on',
+        }
+        change_summary = request.form.get('change_summary', '').strip() or None
+        
+        # Validate required fields
+        errors = []
+        if not data['display_name']:
+            errors.append('Display name is required')
+        if not data['source_code']:
+            errors.append('Source code is required')
+        if not data['base_class']:
+            errors.append('Base class is required')
+        
+        # Validate Python syntax
+        if data['source_code']:
+            try:
+                compile(data['source_code'], '<code>', 'exec')
+            except SyntaxError as e:
+                errors.append(f'Syntax error at line {e.lineno}: {e.msg}')
+        
+        if errors:
+            for error in errors:
+                flash(error, 'error')
+            # Merge data back into definition for re-rendering
+            definition.update(data)
+            return render_template('instrument_definition_form.html',
+                definition=definition,
+                form_action=url_for('main.instrument_definition_edit', definition_id=definition_id),
+                form_title=f'Edit {definition["display_name"]}',
+            )
+        
+        try:
+            updated = db.update_instrument_definition(
+                definition_id,
+                data,
+                change_summary=change_summary,
+                updated_by=g.current_user.get('username') if g.current_user else None,
+            )
+            flash(f'Instrument definition "{updated["display_name"]}" updated successfully', 'success')
+            return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+        except Exception as e:
+            flash(f'Error updating instrument definition: {str(e)}', 'error')
+            definition.update(data)
+            return render_template('instrument_definition_form.html',
+                definition=definition,
+                form_action=url_for('main.instrument_definition_edit', definition_id=definition_id),
+                form_title=f'Edit {definition["display_name"]}',
+            )
+    
+    return render_template('instrument_definition_form.html',
+        definition=definition,
+        form_action=url_for('main.instrument_definition_edit', definition_id=definition_id),
+        form_title=f'Edit {definition["display_name"]}',
+    )
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/delete', methods=['POST'])
+@login_required
+def instrument_definition_delete(definition_id):
+    """Delete an instrument definition."""
+    db = get_db_service()
+    definition = db.get_instrument_definition(definition_id)
+    
+    if not definition:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    try:
+        db.delete_instrument_definition(definition_id)
+        flash(f'Instrument definition "{definition["display_name"]}" deleted', 'success')
+    except Exception as e:
+        flash(f'Error deleting instrument definition: {str(e)}', 'error')
+    
+    return redirect(url_for('main.instrument_definitions'))
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/duplicate', methods=['GET', 'POST'])
+@login_required
+def instrument_definition_duplicate(definition_id):
+    """Duplicate an instrument definition."""
+    db = get_db_service()
+    original = db.get_instrument_definition(definition_id)
+    
+    if not original:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    if request.method == 'POST':
+        data = {
+            'name': request.form.get('name', '').strip(),
+            'display_name': request.form.get('display_name', '').strip(),
+            'description': request.form.get('description', '').strip() or None,
+            'instrument_type': original['instrument_type'],
+            'category': request.form.get('category', '').strip() or None,
+            'manufacturer': request.form.get('manufacturer', '').strip() or None,
+            'source_code': request.form.get('source_code', ''),
+            'base_class': request.form.get('base_class', '').strip(),
+            'dependencies': request.form.get('dependencies', '').strip() or None,
+            'is_public': request.form.get('is_public') == 'on',
+            'created_by': g.current_user.get('username') if g.current_user else None,
+        }
+        
+        try:
+            definition = db.create_instrument_definition(data)
+            flash(f'Instrument definition "{definition["display_name"]}" created from duplicate', 'success')
+            return redirect(url_for('main.instrument_definition_detail', definition_id=definition['id']))
+        except Exception as e:
+            flash(f'Error creating instrument definition: {str(e)}', 'error')
+    
+    # Pre-fill form with original data but new name
+    duplicated = original.copy()
+    duplicated['name'] = f"{original['name']}_copy"
+    duplicated['display_name'] = f"{original['display_name']} (Copy)"
+    
+    return render_template('instrument_definition_form.html',
+        definition=duplicated,
+        form_action=url_for('main.instrument_definition_duplicate', definition_id=definition_id),
+        form_title=f'Duplicate {original["display_name"]}',
+    )
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/versions/<int:version>')
+def instrument_definition_version(definition_id, version):
+    """View a specific version of an instrument definition."""
+    db = get_db_service()
+    definition = db.get_instrument_definition(definition_id)
+    
+    if not definition:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    versions = db.get_instrument_definition_versions(definition_id)
+    version_data = next((v for v in versions if v['version'] == version), None)
+    
+    if not version_data:
+        flash(f'Version {version} not found', 'error')
+        return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+    
+    return render_template('instrument_definition_version.html',
+        definition=definition,
+        version_data=version_data,
+        all_versions=versions,
+    )

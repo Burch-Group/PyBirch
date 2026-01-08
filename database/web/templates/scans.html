@@ -5,11 +5,21 @@
 {% block content %}
 <div class="list-page">
     <div class="page-header">
-        <h1>Scans</h1>
+        <h1>Scans <span id="connection-status" class="connection-status connecting" title="Connecting..."></span></h1>
     </div>
+    
+    {% if filter_queue %}
+    <div class="filter-notice">
+        <span>📋 Showing scans from queue: <strong><a href="{{ url_for('main.queue_detail', queue_id=filter_queue.id) }}">{{ filter_queue.name or filter_queue.queue_id }}</a></strong></span>
+        <a href="{{ url_for('main.scans', search=search, status=status) }}" class="btn btn-sm btn-link">Clear queue filter</a>
+    </div>
+    {% endif %}
     
     <div class="filters">
         <form method="GET" class="filter-form">
+            {% if queue_id %}
+            <input type="hidden" name="queue_id" value="{{ queue_id }}">
+            {% endif %}
             <input type="text" name="search" placeholder="Search scans..." 
                    value="{{ search }}" class="filter-input">
             <select name="status" class="filter-select">
@@ -21,8 +31,8 @@
                 <option value="failed" {% if status == 'failed' %}selected{% endif %}>Failed</option>
             </select>
             <button type="submit" class="btn btn-secondary">Filter</button>
-            {% if search or status %}
-                <a href="{{ url_for('main.scans') }}" class="btn btn-link">Clear</a>
+            {% if search or status or queue_id %}
+                <a href="{{ url_for('main.scans') }}" class="btn btn-link">Clear All</a>
             {% endif %}
         </form>
     </div>
@@ -30,36 +40,70 @@
     <p class="result-count">{{ total }} scan(s) found</p>
     
     {% if scans %}
+        {# Separate pinned and unpinned items #}
+        {% set pinned_items = scans | selectattr('id', 'in', pinned_ids) | list %}
+        {% set unpinned_items = scans | rejectattr('id', 'in', pinned_ids) | list %}
+        
         <table class="data-table">
             <thead>
                 <tr>
+                    <th style="width: 30px;"></th>
                     <th>Scan Name</th>
+                    <th>Queue</th>
                     <th>Project</th>
-                    <th>Operator</th>
                     <th>Status</th>
-                    <th>Progress</th>
                     <th>Created</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
-                {% for scan in scans %}
-                <tr>
-                    <td><a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or 'Unnamed' }}</a></td>
-                    <td>{{ scan.project_name or '-' }}</td>
-                    <td>{{ scan.operator or '-' }}</td>
-                    <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
+                {# Pinned items first #}
+                {% for scan in pinned_items %}
+                <tr class="pinned-row">
                     <td>
-                        {% if scan.total_points %}
-                            {{ scan.completed_points or 0 }} / {{ scan.total_points }}
-                        {% else %}
-                            -
+                        {% if current_user %}
+                        <button class="pin-btn pinned" data-entity-type="scan" data-entity-id="{{ scan.id }}" title="Unpin">📌</button>
                         {% endif %}
                     </td>
+                    <td><a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or 'Unnamed' }}</a></td>
+                    <td>
+                        {% if scan.queue_id %}
+                        <a href="{{ url_for('main.queue_detail', queue_id=scan.queue_id) }}" class="queue-link" title="View Queue">{{ scan.queue_name or ('Queue #' ~ scan.queue_id) }}</a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ scan.project_name or '-' }}</td>
+                    <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
                     <td>{{ scan.created_at[:10] if scan.created_at else '-' }}</td>
                     <td>
                         <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">🚀</a>
+                        <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {# Unpinned items #}
+                {% for scan in unpinned_items %}
+                <tr>
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn" data-entity-type="scan" data-entity-id="{{ scan.id }}" title="Pin">📍</button>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">{{ scan.scan_name or 'Unnamed' }}</a></td>
+                    <td>
+                        {% if scan.queue_id %}
+                        <a href="{{ url_for('main.queue_detail', queue_id=scan.queue_id) }}" class="queue-link" title="View Queue">{{ scan.queue_name or ('Queue #' ~ scan.queue_id) }}</a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ scan.project_name or '-' }}</td>
+                    <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
+                    <td>{{ scan.created_at[:10] if scan.created_at else '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -69,11 +113,11 @@
         {% if total_pages > 1 %}
         <div class="pagination">
             {% if page > 1 %}
-                <a href="{{ url_for('main.scans', page=page-1, search=search, status=status) }}" class="btn btn-sm">← Previous</a>
+                <a href="{{ url_for('main.scans', page=page-1, search=search, status=status, queue_id=queue_id) }}" class="btn btn-sm">← Previous</a>
             {% endif %}
             <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
             {% if page < total_pages %}
-                <a href="{{ url_for('main.scans', page=page+1, search=search, status=status) }}" class="btn btn-sm">Next →</a>
+                <a href="{{ url_for('main.scans', page=page+1, search=search, status=status, queue_id=queue_id) }}" class="btn btn-sm">Next →</a>
             {% endif %}
         </div>
         {% endif %}
@@ -84,4 +128,8 @@
         </div>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/scan-realtime.js') }}"></script>
 {% endblock %}

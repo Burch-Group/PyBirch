@@ -108,7 +108,7 @@ class DatabaseExtension(ScanExtension):
             )
             db_scan.status = "running"
             db_scan.started_at = datetime.utcnow()
-            db_scan.operator = self.operator
+            db_scan.created_by = self.operator
             session.flush()
             
             self._db_scan_id = db_scan.id
@@ -314,7 +314,7 @@ class QueueDatabaseExtension:
         try:
             with get_session() as session:
                 db_queue = queue_crud.from_pybirch(session, self.queue)
-                db_queue.operator = self.operator
+                db_queue.created_by = self.operator
                 session.flush()
                 self._db_queue_id = db_queue.id
             print(f"[QueueDatabaseExtension] Created queue record (ID: {self._db_queue_id})")

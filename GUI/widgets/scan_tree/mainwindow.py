@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import sys, os
+import logging
 from pathlib import Path
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
@@ -26,7 +30,12 @@ from pybirch.scan.measurements import Measurement, VisaMeasurement
 from typing import Sequence, Optional, List
 
 
-class MainWindow(QMainWindow):
+class ScanTreeWidget(QMainWindow):
+    """Widget for displaying and editing the scan tree structure.
+    
+    Note: This class inherits from QMainWindow for historical reasons but is typically
+    embedded as a widget within ScanPage, not used as a standalone window.
+    """
     def __init__(self, parent: QWidget = None, available_instruments: Optional[List] = None): #type: ignore
         super().__init__(parent)
         # Store configured instruments from adapter manager if provided
@@ -656,13 +665,13 @@ class MainWindow(QMainWindow):
             
             # Store movement settings from InstrumentTreeItem (UserRole + 1)
             instrument_tree_item = item.data(0, Qt.ItemDataRole.UserRole + 1)
-            print(f"[DEBUG] serialize_item {item.text(0)}: instrument_tree_item={instrument_tree_item}")
+            logger.debug("serialize_item %s: instrument_tree_item=%s", item.text(0), instrument_tree_item)
             if instrument_tree_item:
-                print(f"[DEBUG]   movement_entries attr exists: {hasattr(instrument_tree_item, 'movement_entries')}")
-                print(f"[DEBUG]   movement_entries value: {getattr(instrument_tree_item, 'movement_entries', None)}")
+                logger.debug("  movement_entries attr exists: %s", hasattr(instrument_tree_item, 'movement_entries'))
+                logger.debug("  movement_entries value: %s", getattr(instrument_tree_item, 'movement_entries', None))
                 if hasattr(instrument_tree_item, 'movement_entries') and instrument_tree_item.movement_entries:
                     item_data['movement_entries'] = instrument_tree_item.movement_entries
-                    print(f"[DEBUG]   Saved movement_entries: {item_data['movement_entries']}")
+                    logger.debug("  Saved movement_entries: %s", item_data['movement_entries'])
                 if hasattr(instrument_tree_item, 'movement_positions') and instrument_tree_item.movement_positions:
                     # Convert to list for JSON serialization
                     positions = instrument_tree_item.movement_positions
@@ -732,12 +741,43 @@ class MainWindow(QMainWindow):
             instrument_adapter = item_data.get('instrument_adapter', item_data.get('adapter', ''))
             instrument_nickname = item_data.get('instrument_nickname', item_data.get('name', ''))
             
-            # Create the appropriate instrument object based on base type
+            # Try to match with configured instruments first (to get actual instances)
             instrument_obj = None
-            if base_type in ('Movement', 'VisaMovement'):
-                instrument_obj = Movement(instrument_name)
-            elif base_type in ('Measurement', 'VisaMeasurement'):
-                instrument_obj = Measurement(instrument_name)
+            if self._configured_instruments:
+                for inst_config in self._configured_instruments:
+                    # Match by name or nickname
+                    config_name = inst_config.get('name', '')
+                    config_nickname = inst_config.get('nickname', '')
+                    config_adapter = inst_config.get('adapter', '')
+                    
+                    # Match by name, nickname, or adapter
+                    if (config_name == instrument_name or 
+                        config_nickname == instrument_name or
+                        config_nickname == instrument_nickname or
+                        (config_adapter and config_adapter == instrument_adapter)):
+                        # Found a match - use the actual instance if available
+                        if inst_config.get('instance'):
+                            instrument_obj = inst_config['instance']
+                            instrument_obj.nickname = instrument_nickname or config_nickname
+                            logger.debug(f"Matched instrument '{instrument_name}' to configured instance {type(instrument_obj).__name__}")
+                            break
+                        elif inst_config.get('class'):
+                            try:
+                                instrument_obj = inst_config['class'](config_adapter)
+                                instrument_obj.nickname = instrument_nickname or config_nickname
+                                logger.debug(f"Created instrument '{instrument_name}' from configured class {inst_config['class'].__name__}")
+                                break
+                            except Exception as e:
+                                logger.warning(f"Failed to instantiate instrument class: {e}")
+            
+            # Fall back to generic instrument if no match found
+            if instrument_obj is None:
+                if base_type in ('Movement', 'VisaMovement'):
+                    instrument_obj = Movement(instrument_name)
+                    logger.debug(f"Created generic Movement for '{instrument_name}'")
+                elif base_type in ('Measurement', 'VisaMeasurement'):
+                    instrument_obj = Measurement(instrument_name)
+                    logger.debug(f"Created generic Measurement for '{instrument_name}'")
             
             if instrument_obj:
                 instrument_obj.adapter = instrument_adapter
@@ -763,10 +803,10 @@ class MainWindow(QMainWindow):
                 )
                 
                 # Restore movement settings if saved
-                print(f"[DEBUG] deserialize_item {item_data.get('name')}: movement_entries in data: {'movement_entries' in item_data}")
+                logger.debug("deserialize_item %s: movement_entries in data: %s", item_data.get('name'), 'movement_entries' in item_data)
                 if 'movement_entries' in item_data:
                     instrument_tree_item.movement_entries = item_data['movement_entries']
-                    print(f"[DEBUG]   Restored movement_entries: {item_data['movement_entries']}")
+                    logger.debug("  Restored movement_entries: %s", item_data['movement_entries'])
                 if 'movement_positions' in item_data:
                     instrument_tree_item.movement_positions = item_data['movement_positions']
                 
@@ -784,3 +824,7 @@ class MainWindow(QMainWindow):
         
         # Expand all items
         self.view.expandAll()
+
+
+# Backward compatibility alias for code that still references MainWindow
+MainWindow = ScanTreeWidget

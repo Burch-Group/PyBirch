@@ -1,8 +1,19 @@
+"""
+PyBirch Movement Module
+
+This module provides base classes for movement instruments in the PyBirch
+framework. Movements are instruments that can be positioned (motors, stages, etc.)
+"""
+
+import logging
+import pickle
+from typing import Callable, Optional
+
 import numpy as np
 import pandas as pd
 from pymeasure.instruments import Instrument
-from typing import Callable, Optional
-import pickle
+
+logger = logging.getLogger(__name__)
 
 
 class Movement:
@@ -103,7 +114,7 @@ class VisaMovement(Movement):
         try:
             self.status = self.check_connection()
         except Exception as e:
-            print(f"Failed to initialize instrument {self.name} with adapter {adapter}: {e}")
+            logger.error(f"Failed to initialize instrument {self.name} with adapter {adapter}: {e}")
             self.status = False
 
 class MovementItem:

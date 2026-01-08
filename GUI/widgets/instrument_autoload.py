@@ -3,10 +3,13 @@ import sys, inspect
 from pathlib import Path
 import os
 import pickle
+import logging
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from pybirch.scan.measurements import Measurement, VisaMeasurement
 from pybirch.scan.movements import Movement, VisaMovement
 from PySide6 import QtCore, QtWidgets, QtGui
+
+logger = logging.getLogger(__name__)
 
 # Import theme
 try:
@@ -51,14 +54,27 @@ def get_classes_from_directory(directory: str, acceptable_class_types: tuple = (
 class InstrumentAutoLoadWidget(QtWidgets.QWidget):
     """
     A widget to automatically load and display available Measurement and Movement classes
-    from the specified directory. The classes are displayed in a tree structure, with selectable
-    checkboxes on the left side, and a button to refresh the list.
+    from the specified directory and database. The classes are displayed in a tree structure, 
+    with selectable checkboxes on the left side, and a button to refresh the list.
+    
+    Now supports loading instrument definitions from the database via InstrumentFactory.
+    Database instruments are shown under a "📦 Database Instruments" section.
     """
-    def __init__(self, directory: str, acceptable_class_types: tuple = (Measurement, Movement, VisaMeasurement, VisaMovement)):
+    def __init__(self, directory: str, acceptable_class_types: tuple = (Measurement, Movement, VisaMeasurement, VisaMovement), 
+                 db_service=None, enable_database: bool = True):
         super().__init__()
         self.directory = directory
         self.pybirch_classes = get_classes_from_directory(self.directory, acceptable_class_types)
         self.acceptable_class_types = acceptable_class_types
+        self.db_service = db_service
+        self.enable_database = enable_database
+        self._instrument_factory = None
+        self._database_classes = {}  # Cache of database instrument classes
+        
+        # Load database instruments if enabled
+        if self.enable_database:
+            self._load_database_instruments()
+        
         self.init_ui()
         self.populate_tree()
         self.connect_signals()
@@ -67,6 +83,53 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
         self.resize(400, 500)
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         # Styling handled by global theme
+    
+    def _load_database_instruments(self):
+        """Load instrument definitions from the database using InstrumentFactory."""
+        try:
+            from pybirch.Instruments.factory import InstrumentFactory
+            
+            # Get or create the factory
+            if self._instrument_factory is None:
+                self._instrument_factory = InstrumentFactory(self.db_service)
+            
+            # Get all definitions from database
+            definitions = self._instrument_factory.get_available_definitions()
+            
+            # Organize by category/type
+            self._database_classes = {
+                'measurement': [],
+                'movement': []
+            }
+            
+            for defn in definitions:
+                try:
+                    # Create the class from the definition
+                    cls = self._instrument_factory.create_class_from_definition(defn)
+                    if cls:
+                        instrument_type = defn.get('instrument_type', 'measurement')
+                        display_name = defn.get('display_name', defn['name'])
+                        self._database_classes[instrument_type].append((defn['name'], cls, defn))
+                        logger.debug(f"Loaded database instrument: {defn['name']} ({instrument_type})")
+                except Exception as e:
+                    logger.warning(f"Failed to create class for {defn.get('name', 'unknown')}: {e}")
+            
+            logger.info(f"Loaded {sum(len(v) for v in self._database_classes.values())} instruments from database")
+            
+        except ImportError as e:
+            logger.warning(f"Could not import InstrumentFactory: {e}")
+            self._database_classes = {}
+        except Exception as e:
+            logger.warning(f"Failed to load database instruments: {e}")
+            self._database_classes = {}
+    
+    def set_database_service(self, db_service):
+        """Set the database service and reload database instruments."""
+        self.db_service = db_service
+        if self._instrument_factory:
+            self._instrument_factory.db_service = db_service
+        self._load_database_instruments()
+        self.refresh_classes()
     
     def init_ui(self):
         """Initialize the user interface components."""
@@ -192,6 +255,45 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
                         class_item.setData(0, QtCore.Qt.UserRole, cls_obj)
 
         add_items(root, self.pybirch_classes)
+        
+        # Add database instruments section if there are any
+        if self._database_classes and any(self._database_classes.values()):
+            db_folder = QtWidgets.QTreeWidgetItem(root, ["📦 Database Instruments"])
+            db_folder.setFlags(db_folder.flags() | QtCore.Qt.ItemIsUserCheckable)
+            db_folder.setCheckState(0, QtCore.Qt.Unchecked)
+            db_folder.setToolTip(0, "Instruments loaded from database")
+            
+            # Add measurement instruments
+            if self._database_classes.get('measurement'):
+                measurement_folder = QtWidgets.QTreeWidgetItem(db_folder, ["Measurements"])
+                measurement_folder.setFlags(measurement_folder.flags() | QtCore.Qt.ItemIsUserCheckable)
+                measurement_folder.setCheckState(0, QtCore.Qt.Unchecked)
+                
+                for cls_name, cls_obj, defn in self._database_classes['measurement']:
+                    class_item = QtWidgets.QTreeWidgetItem(measurement_folder, [cls_name])
+                    class_item.setFlags(class_item.flags() | QtCore.Qt.ItemIsUserCheckable)
+                    class_item.setCheckState(0, QtCore.Qt.Unchecked)
+                    class_item.setData(0, QtCore.Qt.UserRole, cls_obj)
+                    class_item.setData(0, QtCore.Qt.UserRole + 1, defn)  # Store definition for reference
+                    class_item.setToolTip(0, f"Database ID: {defn.get('id', 'N/A')}\nBase: {defn.get('base_class', 'N/A')}")
+            
+            # Add movement instruments
+            if self._database_classes.get('movement'):
+                movement_folder = QtWidgets.QTreeWidgetItem(db_folder, ["Movements"])
+                movement_folder.setFlags(movement_folder.flags() | QtCore.Qt.ItemIsUserCheckable)
+                movement_folder.setCheckState(0, QtCore.Qt.Unchecked)
+                
+                for cls_name, cls_obj, defn in self._database_classes['movement']:
+                    class_item = QtWidgets.QTreeWidgetItem(movement_folder, [cls_name])
+                    class_item.setFlags(class_item.flags() | QtCore.Qt.ItemIsUserCheckable)
+                    class_item.setCheckState(0, QtCore.Qt.Unchecked)
+                    class_item.setData(0, QtCore.Qt.UserRole, cls_obj)
+                    class_item.setData(0, QtCore.Qt.UserRole + 1, defn)  # Store definition for reference
+                    class_item.setToolTip(0, f"Database ID: {defn.get('id', 'N/A')}\nBase: {defn.get('base_class', 'N/A')}")
+            
+            # Expand the database folder
+            self.tree.expandItem(db_folder)
+        
         # Expand just the top-level items
         for i in range(root.childCount()):
             top_level_item = root.child(i)
@@ -243,12 +345,16 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
 
 
     def refresh_classes(self):
-        """Refresh the list of available classes from the directory while preserving checked items."""
+        """Refresh the list of available classes from the directory and database while preserving checked items."""
         # Save current selections before refreshing
         current_selections = self.get_selected_classes()
         
         # Refresh the classes from directory
         self.pybirch_classes = get_classes_from_directory(self.directory, self.acceptable_class_types)
+        
+        # Refresh database instruments if enabled
+        if self.enable_database:
+            self._load_database_instruments()
         
         # Repopulate the tree
         self.populate_tree()

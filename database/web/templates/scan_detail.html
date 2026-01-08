@@ -4,23 +4,372 @@
 
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+    .chart-wrapper {
+        margin-bottom: 2rem;
+        background: var(--card-bg);
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .chart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+    .chart-header h3 {
+        margin: 0;
+        color: var(--text-primary);
+    }
+    .chart-meta {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+    }
+    .chart-container {
+        position: relative;
+        height: 350px;
+    }
+    .axis-selector {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        align-items: center;
+    }
+    .axis-selector label {
+        font-weight: 500;
+    }
+    .axis-selector select {
+        padding: 0.375rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--input-bg);
+        color: var(--text-primary);
+    }
+    .data-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1rem;
+        padding: 1rem;
+        background: var(--bg-secondary);
+        border-radius: 4px;
+    }
+    .data-summary-item {
+        text-align: center;
+    }
+    .data-summary-item .label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+    .data-summary-item .value {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    .table-scroll {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    .measurement-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+    }
+    .measurement-tab {
+        padding: 0.5rem 1rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--card-bg);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .measurement-tab:hover {
+        background: var(--bg-secondary);
+    }
+    .measurement-tab.active {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+    .measurement-section {
+        display: none;
+    }
+    .measurement-section.active {
+        display: block;
+    }
+    .no-data-message {
+        text-align: center;
+        padding: 2rem;
+        color: var(--text-secondary);
+    }
+    /* Visualization Controls */
+    .viz-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        padding: 1rem;
+        background: var(--bg-secondary);
+        border-radius: 6px;
+        align-items: center;
+    }
+    .viz-control-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .viz-control-group label {
+        font-weight: 500;
+        font-size: 0.9rem;
+        white-space: nowrap;
+    }
+    .viz-control-group select {
+        padding: 0.375rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--input-bg);
+        color: var(--text-primary);
+        min-width: 120px;
+    }
+    /* Download Button */
+    .download-section {
+        display: flex;
+        gap: 0.5rem;
+        margin-left: auto;
+    }
+    .btn-download {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        background: #28a745;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: background 0.2s;
+    }
+    .btn-download:hover {
+        background: #218838;
+    }
+    /* Heatmap container */
+    .heatmap-container {
+        position: relative;
+        height: 400px;
+        width: 100%;
+    }
+    /* Color scale preview */
+    .colorscale-preview {
+        height: 8px;
+        width: 100%;
+        margin-top: 4px;
+        border-radius: 2px;
+        background: linear-gradient(to right, #440154, #482878, #3e4989, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725);
+    }
+    .colorscale-preview.plasma {
+        background: linear-gradient(to right, #0d0887, #5302a3, #8b0aa5, #b83289, #db5c68, #f48849, #febd2a, #f0f921);
+    }
+    .colorscale-preview.inferno {
+        background: linear-gradient(to right, #000004, #1b0c41, #4a0c6b, #781c6d, #a52c60, #cf4446, #ed6925, #fb9b06, #f7d13d, #fcffa4);
+    }
+    .colorscale-preview.cividis {
+        background: linear-gradient(to right, #00224e, #123570, #3b496c, #575d6d, #707173, #8a8678, #a59c74, #c3b369, #e1cc55, #fee838);
+    }
+    /* Hidden by default for chart type switching */
+    .chart-view { display: block; }
+    .heatmap-view { display: none; }
+    .show-heatmap .chart-view { display: none; }
+    .show-heatmap .heatmap-view { display: block; }
+    /* Dimension Reduction Panel */
+    .dim-reduction-panel {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    .dim-reduction-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+    }
+    .dim-reduction-panel h4 {
+        margin: 0;
+        font-size: 0.95rem;
+        color: var(--text-primary);
+    }
+    .dim-reduction-info {
+        font-weight: normal;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+    .reductions-container {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .reductions-container:empty + .add-reduction-btn {
+        margin-top: 0;
+    }
+    .reduction-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        padding: 0.75rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+    }
+    .reduction-row .viz-control-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .reduction-method-group {
+        display: flex;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+    }
+    .reduction-method-btn {
+        padding: 0.3rem 0.6rem;
+        border: none;
+        border-radius: 4px;
+        background: var(--color-bg-secondary, #f8f9fa);
+        color: var(--color-text-primary, #212529);
+        cursor: pointer;
+        font-size: 0.8rem;
+        transition: all 0.2s;
+    }
+    .reduction-method-btn:hover {
+        background: var(--color-bg-tertiary, #e9ecef);
+    }
+    .reduction-method-btn.active {
+        background: var(--color-primary, #0078d4);
+        color: #ffffff;
+    }
+    .slice-slider-container {
+        display: none;
+        align-items: center;
+        gap: 0.5rem;
+        flex: 1;
+        min-width: 150px;
+    }
+    .slice-slider-container.active {
+        display: flex;
+    }
+    .slice-slider-container input[type="range"] {
+        flex: 1;
+        min-width: 80px;
+    }
+    .slice-value {
+        font-weight: 600;
+        min-width: 60px;
+        text-align: right;
+        font-size: 0.85rem;
+    }
+    .dim-info {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+    .remove-reduction-btn {
+        padding: 0.25rem 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+        margin-left: auto;
+    }
+    .remove-reduction-btn:hover {
+        background: #dc3545;
+        color: white;
+        border-color: #dc3545;
+    }
+    .add-reduction-btn {
+        padding: 0.5rem 1rem;
+        border: 1px dashed var(--border-color);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: all 0.2s;
+        margin-top: 0.75rem;
+        width: 100%;
+    }
+    .add-reduction-btn:hover:not(.disabled) {
+        background: var(--card-bg);
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+    }
+    .add-reduction-btn.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        border-style: solid;
+    }
+    /* Legacy styles for backwards compatibility */
+    .dim-reduction-row {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        font-style: italic;
+    }
+</style>
 {% endblock %}
 
 {% block content %}
 <div class="detail-page">
     <div class="page-header">
         <div class="breadcrumb">
+            {% if scan.queue %}
+            <a href="{{ url_for('main.queues') }}">Queues</a> / 
+            <a href="{{ url_for('main.queue_detail', queue_id=scan.queue.id) }}">{{ scan.queue.name or scan.queue.queue_id }}</a> / 
+            {{ scan.scan_name or scan.scan_id }}
+            {% else %}
             <a href="{{ url_for('main.scans') }}">Scans</a> / {{ scan.scan_name or scan.scan_id }}
+            {% endif %}
         </div>
         <div class="header-actions">
-            <a href="{{ scan.pybirch_uri }}" class="btn btn-primary">🚀 Open in PyBirch</a>
+            {% if scan.status == 'running' %}
+            <span class="live-indicator">LIVE</span>
+            {% endif %}
+            <span id="connection-status" class="connection-status connecting" title="Connecting..."></span>
+            <a href="{{ scan.pybirch_uri }}" class="btn btn-primary">Open in PyBirch</a>
         </div>
     </div>
     
     <div class="detail-header">
         <h1>{{ scan.scan_name or 'Unnamed Scan' }}</h1>
-        <span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span>
+        <span class="status-badge status-{{ scan.status }}" id="scan-status-badge">{{ scan.status }}</span>
+        <span id="scan-status-message" class="status-message"></span>
     </div>
+    
+    <!-- Live Stats Panel (shown for running scans) -->
+    {% if scan.status == 'running' %}
+    <div class="data-summary" id="live-stats-panel" style="margin-bottom: 1rem;">
+        <div class="data-summary-item">
+            <div class="label">Elapsed Time</div>
+            <div class="value" id="scan-elapsed-time">0s</div>
+        </div>
+        <div class="data-summary-item">
+            <div class="label">Progress</div>
+            <div class="value" id="scan-progress-percent">0%</div>
+        </div>
+        <div class="data-summary-item">
+            <div class="label">Live Data Points</div>
+            <div class="value" id="live-data-count">0</div>
+        </div>
+    </div>
+    {% endif %}
     
     <div class="detail-grid">
         <div class="detail-section">
@@ -33,20 +382,41 @@
                 <dd>{{ scan.project_name or '-' }}</dd>
                 
                 <dt>Operator</dt>
-                <dd>{{ scan.operator or '-' }}</dd>
+                <dd>{{ scan.created_by or '-' }}</dd>
                 
                 <dt>Scan Type</dt>
                 <dd>{{ scan.scan_type or '-' }}</dd>
                 
-                <dt>Progress</dt>
-                <dd>{{ scan.completed_points or 0 }} / {{ scan.total_points or 0 }} points</dd>
+                <dt>Job Type</dt>
+                <dd>{{ scan.job_type or '-' }}</dd>
                 
                 <dt>Start Time</dt>
-                <dd>{{ scan.start_time[:19] if scan.start_time else '-' }}</dd>
+                <dd>{{ scan.started_at[:19] if scan.started_at else '-' }}</dd>
                 
                 <dt>End Time</dt>
-                <dd>{{ scan.end_time[:19] if scan.end_time else '-' }}</dd>
+                <dd>{{ scan.completed_at[:19] if scan.completed_at else '-' }}</dd>
             </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Parent Queue</h2>
+            {% if scan.queue %}
+                <dl class="detail-list">
+                    <dt>Queue Name</dt>
+                    <dd><a href="{{ url_for('main.queue_detail', queue_id=scan.queue.id) }}">{{ scan.queue.name or scan.queue.queue_id }}</a></dd>
+                    
+                    <dt>Queue ID</dt>
+                    <dd>{{ scan.queue.queue_id or '-' }}</dd>
+                    
+                    <dt>Status</dt>
+                    <dd><span class="status-badge status-{{ scan.queue.status }}">{{ scan.queue.status }}</span></dd>
+                    
+                    <dt>Progress</dt>
+                    <dd>{{ scan.queue.completed_scans or 0 }} / {{ scan.queue.total_scans or 0 }} scans</dd>
+                </dl>
+            {% else %}
+                <p class="empty-state">This scan is not part of a queue.</p>
+            {% endif %}
         </div>
         
         <div class="detail-section">
@@ -74,25 +444,28 @@
         </div>
     </div>
     
+    <!-- Measurement Objects Overview -->
     {% if scan.measurement_objects %}
     <div class="related-section">
-        <h2>Measurements ({{ scan.measurement_objects|length }})</h2>
+        <h2>Measurement Objects ({{ scan.measurement_objects|length }})</h2>
         <table class="data-table">
             <thead>
                 <tr>
                     <th>Name</th>
-                    <th>Type</th>
+                    <th>Columns</th>
                     <th>Unit</th>
                     <th>Instrument</th>
+                    <th>Data Points</th>
                 </tr>
             </thead>
             <tbody>
                 {% for mo in scan.measurement_objects %}
                 <tr>
                     <td>{{ mo.name }}</td>
-                    <td>{{ mo.measurement_type or '-' }}</td>
+                    <td>{{ mo.columns | join(', ') if mo.columns else '-' }}</td>
                     <td>{{ mo.unit or '-' }}</td>
                     <td>{{ mo.instrument_name or '-' }}</td>
+                    <td>{{ visualization_data[mo.name].point_count if visualization_data and mo.name in visualization_data else '-' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -100,89 +473,1284 @@
     </div>
     {% endif %}
     
-    {% if data_points %}
+    <!-- Data Visualization Section -->
+    {% if visualization_data %}
     <div class="related-section">
         <h2>Data Visualization</h2>
-        <div class="chart-container">
-            <canvas id="dataChart"></canvas>
+        
+        <!-- Global Download Button -->
+        <div class="viz-controls">
+            <div class="viz-control-group">
+                <label>Scan Data</label>
+            </div>
+            <div class="download-section">
+                <a href="{{ url_for('main.download_scan_csv', scan_id=scan.id) }}" class="btn-download">
+                    📥 Download CSV
+                </a>
+            </div>
         </div>
         
-        <h3>Data Points ({{ data_points|length }})</h3>
-        <div class="table-scroll">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Index</th>
-                        <th>Value</th>
-                        <th>Timestamp</th>
-                        <th>Position</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for point in data_points[:100] %}
-                    <tr>
-                        <td>{{ point.point_index }}</td>
-                        <td>{{ point.value }}</td>
-                        <td>{{ point.timestamp[:19] if point.timestamp else '-' }}</td>
-                        <td>{{ point.position | tojson if point.position else '-' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        {% if visualization_data|length > 1 %}
+        <!-- Tabs for multiple measurement objects -->
+        <div class="measurement-tabs" id="measurementTabs">
+            {% for name, data in visualization_data.items() %}
+            <button class="measurement-tab {% if loop.first %}active{% endif %}" 
+                    data-target="measurement-{{ loop.index }}">
+                {{ name }} ({{ data.point_count }} pts)
+            </button>
+            {% endfor %}
         </div>
-        {% if data_points|length > 100 %}
-        <p class="note">Showing first 100 of {{ data_points|length }} data points.</p>
         {% endif %}
+        
+        {% for name, data in visualization_data.items() %}
+        <div class="measurement-section {% if loop.first %}active{% endif %}" id="measurement-{{ loop.index }}">
+            <div class="chart-wrapper">
+                <div class="chart-header">
+                    <h3>{{ name }}</h3>
+                    <div class="chart-meta">
+                        {% if data.instrument_name %}
+                        <span>Instrument: {{ data.instrument_name }}</span>
+                        {% endif %}
+                        {% if data.unit %}
+                        <span>Unit: {{ data.unit }}</span>
+                        {% endif %}
+                        <span>{{ data.point_count }} points</span>
+                    </div>
+                </div>
+                
+                {% if data.columns and data.columns|length >= 2 %}
+                <!-- Visualization Controls -->
+                <div class="viz-controls">
+                    <div class="viz-control-group">
+                        <label>Type:</label>
+                        <select class="viz-type-select" data-chart="chart-{{ loop.index }}" data-measurement="{{ loop.index }}">
+                            <option value="line">📈 Line</option>
+                            <option value="scatter">⚫ Scatter</option>
+                            <option value="heatmap">🗺️ Heatmap</option>
+                        </select>
+                    </div>
+                    <div class="viz-control-group">
+                        <label>X-Axis:</label>
+                        <select class="x-axis-select" data-chart="chart-{{ loop.index }}">
+                            {% for col in data.columns %}
+                            <option value="{{ col }}" {% if col == data.x_column %}selected{% endif %}>{{ col }}</option>
+                            {% endfor %}
+                            <option value="sequence_index">Sequence Index</option>
+                        </select>
+                    </div>
+                    <div class="viz-control-group">
+                        <label>Y-Axis:</label>
+                        <select class="y-axis-select" data-chart="chart-{{ loop.index }}">
+                            {% for col in data.columns %}
+                            <option value="{{ col }}" {% if col == data.y_column %}selected{% endif %}>{{ col }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="viz-control-group heatmap-only" style="display: none;" data-measurement="{{ loop.index }}">
+                        <label>Color:</label>
+                        <select class="colorscale-select" data-measurement="{{ loop.index }}">
+                            <option value="Viridis">Viridis</option>
+                            <option value="Plasma">Plasma</option>
+                            <option value="Inferno">Inferno</option>
+                            <option value="Cividis">Cividis (colorblind)</option>
+                            <option value="RdBu">Red-Blue</option>
+                            <option value="Greys">Grayscale</option>
+                        </select>
+                    </div>
+                    <div class="viz-control-group heatmap-only" style="display: none;" data-measurement="{{ loop.index }}">
+                        <label>Z-Value:</label>
+                        <select class="z-axis-select" data-chart="chart-{{ loop.index }}" data-measurement="{{ loop.index }}">
+                            {% for col in data.columns %}
+                            {% if col != data.x_column and col != data.y_column %}
+                            <option value="{{ col }}">{{ col }}</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Dimension Reduction Panel (shows when data has more dimensions than needed) -->
+                {% if data.columns|length > 2 %}
+                <div class="dim-reduction-panel" id="dim-reduction-{{ loop.index }}" data-measurement="{{ loop.index }}">
+                    <div class="dim-reduction-header">
+                        <h4>Dimension Reduction</h4>
+                        <span class="dim-reduction-info">{{ data.columns|length }} columns - add reductions to visualize</span>
+                    </div>
+                    <div class="reductions-container" data-measurement="{{ loop.index }}">
+                        <!-- Reduction rows will be added dynamically -->
+                    </div>
+                    <button class="add-reduction-btn" data-measurement="{{ loop.index }}">+ Add Reduction</button>
+                </div>
+                {% endif %}
+                {% endif %}
+                
+                <!-- Data summary -->
+                <div class="data-summary">
+                    <div class="data-summary-item">
+                        <div class="label">Total Points</div>
+                        <div class="value">{{ data.point_count }}</div>
+                    </div>
+                    {% if data.data_points %}
+                    <div class="data-summary-item">
+                        <div class="label">X Range</div>
+                        <div class="value" id="xrange-{{ loop.index }}">-</div>
+                    </div>
+                    <div class="data-summary-item">
+                        <div class="label">Y Range</div>
+                        <div class="value" id="yrange-{{ loop.index }}">-</div>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                {% if data.data_points %}
+                <!-- Chart.js container (line/scatter) -->
+                <div class="chart-view">
+                    <div class="chart-container">
+                        <canvas id="chart-{{ loop.index }}"></canvas>
+                    </div>
+                </div>
+                <!-- Plotly heatmap container -->
+                <div class="heatmap-view">
+                    <div class="heatmap-container" id="heatmap-{{ loop.index }}"></div>
+                </div>
+                {% else %}
+                <div class="no-data-message">No data points available for visualization.</div>
+                {% endif %}
+            </div>
+            
+            <!-- Data table -->
+            {% if data.all_values %}
+            <div class="chart-wrapper">
+                <h3>Data Table ({{ data.columns | join(', ') if data.columns else 'values' }})</h3>
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Index</th>
+                                {% for col in data.columns %}
+                                <th>{{ col }}{% if data.unit and loop.last %} ({{ data.unit }}){% endif %}</th>
+                                {% endfor %}
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in data.all_values[:100] %}
+                            <tr>
+                                <td>{{ row.sequence_index }}</td>
+                                {% for col in data.columns %}
+                                <td>{{ "%.6g" | format(row[col]) if row[col] is not none else '-' }}</td>
+                                {% endfor %}
+                                <td>{{ row.timestamp[:19] if row.timestamp else '-' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if data.all_values|length > 100 %}
+                <p class="note">Showing first 100 of {{ data.all_values|length }} data points.</p>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="related-section">
+        <h2>Data Visualization</h2>
+        <p class="empty-state">No measurement data available for this scan.</p>
     </div>
     {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
-{% if data_points %}
 <script>
-    const dataPoints = {{ data_points | tojson }};
+    // Store visualization data from server
+    const visualizationData = {{ visualization_data | tojson | safe if visualization_data else '{}' }};
+    const charts = {};
+    const heatmaps = {};
+    const vizState = {}; // Track visualization state per measurement
     
-    if (dataPoints.length > 0) {
-        const ctx = document.getElementById('dataChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'line',
+    // Color palette for multiple datasets
+    const colors = [
+        { border: '#0078d4', bg: 'rgba(0, 120, 212, 0.1)' },
+        { border: '#28a745', bg: 'rgba(40, 167, 69, 0.1)' },
+        { border: '#dc3545', bg: 'rgba(220, 53, 69, 0.1)' },
+        { border: '#ffc107', bg: 'rgba(255, 193, 7, 0.1)' },
+        { border: '#6f42c1', bg: 'rgba(111, 66, 193, 0.1)' },
+    ];
+    
+    // Initialize charts for each measurement object
+    let chartIndex = 1;
+    for (const [name, data] of Object.entries(visualizationData)) {
+        if (data.data_points && data.data_points.length > 0) {
+            // Initialize vizState with default axes
+            vizState[chartIndex] = { 
+                type: 'line', 
+                colorscale: 'Viridis',
+                xCol: data.x_column,
+                yCol: data.y_column
+            };
+            createChart(`chart-${chartIndex}`, name, data, chartIndex);
+        }
+        chartIndex++;
+    }
+    
+    function createChart(canvasId, name, data, index) {
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+        
+        const xValues = data.data_points.map(p => p.x);
+        const yValues = data.data_points.map(p => p.y);
+        
+        // Update range displays
+        updateRangeDisplays(xValues, yValues, index);
+        
+        const colorIdx = (index - 1) % colors.length;
+        
+        // Determine chart type based on data
+        const chartType = data.point_count > 50 ? 'line' : 'scatter';
+        
+        const chart = new Chart(ctx, {
+            type: chartType,
             data: {
-                labels: dataPoints.map(p => p.point_index),
                 datasets: [{
-                    label: 'Measurement Value',
-                    data: dataPoints.map(p => p.value),
-                    borderColor: '#0078d4',
-                    backgroundColor: 'rgba(0, 120, 212, 0.1)',
-                    fill: true,
-                    tension: 0.1
+                    label: name,
+                    data: data.data_points.map(p => ({ x: p.x, y: p.y })),
+                    borderColor: colors[colorIdx].border,
+                    backgroundColor: colors[colorIdx].bg,
+                    fill: chartType === 'line',
+                    tension: 0.1,
+                    pointRadius: chartType === 'line' ? (data.point_count > 500 ? 0 : 2) : 3,
+                    pointHoverRadius: 5,
+                    borderWidth: 2,
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: {
-                        display: true
+                    legend: { display: true, position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return `${data.x_column}: ${context.parsed.x.toFixed(6)}, ${data.y_column}: ${context.parsed.y.toFixed(6)}`;
+                            }
+                        }
                     }
                 },
                 scales: {
                     x: {
-                        title: {
-                            display: true,
-                            text: 'Point Index'
-                        }
+                        type: 'linear',
+                        title: { display: true, text: data.x_column }
                     },
                     y: {
-                        title: {
-                            display: true,
-                            text: 'Value'
-                        }
+                        title: { display: true, text: data.y_column + (data.unit ? ` (${data.unit})` : '') }
                     }
-                }
+                },
+                interaction: { intersect: false, mode: 'nearest' }
             }
         });
+        
+        charts[canvasId] = { chart, data, name };
     }
+    
+    function updateRangeDisplays(xValues, yValues, index) {
+        const validX = xValues.filter(v => v !== null && !isNaN(v));
+        const validY = yValues.filter(v => v !== null && !isNaN(v));
+        
+        if (validX.length > 0) {
+            const xMin = Math.min(...validX);
+            const xMax = Math.max(...validX);
+            const xRangeEl = document.getElementById(`xrange-${index}`);
+            if (xRangeEl) xRangeEl.textContent = `${xMin.toFixed(4)} - ${xMax.toFixed(4)}`;
+        }
+        
+        if (validY.length > 0) {
+            const yMin = Math.min(...validY);
+            const yMax = Math.max(...validY);
+            const yRangeEl = document.getElementById(`yrange-${index}`);
+            if (yRangeEl) yRangeEl.textContent = `${yMin.toFixed(4)} - ${yMax.toFixed(4)}`;
+        }
+    }
+    
+    // Create heatmap using Plotly
+    function createHeatmap(containerId, data, index, colorscale = 'Viridis') {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        // For heatmaps, we need 2D grid data
+        // Try to detect if data forms a grid, otherwise show as scatter heatmap
+        const allValues = data.all_values || [];
+        const state = vizState[index] || {};
+        const xCol = state.xCol || data.x_column;
+        const yCol = state.yCol || data.y_column;
+        
+        // Get unique x and y values
+        const xVals = [...new Set(allValues.map(r => r[xCol]))].sort((a, b) => a - b);
+        const yVals = [...new Set(allValues.map(r => r[yCol]))].sort((a, b) => a - b);
+        
+        // Check if we can form a grid
+        const isGrid = xVals.length > 1 && yVals.length > 1 && xVals.length * yVals.length <= allValues.length * 2;
+        
+        let trace, layout;
+        
+        if (isGrid && xVals.length >= 2 && yVals.length >= 2) {
+            // Create 2D heatmap grid
+            const zGrid = [];
+            const yValMap = new Map(yVals.map((v, i) => [v, i]));
+            const xValMap = new Map(xVals.map((v, i) => [v, i]));
+            
+            // Initialize grid
+            for (let i = 0; i < yVals.length; i++) {
+                zGrid.push(new Array(xVals.length).fill(null));
+            }
+            
+            // Fill in values (use first measurement column that's not x or y)
+            const valueCol = data.columns.find(c => c !== xCol && c !== yCol) || yCol;
+            
+            allValues.forEach(row => {
+                const xi = xValMap.get(row[xCol]);
+                const yi = yValMap.get(row[yCol]);
+                if (xi !== undefined && yi !== undefined) {
+                    zGrid[yi][xi] = row[valueCol];
+                }
+            });
+            
+            trace = {
+                z: zGrid,
+                x: xVals,
+                y: yVals,
+                type: 'heatmap',
+                colorscale: colorscale,
+                hoverongaps: false,
+                colorbar: { title: valueCol + (data.unit ? ` (${data.unit})` : '') }
+            };
+            
+            layout = {
+                title: data.name || 'Heatmap',
+                xaxis: { title: xCol },
+                yaxis: { title: yCol },
+                margin: { t: 50, l: 60, r: 30, b: 50 }
+            };
+        } else {
+            // Scatter plot with color representing value
+            const valueCol = data.columns.find(c => c !== xCol && c !== yCol) || yCol;
+            
+            trace = {
+                x: allValues.map(r => r[xCol]),
+                y: allValues.map(r => r[yCol]),
+                mode: 'markers',
+                type: 'scatter',
+                marker: {
+                    color: allValues.map(r => r[valueCol]),
+                    colorscale: colorscale,
+                    showscale: true,
+                    colorbar: { title: valueCol + (data.unit ? ` (${data.unit})` : '') },
+                    size: 8
+                },
+                text: allValues.map(r => `${valueCol}: ${r[valueCol]?.toFixed(4) || 'N/A'}`),
+                hovertemplate: `${xCol}: %{x}<br>${yCol}: %{y}<br>%{text}<extra></extra>`
+            };
+            
+            layout = {
+                title: data.name || 'Scatter Heatmap',
+                xaxis: { title: xCol },
+                yaxis: { title: yCol },
+                margin: { t: 50, l: 60, r: 30, b: 50 }
+            };
+        }
+        
+        Plotly.newPlot(container, [trace], layout, { responsive: true });
+        heatmaps[containerId] = { data, colorscale };
+    }
+    
+    // Handle visualization type changes
+    document.querySelectorAll('.viz-type-select').forEach(select => {
+        select.addEventListener('change', function() {
+            const measurementIndex = parseInt(this.dataset.measurement);
+            const vizType = this.value;
+            const section = this.closest('.measurement-section');
+            const chartWrapper = section.querySelector('.chart-wrapper');
+            const chartId = `chart-${measurementIndex}`;
+            const chartInfo = charts[chartId];
+            
+            vizState[measurementIndex] = vizState[measurementIndex] || {};
+            vizState[measurementIndex].type = vizType;
+            
+            // Toggle view visibility
+            const chartView = chartWrapper.querySelector('.chart-view');
+            const heatmapView = chartWrapper.querySelector('.heatmap-view');
+            const heatmapOnlyControls = section.querySelectorAll(`.heatmap-only[data-measurement="${measurementIndex}"]`);
+            const dimReductionPanel = section.querySelector(`.dim-reduction-panel[data-measurement="${measurementIndex}"]`);
+            const reductionRows2 = section.querySelectorAll('.reduction-row-2');
+            
+            if (vizType === 'heatmap') {
+                if (chartView) chartView.style.display = 'none';
+                if (heatmapView) heatmapView.style.display = 'block';
+                heatmapOnlyControls.forEach(ctrl => ctrl.style.display = 'flex');
+                if (dimReductionPanel) dimReductionPanel.classList.add('active');
+                // Hide second reduction row for heatmaps (only need one reduction)
+                reductionRows2.forEach(row => row.style.display = 'none');
+                
+                // Create heatmap if not exists
+                const heatmapId = `heatmap-${measurementIndex}`;
+                
+                if (chartInfo && !heatmaps[heatmapId]) {
+                    const reductions = getReductions(measurementIndex);
+                    // For heatmap, only use first reduction
+                    const heatmapReductions = reductions.length > 0 ? [reductions[0]] : [];
+                    createReducedHeatmap(
+                        heatmapId, chartInfo.data, measurementIndex,
+                        vizState[measurementIndex].colorscale || 'Viridis',
+                        heatmapReductions,
+                        vizState[measurementIndex].zCol
+                    );
+                }
+            } else {
+                if (chartView) chartView.style.display = 'block';
+                if (heatmapView) heatmapView.style.display = 'none';
+                heatmapOnlyControls.forEach(ctrl => ctrl.style.display = 'none');
+                if (dimReductionPanel) dimReductionPanel.classList.add('active');
+                // Show second reduction row for line/scatter with 4+ columns
+                reductionRows2.forEach(row => {
+                    row.style.display = (chartInfo && chartInfo.data.columns.length > 3) ? 'flex' : 'none';
+                });
+                
+                // Update chart type (line vs scatter)
+                if (chartInfo) {
+                    chartInfo.chart.config.type = vizType;
+                    // Refresh with any dimension reductions applied
+                    refreshVisualization(measurementIndex);
+                }
+            }
+            
+            // Update reduction UI since plot axes may have changed
+            updateReductionUI(measurementIndex);
+        });
+    });
+    
+    // Handle color scale changes
+    document.querySelectorAll('.colorscale-select').forEach(select => {
+        select.addEventListener('change', function() {
+            const measurementIndex = this.dataset.measurement;
+            const colorscale = this.value;
+            const heatmapId = `heatmap-${measurementIndex}`;
+            const chartId = `chart-${measurementIndex}`;
+            
+            vizState[measurementIndex] = vizState[measurementIndex] || {};
+            vizState[measurementIndex].colorscale = colorscale;
+            
+            // Update heatmap colorscale
+            const container = document.getElementById(heatmapId);
+            if (container && container.data && container.data.length > 0) {
+                // Use trace index [0] for restyle
+                Plotly.restyle(container, { colorscale: colorscale }, [0]);
+            } else if (charts[chartId]) {
+                // Heatmap doesn't exist yet, create it with new colorscale
+                createHeatmap(heatmapId, charts[chartId].data, measurementIndex, colorscale);
+            }
+        });
+    });
+    
+    // Handle axis selector changes
+    document.querySelectorAll('.x-axis-select, .y-axis-select').forEach(select => {
+        select.addEventListener('change', function() {
+            const chartId = this.dataset.chart;
+            const chartInfo = charts[chartId];
+            if (!chartInfo) return;
+            
+            const container = this.closest('.measurement-section');
+            const xSelect = container.querySelector('.x-axis-select');
+            const ySelect = container.querySelector('.y-axis-select');
+            
+            const xCol = xSelect.value;
+            const yCol = ySelect.value;
+            const index = parseInt(chartId.split('-')[1]);
+            
+            // Store selected axes in vizState
+            vizState[index] = vizState[index] || {};
+            vizState[index].xCol = xCol;
+            vizState[index].yCol = yCol;
+            
+            // Update chartInfo data references
+            chartInfo.data.x_column = xCol;
+            chartInfo.data.y_column = yCol;
+            
+            // Update reduction UI since plot axes changed
+            updateReductionUI(index);
+            
+            // Rebuild data from all_values with reductions applied
+            const reductions = getReductions(index);
+            const preserveCols = [xCol];
+            const reducedData = reductions.length > 0 
+                ? applyMultipleReductions(chartInfo.data.all_values, preserveCols, reductions)
+                : chartInfo.data.all_values;
+            
+            const newData = reducedData.map(row => ({
+                x: xCol === 'sequence_index' ? row.sequence_index : row[xCol],
+                y: row[yCol]
+            }));
+            
+            chartInfo.chart.data.datasets[0].data = newData;
+            chartInfo.chart.options.scales.x.title.text = xCol;
+            chartInfo.chart.options.scales.y.title.text = yCol + (chartInfo.data.unit ? ` (${chartInfo.data.unit})` : '');
+            chartInfo.chart.update();
+            
+            // Update ranges
+            const xValues = newData.map(p => p.x);
+            const yValues = newData.map(p => p.y);
+            updateRangeDisplays(xValues, yValues, index);
+            
+            // Update heatmap if it exists
+            const heatmapId = `heatmap-${index}`;
+            if (heatmaps[heatmapId]) {
+                createReducedHeatmap(heatmapId, chartInfo.data, index, vizState[index]?.colorscale || 'Viridis', reductions, vizState[index]?.zCol);
+            }
+        });
+    });
+    
+    // ===== DIMENSION REDUCTION FUNCTIONALITY =====
+    
+    // Generic dimension reduction function - can reduce one dimension
+    function applyDimensionReduction(allValues, preserveCols, reduceCol, method, sliceIndex, sliceValues) {
+        if (!reduceCol || preserveCols.includes(reduceCol)) {
+            return allValues; // No reduction needed
+        }
+        
+        // Get unique values for the dimension to reduce
+        const reduceVals = sliceValues || [...new Set(allValues.map(r => r[reduceCol]))].sort((a, b) => a - b);
+        
+        if (method === 'slice') {
+            // Filter to only rows matching the slice value
+            const targetValue = reduceVals[Math.min(sliceIndex, reduceVals.length - 1)];
+            return allValues.filter(row => row[reduceCol] === targetValue);
+        }
+        
+        // For aggregation methods (max, min, avg), group by preserved columns and aggregate
+        const grouped = new Map();
+        allValues.forEach(row => {
+            const key = preserveCols.map(c => row[c]).join('_');
+            if (!grouped.has(key)) {
+                const entry = { values: {}, timestamp: row.timestamp, sequence_index: row.sequence_index };
+                preserveCols.forEach(c => entry[c] = row[c]);
+                grouped.set(key, entry);
+            }
+            // Collect all values for aggregation
+            const entry = grouped.get(key);
+            Object.keys(row).forEach(col => {
+                if (!preserveCols.includes(col) && col !== 'timestamp' && col !== 'sequence_index') {
+                    if (!entry.values[col]) entry.values[col] = [];
+                    if (row[col] !== null && row[col] !== undefined) {
+                        entry.values[col].push(row[col]);
+                    }
+                }
+            });
+        });
+        
+        // Apply aggregation function
+        const result = [];
+        grouped.forEach((entry, key) => {
+            const newRow = { timestamp: entry.timestamp, sequence_index: entry.sequence_index };
+            preserveCols.forEach(c => newRow[c] = entry[c]);
+            
+            Object.keys(entry.values).forEach(col => {
+                const vals = entry.values[col];
+                if (vals && vals.length > 0) {
+                    switch (method) {
+                        case 'max': newRow[col] = Math.max(...vals); break;
+                        case 'min': newRow[col] = Math.min(...vals); break;
+                        case 'avg': newRow[col] = vals.reduce((a, b) => a + b, 0) / vals.length; break;
+                        default: newRow[col] = vals[0];
+                    }
+                }
+            });
+            result.push(newRow);
+        });
+        
+        return result;
+    }
+    
+    // Apply multiple dimension reductions in sequence
+    function applyMultipleReductions(allValues, preserveCols, reductions) {
+        let data = allValues;
+        for (const reduction of reductions) {
+            if (reduction.reduceCol && !preserveCols.includes(reduction.reduceCol)) {
+                data = applyDimensionReduction(data, preserveCols, reduction.reduceCol, reduction.method, reduction.sliceIndex, null);
+            }
+        }
+        return data;
+    }
+    
+    // Build title suffix from reductions
+    function buildReductionTitle(reductions, allValues) {
+        const parts = [];
+        for (const r of reductions) {
+            if (!r.reduceCol) continue;
+            const reduceVals = [...new Set(allValues.map(row => row[r.reduceCol]))].sort((a, b) => a - b);
+            if (r.method === 'slice' && reduceVals.length > 0) {
+                const val = reduceVals[Math.min(r.sliceIndex || 0, reduceVals.length - 1)];
+                parts.push(`${r.reduceCol}=${val?.toFixed?.(2) || val}`);
+            } else if (r.method === 'max') {
+                parts.push(`max(${r.reduceCol})`);
+            } else if (r.method === 'min') {
+                parts.push(`min(${r.reduceCol})`);
+            } else if (r.method === 'avg') {
+                parts.push(`avg(${r.reduceCol})`);
+            }
+        }
+        return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+    }
+    
+    // Create heatmap with dimension reduction
+    function createReducedHeatmap(containerId, data, index, colorscale, reductions, zCol) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        const allValues = data.all_values || [];
+        const state = vizState[index] || {};
+        const xCol = state.xCol || data.x_column;
+        const yCol = state.yCol || data.y_column;
+        const valueCol = zCol || state.zCol || data.columns.find(c => c !== xCol && c !== yCol) || yCol;
+        
+        // Apply all reductions
+        const preserveCols = [xCol, yCol];
+        const reducedData = reductions && reductions.length > 0 
+            ? applyMultipleReductions(allValues, preserveCols, reductions)
+            : allValues;
+        
+        // Get unique x and y values from reduced data
+        const xVals = [...new Set(reducedData.map(r => r[xCol]))].sort((a, b) => a - b);
+        const yVals = [...new Set(reducedData.map(r => r[yCol]))].sort((a, b) => a - b);
+        
+        let trace, layout;
+        const isGrid = xVals.length > 1 && yVals.length > 1;
+        
+        // Build title suffix
+        const titleSuffix = reductions ? buildReductionTitle(reductions, allValues) : '';
+        
+        if (isGrid && xVals.length >= 2 && yVals.length >= 2) {
+            // Create 2D heatmap grid
+            const zGrid = [];
+            const yValMap = new Map(yVals.map((v, i) => [v, i]));
+            const xValMap = new Map(xVals.map((v, i) => [v, i]));
+            
+            for (let i = 0; i < yVals.length; i++) {
+                zGrid.push(new Array(xVals.length).fill(null));
+            }
+            
+            reducedData.forEach(row => {
+                const xi = xValMap.get(row[xCol]);
+                const yi = yValMap.get(row[yCol]);
+                if (xi !== undefined && yi !== undefined) {
+                    zGrid[yi][xi] = row[valueCol];
+                }
+            });
+            
+            trace = {
+                z: zGrid,
+                x: xVals,
+                y: yVals,
+                type: 'heatmap',
+                colorscale: colorscale,
+                hoverongaps: false,
+                colorbar: { title: valueCol + (data.unit ? ` (${data.unit})` : '') }
+            };
+            
+            layout = {
+                title: (data.name || 'Heatmap') + titleSuffix,
+                xaxis: { title: xCol },
+                yaxis: { title: yCol },
+                margin: { t: 50, l: 60, r: 30, b: 50 }
+            };
+        } else {
+            // Scatter with color
+            trace = {
+                x: reducedData.map(r => r[xCol]),
+                y: reducedData.map(r => r[yCol]),
+                mode: 'markers',
+                type: 'scatter',
+                marker: {
+                    color: reducedData.map(r => r[valueCol]),
+                    colorscale: colorscale,
+                    showscale: true,
+                    colorbar: { title: valueCol + (data.unit ? ` (${data.unit})` : '') },
+                    size: 8
+                },
+                text: reducedData.map(r => `${valueCol}: ${r[valueCol]?.toFixed(4) || 'N/A'}`),
+                hovertemplate: `${xCol}: %{x}<br>${yCol}: %{y}<br>%{text}<extra></extra>`
+            };
+            
+            layout = {
+                title: (data.name || 'Scatter') + titleSuffix,
+                xaxis: { title: xCol },
+                yaxis: { title: yCol },
+                margin: { t: 50, l: 60, r: 30, b: 50 }
+            };
+        }
+        
+        Plotly.newPlot(container, [trace], layout, { responsive: true });
+        heatmaps[containerId] = { data, colorscale, reductions, zCol: valueCol };
+    }
+    
+    // Get current reductions from vizState (now uses dynamic array)
+    function getReductions(measurementIndex) {
+        const state = vizState[measurementIndex] || {};
+        return state.reductions || [];
+    }
+    
+    // Refresh the current visualization with updated reductions
+    function refreshVisualization(measurementIndex) {
+        const chartId = `chart-${measurementIndex}`;
+        const heatmapId = `heatmap-${measurementIndex}`;
+        const chartInfo = charts[chartId];
+        if (!chartInfo) return;
+        
+        const state = vizState[measurementIndex] || {};
+        const reductions = getReductions(measurementIndex);
+        
+        // Use vizState for current axis selections, fallback to chartInfo.data
+        const xCol = state.xCol || chartInfo.data.x_column;
+        const yCol = state.yCol || chartInfo.data.y_column;
+        
+        if (state.type === 'heatmap') {
+            createReducedHeatmap(
+                heatmapId, chartInfo.data, measurementIndex,
+                state.colorscale || 'Viridis',
+                reductions,
+                state.zCol
+            );
+        } else {
+            // Line/scatter - apply reductions and update chart
+            const allValues = chartInfo.data.all_values || [];
+            
+            const preserveCols = [xCol];
+            const reducedData = reductions.length > 0 
+                ? applyMultipleReductions(allValues, preserveCols, reductions)
+                : allValues;
+            
+            const newData = reducedData.map(row => ({
+                x: xCol === 'sequence_index' ? row.sequence_index : row[xCol],
+                y: row[yCol]
+            }));
+            
+            chartInfo.chart.data.datasets[0].data = newData;
+            chartInfo.chart.data.datasets[0].label = chartInfo.name + buildReductionTitle(reductions, allValues);
+            chartInfo.chart.update();
+            
+            // Update ranges
+            const xValues = newData.map(p => p.x);
+            const yValues = newData.map(p => p.y);
+            updateRangeDisplays(xValues, yValues, measurementIndex);
+        }
+    }
+    
+    // Get columns that can be reduced (excludes plot axes)
+    function getReducibleColumns(measurementIndex) {
+        const chartId = `chart-${measurementIndex}`;
+        const chartInfo = charts[chartId];
+        if (!chartInfo) return [];
+        
+        const columns = chartInfo.data.columns || [];
+        const state = vizState[measurementIndex] || {};
+        // Use vizState for current axis selections, fallback to chartInfo.data
+        const xCol = state.xCol || chartInfo.data.x_column;
+        const yCol = state.yCol || chartInfo.data.y_column;
+        const zCol = state.zCol || columns.find(c => c !== xCol && c !== yCol);
+        const isHeatmap = state.type === 'heatmap';
+        
+        // Exclude X and Y axes, and Z for heatmaps
+        const axisColumns = isHeatmap ? [xCol, yCol, zCol] : [xCol, yCol];
+        return columns.filter(c => !axisColumns.includes(c));
+    }
+    
+    // Get columns that still need reduction for current visualization
+    function getUnreducedColumns(measurementIndex) {
+        const reducibleCols = getReducibleColumns(measurementIndex);
+        const state = vizState[measurementIndex] || {};
+        const reductions = state.reductions || [];
+        // Only count reductions that target reducible columns (not axis conflicts)
+        const validReducedCols = reductions.map(r => r.reduceCol).filter(c => reducibleCols.includes(c));
+        return reducibleCols.filter(c => !validReducedCols.includes(c));
+    }
+    
+    // Get reductions that are targeting axis columns (conflicts)
+    function getConflictingReductions(measurementIndex) {
+        const reducibleCols = getReducibleColumns(measurementIndex);
+        const state = vizState[measurementIndex] || {};
+        const reductions = state.reductions || [];
+        // Find reductions that target non-reducible columns (axis columns)
+        return reductions.filter(r => !reducibleCols.includes(r.reduceCol));
+    }
+    
+    // Check if more reductions can be added
+    function canAddReduction(measurementIndex) {
+        const unreducedCols = getUnreducedColumns(measurementIndex);
+        return unreducedCols.length > 0;
+    }
+    
+    // Check if there are too many reductions for the current visualization
+    function isOverreduced(measurementIndex) {
+        const reducibleCols = getReducibleColumns(measurementIndex);
+        const state = vizState[measurementIndex] || {};
+        const reductions = state.reductions || [];
+        // Overreduced if we have more reductions than reducible columns
+        return reductions.length > reducibleCols.length;
+    }
+    
+    // Get count of excess reductions
+    function getExcessReductions(measurementIndex) {
+        const reducibleCols = getReducibleColumns(measurementIndex);
+        const state = vizState[measurementIndex] || {};
+        const reductions = state.reductions || [];
+        return Math.max(0, reductions.length - reducibleCols.length);
+    }
+    
+    // Update the Add Reduction button state and info text
+    function updateReductionUI(measurementIndex) {
+        const section = document.querySelector(`.measurement-section#measurement-${measurementIndex}`);
+        if (!section) return;
+        
+        const addBtn = section.querySelector('.add-reduction-btn');
+        const infoSpan = section.querySelector('.dim-reduction-info');
+        const chartInfo = charts[`chart-${measurementIndex}`];
+        if (!chartInfo) return;
+        
+        const state = vizState[measurementIndex] || {};
+        const reducibleCols = getReducibleColumns(measurementIndex);
+        const unreducedCols = getUnreducedColumns(measurementIndex);
+        const reductions = state.reductions || [];
+        const conflictingReductions = getConflictingReductions(measurementIndex);
+        const overreduced = isOverreduced(measurementIndex);
+        const excessCount = getExcessReductions(measurementIndex);
+        const hasConflicts = conflictingReductions.length > 0;
+        
+        // Update button state
+        if (addBtn) {
+            if (overreduced || hasConflicts) {
+                // Can't add more when overreduced or has conflicts
+                addBtn.disabled = true;
+                if (hasConflicts) {
+                    addBtn.textContent = `Fix ${conflictingReductions.length} conflicting reduction${conflictingReductions.length > 1 ? 's' : ''}`;
+                } else {
+                    addBtn.textContent = `Remove ${excessCount} reduction${excessCount > 1 ? 's' : ''} first`;
+                }
+                addBtn.classList.add('disabled');
+            } else if (unreducedCols.length === 0) {
+                addBtn.disabled = true;
+                addBtn.textContent = 'All dimensions reduced';
+                addBtn.classList.add('disabled');
+            } else {
+                addBtn.disabled = false;
+                addBtn.textContent = `+ Add Reduction (${unreducedCols.length} available)`;
+                addBtn.classList.remove('disabled');
+            }
+        }
+        
+        // Update info text
+        if (infoSpan) {
+            const totalCols = chartInfo.data.columns.length;
+            const xCol = state.xCol || chartInfo.data.x_column;
+            const yCol = state.yCol || chartInfo.data.y_column;
+            const zCol = state.zCol || chartInfo.data.columns.find(c => c !== xCol && c !== yCol);
+            const isHeatmap = state.type === 'heatmap';
+            
+            if (hasConflicts) {
+                // Reductions targeting axis columns
+                const conflictCols = conflictingReductions.map(r => r.reduceCol);
+                infoSpan.textContent = `${totalCols} columns — CONFLICT: reduction${conflictCols.length > 1 ? 's' : ''} on axis column${conflictCols.length > 1 ? 's' : ''}: ${conflictCols.join(', ')}`;
+                infoSpan.style.color = '#dc3545'; // Red/error color
+            } else if (overreduced) {
+                // Too many reductions for current visualization type
+                infoSpan.textContent = `${totalCols} columns — OVERREDUCED: remove ${excessCount} reduction${excessCount > 1 ? 's' : ''} for ${isHeatmap ? 'heatmap' : 'line/scatter'}`;
+                infoSpan.style.color = '#dc3545'; // Red/error color
+            } else if (unreducedCols.length > 0) {
+                infoSpan.textContent = `${totalCols} columns — ${unreducedCols.length} need reduction: ${unreducedCols.join(', ')}`;
+                infoSpan.style.color = '#ffc107'; // Warning color
+            } else if (reductions.length > 0) {
+                infoSpan.textContent = `${totalCols} columns — ${reductions.length} reduction${reductions.length > 1 ? 's' : ''} applied`;
+                infoSpan.style.color = '#28a745'; // Success color
+            } else {
+                infoSpan.textContent = `${totalCols} columns — ready to visualize`;
+                infoSpan.style.color = '';
+            }
+        }
+    }
+    
+    // Create a reduction row HTML element (only includes reducible columns)
+    function createReductionRow(measurementIndex, reductionIndex, reducibleColumns, defaultCol) {
+        const row = document.createElement('div');
+        row.className = 'reduction-row';
+        row.dataset.reductionIndex = reductionIndex;
+        row.dataset.measurement = measurementIndex;
+        
+        // Column select (only reducible columns, not plot axes)
+        const selectGroup = document.createElement('div');
+        selectGroup.className = 'viz-control-group';
+        const label = document.createElement('label');
+        label.textContent = 'Reduce:';
+        const select = document.createElement('select');
+        select.className = 'reduce-dim-select';
+        select.dataset.measurement = measurementIndex;
+        select.dataset.reductionIndex = reductionIndex;
+        reducibleColumns.forEach((col, i) => {
+            const opt = document.createElement('option');
+            opt.value = col;
+            opt.textContent = col;
+            if (col === defaultCol) opt.selected = true;
+            select.appendChild(opt);
+        });
+        selectGroup.appendChild(label);
+        selectGroup.appendChild(select);
+        row.appendChild(selectGroup);
+        
+        // Method buttons
+        const methodGroup = document.createElement('div');
+        methodGroup.className = 'reduction-method-group';
+        ['slice', 'max', 'min', 'avg'].forEach((method, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'reduction-method-btn' + (method === 'slice' ? ' active' : '');
+            btn.dataset.method = method;
+            btn.dataset.measurement = measurementIndex;
+            btn.dataset.reductionIndex = reductionIndex;
+            btn.textContent = method.charAt(0).toUpperCase() + method.slice(1);
+            methodGroup.appendChild(btn);
+        });
+        row.appendChild(methodGroup);
+        
+        // Slice slider container
+        const sliderContainer = document.createElement('div');
+        sliderContainer.className = 'slice-slider-container active';
+        sliderContainer.dataset.reductionIndex = reductionIndex;
+        const sliderLabel = document.createElement('label');
+        sliderLabel.textContent = 'Pos:';
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.className = 'slice-slider';
+        slider.min = 0;
+        slider.max = 100;
+        slider.value = 50;
+        slider.dataset.measurement = measurementIndex;
+        slider.dataset.reductionIndex = reductionIndex;
+        const sliceValue = document.createElement('span');
+        sliceValue.className = 'slice-value';
+        sliceValue.textContent = '50%';
+        sliderContainer.appendChild(sliderLabel);
+        sliderContainer.appendChild(slider);
+        sliderContainer.appendChild(sliceValue);
+        row.appendChild(sliderContainer);
+        
+        // Dim info
+        const dimInfo = document.createElement('span');
+        dimInfo.className = 'dim-info';
+        row.appendChild(dimInfo);
+        
+        // Remove button
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'remove-reduction-btn';
+        removeBtn.textContent = '✕';
+        removeBtn.dataset.measurement = measurementIndex;
+        removeBtn.dataset.reductionIndex = reductionIndex;
+        row.appendChild(removeBtn);
+        
+        return row;
+    }
+    
+    // Add a new reduction for a measurement
+    function addReduction(measurementIndex) {
+        measurementIndex = parseInt(measurementIndex); // Ensure it's a number
+        const section = document.querySelector(`.measurement-section#measurement-${measurementIndex}`);
+        if (!section) {
+            console.error('addReduction: section not found for', measurementIndex);
+            return;
+        }
+        
+        const container = section.querySelector('.reductions-container');
+        if (!container) {
+            console.error('addReduction: container not found');
+            return;
+        }
+        
+        const chartId = `chart-${measurementIndex}`;
+        const chartInfo = charts[chartId];
+        if (!chartInfo) {
+            console.error('addReduction: chartInfo not found for', chartId, 'Available:', Object.keys(charts));
+            return;
+        }
+        
+        // Check if we can add more reductions
+        if (!canAddReduction(measurementIndex)) {
+            console.log('Cannot add more reductions - all reducible columns are already reduced');
+            return;
+        }
+        
+        // Initialize vizState
+        vizState[measurementIndex] = vizState[measurementIndex] || {};
+        vizState[measurementIndex].reductions = vizState[measurementIndex].reductions || [];
+        
+        const reductionIndex = vizState[measurementIndex].reductions.length;
+        
+        // Get reducible columns (excludes plot axes) and find one not already reduced
+        const reducibleCols = getReducibleColumns(measurementIndex);
+        const usedCols = vizState[measurementIndex].reductions.map(r => r.reduceCol);
+        const availableCols = reducibleCols.filter(c => !usedCols.includes(c));
+        
+        if (availableCols.length === 0) {
+            console.log('No available columns to reduce');
+            return;
+        }
+        
+        const defaultCol = availableCols[0];
+        
+        // Create the row element with only reducible columns
+        const row = createReductionRow(measurementIndex, reductionIndex, reducibleCols, defaultCol);
+        container.appendChild(row);
+        
+        // Initialize the reduction state
+        const allValues = chartInfo.data.all_values || [];
+        const reduceVals = [...new Set(allValues.map(r => r[defaultCol]))].sort((a, b) => a - b);
+        const sliceIndex = Math.floor(reduceVals.length / 2);
+        
+        vizState[measurementIndex].reductions.push({
+            reduceCol: defaultCol,
+            method: 'slice',
+            sliceIndex: sliceIndex,
+            reduceVals: reduceVals
+        });
+        
+        // Update slider and display
+        const slider = row.querySelector('.slice-slider');
+        const sliceValueSpan = row.querySelector('.slice-value');
+        const dimInfo = row.querySelector('.dim-info');
+        
+        if (slider && reduceVals.length > 0) {
+            slider.max = reduceVals.length - 1;
+            slider.value = sliceIndex;
+            if (sliceValueSpan) sliceValueSpan.textContent = reduceVals[sliceIndex]?.toFixed(3) || reduceVals[sliceIndex];
+            if (dimInfo) dimInfo.textContent = `${reduceVals.length} values`;
+        }
+        
+        // Attach event handlers
+        attachReductionHandlers(row, measurementIndex, reductionIndex);
+        
+        // Update UI state (button, info text)
+        updateReductionUI(measurementIndex);
+        
+        // Refresh visualization
+        refreshVisualization(measurementIndex);
+    }
+    
+    // Remove a reduction
+    function removeReduction(measurementIndex, reductionIndex) {
+        measurementIndex = parseInt(measurementIndex);
+        reductionIndex = parseInt(reductionIndex);
+        
+        const section = document.querySelector(`.measurement-section#measurement-${measurementIndex}`);
+        if (!section) return;
+        
+        const container = section.querySelector('.reductions-container');
+        if (!container) return;
+        
+        // Remove from vizState
+        vizState[measurementIndex] = vizState[measurementIndex] || {};
+        vizState[measurementIndex].reductions = vizState[measurementIndex].reductions || [];
+        vizState[measurementIndex].reductions.splice(reductionIndex, 1);
+        
+        // Remove the row element
+        const row = container.querySelector(`.reduction-row[data-reduction-index="${reductionIndex}"]`);
+        if (row) row.remove();
+        
+        // Re-index remaining rows
+        container.querySelectorAll('.reduction-row').forEach((row, i) => {
+            row.dataset.reductionIndex = i;
+            row.querySelectorAll('[data-reduction-index]').forEach(el => el.dataset.reductionIndex = i);
+        });
+        
+        // Update UI state (button, info text)
+        updateReductionUI(measurementIndex);
+        
+        // Refresh visualization
+        refreshVisualization(measurementIndex);
+    }
+    
+    // Attach event handlers to a reduction row
+    function attachReductionHandlers(row, measurementIndex, reductionIndex) {
+        const chartId = `chart-${measurementIndex}`;
+        const chartInfo = charts[chartId];
+        if (!chartInfo) return;
+        
+        // Column select change
+        const select = row.querySelector('.reduce-dim-select');
+        if (select) {
+            select.addEventListener('change', function() {
+                const idx = parseInt(this.dataset.reductionIndex);
+                const reduceCol = this.value;
+                
+                vizState[measurementIndex].reductions[idx].reduceCol = reduceCol;
+                
+                // Update slider for new column
+                const allValues = chartInfo.data.all_values || [];
+                const reduceVals = [...new Set(allValues.map(r => r[reduceCol]))].sort((a, b) => a - b);
+                vizState[measurementIndex].reductions[idx].reduceVals = reduceVals;
+                
+                const slider = row.querySelector('.slice-slider');
+                const sliceValueSpan = row.querySelector('.slice-value');
+                const dimInfo = row.querySelector('.dim-info');
+                
+                if (slider && reduceVals.length > 0) {
+                    slider.max = reduceVals.length - 1;
+                    slider.value = Math.floor(reduceVals.length / 2);
+                    vizState[measurementIndex].reductions[idx].sliceIndex = parseInt(slider.value);
+                    if (sliceValueSpan) sliceValueSpan.textContent = reduceVals[slider.value]?.toFixed(3) || reduceVals[slider.value];
+                    if (dimInfo) dimInfo.textContent = `${reduceVals.length} values`;
+                }
+                
+                // Update status text since reduced columns changed
+                updateReductionUI(measurementIndex);
+                refreshVisualization(measurementIndex);
+            });
+        }
+        
+        // Method button clicks
+        row.querySelectorAll('.reduction-method-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const idx = parseInt(this.dataset.reductionIndex);
+                const method = this.dataset.method;
+                
+                // Update button states
+                row.querySelectorAll('.reduction-method-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Show/hide slice slider
+                const sliderContainer = row.querySelector('.slice-slider-container');
+                if (sliderContainer) {
+                    sliderContainer.classList.toggle('active', method === 'slice');
+                }
+                
+                vizState[measurementIndex].reductions[idx].method = method;
+                refreshVisualization(measurementIndex);
+            });
+        });
+        
+        // Slice slider change
+        const slider = row.querySelector('.slice-slider');
+        if (slider) {
+            slider.addEventListener('input', function() {
+                const idx = parseInt(this.dataset.reductionIndex);
+                const sliceIndex = parseInt(this.value);
+                
+                vizState[measurementIndex].reductions[idx].sliceIndex = sliceIndex;
+                
+                const sliceValueSpan = row.querySelector('.slice-value');
+                const reduceVals = vizState[measurementIndex].reductions[idx].reduceVals || [];
+                if (sliceValueSpan && reduceVals[sliceIndex] !== undefined) {
+                    sliceValueSpan.textContent = reduceVals[sliceIndex]?.toFixed(3) || reduceVals[sliceIndex];
+                }
+                
+                refreshVisualization(measurementIndex);
+            });
+        }
+        
+        // Remove button click
+        const removeBtn = row.querySelector('.remove-reduction-btn');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', function() {
+                const idx = parseInt(this.dataset.reductionIndex);
+                removeReduction(measurementIndex, idx);
+            });
+        }
+    }
+    
+    // Handle "Add Reduction" button clicks
+    document.querySelectorAll('.add-reduction-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const measurementIndex = this.dataset.measurement;
+            console.log('Add Reduction clicked for measurement:', measurementIndex);
+            addReduction(measurementIndex);
+        });
+    });
+    
+    // Handle Z-axis select changes for heatmaps
+    document.querySelectorAll('.z-axis-select').forEach(select => {
+        select.addEventListener('change', function() {
+            const measurementIndex = parseInt(this.dataset.measurement);
+            vizState[measurementIndex] = vizState[measurementIndex] || {};
+            vizState[measurementIndex].zCol = this.value;
+            // Update reduction UI since Z-axis is now a protected column
+            updateReductionUI(measurementIndex);
+            refreshVisualization(measurementIndex);
+        });
+    });
+    
+    // Initialize vizState for measurements with columns > 2 (start with NO reductions)
+    // and update the reduction UI to show initial state
+    let initIndex = 1;
+    for (const [name, data] of Object.entries(visualizationData)) {
+        if (data.data_points && data.data_points.length > 0 && data.columns && data.columns.length > 2) {
+            vizState[initIndex] = vizState[initIndex] || {};
+            vizState[initIndex].reductions = []; // Start with no reductions
+            // Initialize zCol for heatmaps
+            const xCol = data.x_column;
+            const yCol = data.y_column;
+            vizState[initIndex].zCol = data.columns.find(c => c !== xCol && c !== yCol);
+            // Update UI after a small delay to ensure charts are created
+            setTimeout(() => updateReductionUI(initIndex), 100);
+        }
+        initIndex++;
+    }
+    
+    // ===== END DIMENSION REDUCTION =====
+    
+    // Handle measurement tabs
+    document.querySelectorAll('.measurement-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            document.querySelectorAll('.measurement-tab').forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+            
+            const targetId = this.dataset.target;
+            document.querySelectorAll('.measurement-section').forEach(s => s.classList.remove('active'));
+            document.getElementById(targetId).classList.add('active');
+            
+            // Trigger chart/heatmap resize
+            const index = targetId.split('-')[1];
+            const chartId = `chart-${index}`;
+            const heatmapId = `heatmap-${index}`;
+            
+            if (charts[chartId]) charts[chartId].chart.resize();
+            if (heatmaps[heatmapId]) {
+                const container = document.getElementById(heatmapId);
+                if (container) Plotly.Plots.resize(container);
+            }
+        });
+    });
+    
+    // Copy button functionality
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const text = this.dataset.copy;
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = this.textContent;
+                this.textContent = 'Copied!';
+                setTimeout(() => this.textContent = originalText, 2000);
+            });
+        });
+    });
+    
+    // ===== REAL-TIME UPDATES =====
+    // Include scan-realtime.js and initialize
 </script>
-{% endif %}
+<script src="{{ url_for('static', filename='js/scan-realtime.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize scan realtime manager
+        const scanId = '{{ scan.scan_id or scan.id }}';
+        window.scanManager = new ScanRealtimeManager(scanId);
+        
+        {% if scan.status == 'running' %}
+        // For running scans, set up live chart
+        // Using existing chart infrastructure from page
+        console.log('Scan is running - real-time updates enabled');
+        {% endif %}
+    });
+</script>
 {% endblock %}

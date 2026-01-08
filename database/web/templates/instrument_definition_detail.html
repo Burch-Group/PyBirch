@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}{{ definition.display_name }} - Instrument Definition - PyBirch Database{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<style>
+    .definition-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 24px;
+    }
+    .definition-title {
+        margin: 0;
+    }
+    .definition-class-name {
+        font-family: 'Courier New', monospace;
+        color: #64748b;
+        font-size: 0.9rem;
+        margin-top: 4px;
+    }
+    .definition-meta {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-bottom: 24px;
+    }
+    .meta-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .meta-label {
+        font-size: 0.75rem;
+        color: #64748b;
+        text-transform: uppercase;
+    }
+    .meta-value {
+        font-weight: 500;
+    }
+    .definition-type {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        text-transform: uppercase;
+    }
+    .definition-type.measurement {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+    }
+    .definition-type.movement {
+        background: rgba(16, 185, 129, 0.1);
+        color: #10b981;
+    }
+    .source-code-container {
+        margin: 24px 0;
+    }
+    .source-code-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+    .source-code-header h3 {
+        margin: 0;
+    }
+    .source-code {
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .source-code pre {
+        margin: 0;
+        padding: 16px;
+        max-height: 500px;
+        overflow: auto;
+    }
+    .source-code code {
+        font-family: 'Courier New', Consolas, monospace;
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+    .version-history {
+        margin-top: 32px;
+    }
+    .version-list {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .version-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        border-bottom: 1px solid #e2e8f0;
+        background: white;
+    }
+    .version-item:last-child {
+        border-bottom: none;
+    }
+    .version-item.current {
+        background: rgba(59, 130, 246, 0.05);
+    }
+    .version-info {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .version-number {
+        font-weight: 600;
+    }
+    .version-summary {
+        font-size: 0.85rem;
+        color: #64748b;
+    }
+    .version-date {
+        font-size: 0.8rem;
+        color: #94a3b8;
+    }
+    .action-buttons {
+        display: flex;
+        gap: 8px;
+    }
+    .danger-zone {
+        margin-top: 48px;
+        padding: 24px;
+        border: 1px solid #fca5a5;
+        border-radius: 8px;
+        background: rgba(239, 68, 68, 0.05);
+    }
+    .danger-zone h3 {
+        color: #dc2626;
+        margin-top: 0;
+    }
+    .base-class-badge {
+        font-family: 'Courier New', monospace;
+        background: rgba(148, 163, 184, 0.1);
+        padding: 4px 8px;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="breadcrumb">
+        <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / {{ definition.display_name }}
+    </div>
+    
+    <div class="definition-header">
+        <div>
+            <h1 class="definition-title">{{ definition.display_name }}</h1>
+            <div class="definition-class-name">Class: <code>{{ definition.name }}</code></div>
+        </div>
+        <div class="action-buttons">
+            <a href="{{ url_for('main.instrument_definition_edit', definition_id=definition.id) }}" class="btn btn-primary">Edit</a>
+            <a href="{{ url_for('main.instrument_definition_duplicate', definition_id=definition.id) }}" class="btn btn-secondary">Duplicate</a>
+        </div>
+    </div>
+    
+    <div class="definition-meta">
+        <div class="meta-item">
+            <span class="meta-label">Type</span>
+            <span class="definition-type {{ definition.instrument_type }}">{{ definition.instrument_type }}</span>
+        </div>
+        <div class="meta-item">
+            <span class="meta-label">Base Class</span>
+            <span class="base-class-badge">{{ definition.base_class }}</span>
+        </div>
+        <div class="meta-item">
+            <span class="meta-label">Version</span>
+            <span class="meta-value">v{{ definition.version }}</span>
+        </div>
+        {% if definition.category %}
+        <div class="meta-item">
+            <span class="meta-label">Category</span>
+            <span class="meta-value">{{ definition.category }}</span>
+        </div>
+        {% endif %}
+        {% if definition.manufacturer %}
+        <div class="meta-item">
+            <span class="meta-label">Manufacturer</span>
+            <span class="meta-value">{{ definition.manufacturer }}</span>
+        </div>
+        {% endif %}
+        <div class="meta-item">
+            <span class="meta-label">Public</span>
+            <span class="meta-value">{{ '✓ Yes' if definition.is_public else '✗ No' }}</span>
+        </div>
+    </div>
+    
+    {% if definition.description %}
+    <div class="description">
+        <h3>Description</h3>
+        <p>{{ definition.description }}</p>
+    </div>
+    {% endif %}
+    
+    <div class="source-code-container">
+        <div class="source-code-header">
+            <h3>Source Code</h3>
+            <button class="btn btn-sm btn-secondary" onclick="copySourceCode()">Copy Code</button>
+        </div>
+        <div class="source-code">
+            <pre><code class="language-python" id="source-code">{{ definition.source_code }}</code></pre>
+        </div>
+    </div>
+    
+    {% if versions %}
+    <div class="version-history">
+        <h3>Version History</h3>
+        <div class="version-list">
+            {% for v in versions %}
+            <div class="version-item {% if v.version == definition.version %}current{% endif %}">
+                <div class="version-info">
+                    <span class="version-number">
+                        Version {{ v.version }}
+                        {% if v.version == definition.version %}
+                        <span class="badge">Current</span>
+                        {% endif %}
+                    </span>
+                    {% if v.change_summary %}
+                    <span class="version-summary">{{ v.change_summary }}</span>
+                    {% endif %}
+                    <span class="version-date">
+                        {{ v.created_at[:10] if v.created_at else 'Unknown date' }}
+                        {% if v.created_by %} by {{ v.created_by }}{% endif %}
+                    </span>
+                </div>
+                <a href="{{ url_for('main.instrument_definition_version', definition_id=definition.id, version=v.version) }}" class="btn btn-sm">View</a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if current_user %}
+    <div class="danger-zone">
+        <h3>Danger Zone</h3>
+        <p>Deleting this instrument definition will also delete all version history. This action cannot be undone.</p>
+        <form method="POST" action="{{ url_for('main.instrument_definition_delete', definition_id=definition.id) }}" onsubmit="return confirm('Are you sure you want to delete this instrument definition? This cannot be undone.');">
+            <button type="submit" class="btn btn-danger">Delete Definition</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    // Syntax highlighting
+    hljs.highlightAll();
+    
+    function copySourceCode() {
+        const code = document.getElementById('source-code').textContent;
+        navigator.clipboard.writeText(code).then(() => {
+            alert('Source code copied to clipboard!');
+        });
+    }
+</script>
+{% endblock %}

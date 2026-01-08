@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Instruments - PyBirch Database{% endblock %}
+
+{% block extra_head %}
+<style>
+    .instrument-connection {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 6px;
+        vertical-align: middle;
+    }
+    .instrument-connection.connection-connected { background: #22c55e; }
+    .instrument-connection.connection-disconnected { background: #64748b; }
+    .instrument-connection.connection-error { background: #ef4444; }
+    .instrument-connection.connection-busy { background: #f59e0b; }
+    
+    .instrument-moving {
+        background: linear-gradient(90deg, transparent, rgba(251, 191, 36, 0.1), transparent);
+        animation: movingHighlight 1s infinite;
+    }
+    @keyframes movingHighlight {
+        0%, 100% { background-position: -200% 0; }
+        50% { background-position: 200% 0; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Instruments <span id="connection-status" class="connection-status connecting" title="Connecting..."></span></h1>
+        <a href="{{ url_for('main.instrument_new') }}" class="btn btn-primary">+ New Instrument</a>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search instruments..." 
+                   value="{{ search }}" class="filter-input">
+            <select name="status" class="filter-select">
+                <option value="">All Status</option>
+                <option value="available" {% if status == 'available' %}selected{% endif %}>Available</option>
+                <option value="in_use" {% if status == 'in_use' %}selected{% endif %}>In Use</option>
+                <option value="maintenance" {% if status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                <option value="retired" {% if status == 'retired' %}selected{% endif %}>Retired</option>
+            </select>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search or status %}
+                <a href="{{ url_for('main.instruments') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} instrument(s) found</p>
+    
+    {% if instruments %}
+        {# Separate pinned and unpinned items #}
+        {% set pinned_items = instruments | selectattr('id', 'in', pinned_ids) | list %}
+        {% set unpinned_items = instruments | rejectattr('id', 'in', pinned_ids) | list %}
+        
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 30px;"></th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>PyBirch Class</th>
+                    <th>Manufacturer</th>
+                    <th>Model</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {# Pinned items first #}
+                {% for item in pinned_items %}
+                <tr class="pinned-row">
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn pinned" data-entity-type="instrument" data-entity-id="{{ item.id }}" title="Unpin">📌</button>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('main.instrument_detail', instrument_id=item.id) }}">{{ item.name }}</a></td>
+                    <td>{{ item.instrument_type or '-' }}</td>
+                    <td><code>{{ item.pybirch_class or '-' }}</code></td>
+                    <td>{{ item.manufacturer or '-' }}</td>
+                    <td>{{ item.model or '-' }}</td>
+                    <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
+                    <td>
+                        <a href="{{ url_for('main.instrument_detail', instrument_id=item.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.instrument_edit', instrument_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {# Unpinned items #}
+                {% for item in unpinned_items %}
+                <tr>
+                    <td>
+                        {% if current_user %}
+                        <button class="pin-btn" data-entity-type="instrument" data-entity-id="{{ item.id }}" title="Pin">📍</button>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('main.instrument_detail', instrument_id=item.id) }}">{{ item.name }}</a></td>
+                    <td>{{ item.instrument_type or '-' }}</td>
+                    <td><code>{{ item.pybirch_class or '-' }}</code></td>
+                    <td>{{ item.manufacturer or '-' }}</td>
+                    <td>{{ item.model or '-' }}</td>
+                    <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
+                    <td>
+                        <a href="{{ url_for('main.instrument_detail', instrument_id=item.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.instrument_edit', instrument_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        {% if total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="{{ url_for('main.instruments', page=page-1, search=search, status=status) }}" class="btn btn-sm">← Previous</a>
+            {% endif %}
+            <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}
+                <a href="{{ url_for('main.instruments', page=page+1, search=search, status=status) }}" class="btn btn-sm">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>No instruments found.</p>
+            <a href="{{ url_for('main.instrument_new') }}" class="btn btn-primary">Add your first instrument</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/instrument-realtime.js') }}"></script>
+{% endblock %}

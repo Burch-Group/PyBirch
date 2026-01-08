@@ -4,12 +4,13 @@
 
 {% block content %}
 <div class="profile-page">
-    <h1>👤 My Profile</h1>
+    <h1>My Profile</h1>
     
     <div class="profile-grid">
         <div class="profile-section">
             <h2>Account Information</h2>
             <form method="POST" class="data-form">
+                <input type="hidden" name="form_type" value="profile">
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input type="text" id="username" value="{{ current_user.username }}" readonly disabled>
@@ -17,17 +18,33 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="email">Email</label>
+                    <label for="email">Email *</label>
                     <input type="email" id="email" name="email" value="{{ current_user.email }}" required>
                 </div>
                 
                 <div class="form-group">
                     <label for="name">Full Name</label>
-                    <input type="text" id="name" name="name" value="{{ current_user.name or '' }}">
+                    <input type="text" id="name" name="name" value="{{ current_user.name or '' }}" placeholder="Your full name">
                 </div>
                 
                 <div class="form-group">
-                    <label>Role</label>
+                    <label for="phone">Phone</label>
+                    <input type="text" id="phone" name="phone" value="{{ user_preferences.phone or '' }}" placeholder="+1 (555) 123-4567">
+                </div>
+                
+                <div class="form-group">
+                    <label for="orcid">ORCID</label>
+                    <input type="text" id="orcid" name="orcid" value="{{ user_preferences.orcid or '' }}" placeholder="0000-0000-0000-0000">
+                    <small>Your ORCID researcher identifier</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="office_location">Office Location</label>
+                    <input type="text" id="office_location" name="office_location" value="{{ user_preferences.office_location or '' }}" placeholder="Building, Room">
+                </div>
+                
+                <div class="form-group">
+                    <label>System Role</label>
                     <input type="text" value="{{ current_user.role|title }}" readonly disabled>
                 </div>
                 
@@ -38,6 +55,43 @@
                 
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+        
+        <div class="profile-section">
+            <h2>Default Preferences</h2>
+            <p class="section-description">Set your default lab and project. These will be auto-filled when creating new items.</p>
+            <form method="POST" class="data-form">
+                <input type="hidden" name="form_type" value="preferences">
+                <div class="form-group">
+                    <label for="default_lab_id">Default Lab</label>
+                    <select id="default_lab_id" name="default_lab_id" class="searchable-select" data-entity-type="lab">
+                        <option value="">-- No Default --</option>
+                        {% for lab in labs %}
+                        <option value="{{ lab.id }}" {% if user_preferences and user_preferences.default_lab_id == lab.id %}selected{% endif %}>
+                            {{ lab.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small>New items will default to this lab</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="default_project_id">Default Project</label>
+                    <select id="default_project_id" name="default_project_id" class="searchable-select" data-entity-type="project">
+                        <option value="">-- No Default --</option>
+                        {% for project in projects %}
+                        <option value="{{ project.id }}" {% if user_preferences and user_preferences.default_project_id == project.id %}selected{% endif %}>
+                            {{ project.display }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small>New items will default to this project</small>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Preferences</button>
                 </div>
             </form>
         </div>
@@ -75,11 +129,120 @@
             </dl>
         </div>
     </div>
+    
+    <!-- Lab & Project Memberships Section -->
+    <div class="profile-full-width">
+        <div class="profile-section">
+            <h2>Lab &amp; Project Memberships</h2>
+            
+            {% if profile_data.lab_memberships %}
+            <div class="membership-section">
+                <h3>Lab Memberships</h3>
+                <div class="membership-cards">
+                    {% for membership in profile_data.lab_memberships %}
+                    <div class="membership-card">
+                        <div class="membership-name">
+                            <a href="{{ url_for('main.lab_detail', lab_id=membership.lab_id) }}">{{ membership.lab_name }}</a>
+                        </div>
+                        <div class="membership-role">
+                            <span class="role-badge role-{{ membership.role }}">{{ membership.role|replace('_', ' ')|title }}</span>
+                            {% if membership.title %}<span class="membership-title">{{ membership.title }}</span>{% endif %}
+                        </div>
+                        <div class="membership-date">
+                            Member since {{ membership.joined_at[:10] if membership.joined_at else 'N/A' }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% else %}
+            <p class="empty-message">You are not a member of any labs. Ask a lab administrator to add you.</p>
+            {% endif %}
+            
+            {% if profile_data.project_memberships %}
+            <div class="membership-section">
+                <h3>Project Memberships</h3>
+                <div class="membership-cards">
+                    {% for membership in profile_data.project_memberships %}
+                    <div class="membership-card">
+                        <div class="membership-name">
+                            <a href="{{ url_for('main.project_detail', project_id=membership.project_id) }}">
+                                {{ membership.project_name }}
+                                {% if membership.project_code %}({{ membership.project_code }}){% endif %}
+                            </a>
+                        </div>
+                        <div class="membership-role">
+                            <span class="role-badge role-{{ membership.role }}">{{ membership.role|replace('_', ' ')|title }}</span>
+                        </div>
+                        <div class="membership-date">
+                            Member since {{ membership.joined_at[:10] if membership.joined_at else 'N/A' }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Assigned Items Section -->
+    <div class="profile-full-width">
+        <div class="profile-grid-2">
+            <div class="profile-section">
+                <h2>Assigned Equipment</h2>
+                {% if profile_data.assigned_equipment %}
+                <div class="assignment-list">
+                    {% for eq in profile_data.assigned_equipment %}
+                    <div class="assignment-item">
+                        <div class="assignment-name">
+                            <a href="{{ url_for('main.equipment_detail', equipment_id=eq.id) }}">{{ eq.name }}</a>
+                        </div>
+                        <div class="assignment-meta">
+                            <span class="type-badge">{{ eq.equipment_type|title if eq.equipment_type else 'Equipment' }}</span>
+                            <span class="status-badge status-{{ eq.status }}">{{ eq.status|title if eq.status else 'Unknown' }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="empty-message">No equipment assigned to you.</p>
+                {% endif %}
+            </div>
+            
+            <div class="profile-section">
+                <h2>Assigned Issues</h2>
+                {% if profile_data.assigned_issues %}
+                <div class="assignment-list">
+                    {% for issue in profile_data.assigned_issues %}
+                    <div class="assignment-item">
+                        <div class="assignment-name">
+                            {% if issue.type == 'equipment' %}
+                            <a href="{{ url_for('main.equipment_issue_detail', equipment_id=issue.equipment_id, issue_id=issue.id) }}">{{ issue.title }}</a>
+                            {% else %}
+                            <a href="{{ url_for('main.issue_detail', issue_id=issue.id) }}">{{ issue.title }}</a>
+                            {% endif %}
+                        </div>
+                        <div class="assignment-meta">
+                            <span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority|title if issue.priority else 'Normal' }}</span>
+                            <span class="status-badge status-{{ issue.status }}">{{ issue.status|replace('_', ' ')|title if issue.status else 'Open' }}</span>
+                            {% if issue.type == 'equipment' %}
+                            <span class="type-badge">{{ issue.equipment_name }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="empty-message">No issues assigned to you.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
 </div>
 
 <style>
 .profile-page {
-    max-width: 1000px;
+    max-width: 1200px;
     margin: 0 auto;
 }
 
@@ -87,6 +250,16 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
     gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+.profile-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 1.5rem;
+}
+
+.profile-full-width {
     margin-top: 1.5rem;
 }
 
@@ -101,6 +274,201 @@
     margin-bottom: 1.25rem;
     padding-bottom: 0.75rem;
     border-bottom: 1px solid var(--color-border);
+}
+
+.profile-section h3 {
+    font-size: 1rem;
+    margin: 1.5rem 0 0.75rem;
+    color: var(--color-text-secondary);
+}
+
+.profile-section h3:first-child {
+    margin-top: 0;
+}
+
+.membership-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1rem;
+}
+
+.membership-card {
+    background: var(--color-bg-secondary);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    border: 1px solid var(--color-border);
+}
+
+.membership-name {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.membership-name a {
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.membership-name a:hover {
+    text-decoration: underline;
+}
+
+.membership-role {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.membership-title {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+}
+
+.membership-date {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-secondary);
+}
+
+.role-badge.role-principal_investigator {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.role-badge.role-administrator {
+    background: #cfe2ff;
+    color: #084298;
+}
+
+.role-badge.role-lead {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.role-badge.role-member,
+.role-badge.role-collaborator {
+    background: #e2e3e5;
+    color: #41464b;
+}
+
+.role-badge.role-student {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.assignment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.assignment-item {
+    padding: 0.75rem;
+    background: var(--color-bg-secondary);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--color-border);
+}
+
+.assignment-name {
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.assignment-name a {
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.assignment-name a:hover {
+    text-decoration: underline;
+}
+
+.assignment-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.type-badge,
+.status-badge,
+.priority-badge {
+    display: inline-block;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.type-badge {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-secondary);
+}
+
+.status-badge {
+    background: #e2e3e5;
+    color: #41464b;
+}
+
+.status-badge.status-operational,
+.status-badge.status-resolved,
+.status-badge.status-closed {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.status-badge.status-maintenance,
+.status-badge.status-in_progress {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.status-badge.status-offline,
+.status-badge.status-open {
+    background: #f8d7da;
+    color: #842029;
+}
+
+.priority-badge {
+    background: #e2e3e5;
+    color: #41464b;
+}
+
+.priority-badge.priority-high,
+.priority-badge.priority-critical {
+    background: #f8d7da;
+    color: #842029;
+}
+
+.priority-badge.priority-medium {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.priority-badge.priority-low {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.empty-message {
+    color: var(--color-text-muted);
+    font-style: italic;
+    padding: 1rem 0;
+}
+
+.section-description {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
 }
 </style>
 {% endblock %}

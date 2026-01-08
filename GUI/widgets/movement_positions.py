@@ -16,6 +16,8 @@ except ImportError:
 
 
 class RangeWidget(QtWidgets.QWidget):
+    """Widget for specifying a range of positions with start, stop, and number of steps."""
+    
     def __init__(self, start: float = 0.0, stop: float = 0.0, n_step: int = 0):
         super().__init__()
 
@@ -24,6 +26,7 @@ class RangeWidget(QtWidgets.QWidget):
         self.n_step: int = n_step
         self.valid_entry: bool = False
         self.enabled: bool = False
+        self.validation_message: str = ""
 
         # create a three item QHBoxLayout with a radio button, a label, and three double spin boxes
         self.layouts = QtWidgets.QHBoxLayout(self)
@@ -33,12 +36,25 @@ class RangeWidget(QtWidgets.QWidget):
         self.start_spin_box = QtWidgets.QDoubleSpinBox()
         self.stop_spin_box = QtWidgets.QDoubleSpinBox()
         self.n_step_spin_box = QtWidgets.QDoubleSpinBox()
+        
+        # Configure start and stop spin boxes for wide range of values
+        self.start_spin_box.setDecimals(6)  # High precision
+        self.start_spin_box.setMinimum(-1e9)  # Allow large negative values
+        self.start_spin_box.setMaximum(1e9)   # Allow large positive values
+        self.start_spin_box.setSingleStep(0.1)  # Reasonable step size
+        
+        self.stop_spin_box.setDecimals(6)  # High precision
+        self.stop_spin_box.setMinimum(-1e9)  # Allow large negative values
+        self.stop_spin_box.setMaximum(1e9)   # Allow large positive values
+        self.stop_spin_box.setSingleStep(0.1)  # Reasonable step size
+        
         # Configure n_step_spin_box for integer values
         self.n_step_spin_box.setDecimals(0)  # No decimal places
         self.n_step_spin_box.setMinimum(0)   # Allow 0 for validation
         self.n_step_spin_box.setMaximum(10000)  # Reasonable maximum
         self.caution_icon = QtWidgets.QLabel("⚠️")
         self.caution_icon.setVisible(False)
+        self.caution_icon.setCursor(QtCore.Qt.CursorShape.WhatsThisCursor)
 
         self.layouts.addWidget(self.radio_button)
         self.layouts.addWidget(self.label)
@@ -72,12 +88,17 @@ class RangeWidget(QtWidgets.QWidget):
         self.check_if_valid()
 
     def check_if_valid(self):
+        """Validate the range entry and update the caution icon with appropriate tooltip."""
         if self.start == self.stop:
             self.valid_entry = False
+            self.validation_message = "Start and stop values cannot be equal"
         elif self.n_step <= 0:
             self.valid_entry = False
+            self.validation_message = "Number of steps must be greater than 0"
         else:
             self.valid_entry = True
+            self.validation_message = ""
+        self.caution_icon.setToolTip(self.validation_message)
         self.caution_icon.setVisible(not self.valid_entry)
 
     def set_entry(self, entry: tuple[float, float, int]):
@@ -96,9 +117,13 @@ class RangeWidget(QtWidgets.QWidget):
         return (self.start, self.stop, self.n_step)
 
     def get_positions(self) -> list[float]:
+        print(f"[RangeWidget.get_positions] start={self.start}, stop={self.stop}, n_step={self.n_step}, valid_entry={self.valid_entry}")
         if not self.valid_entry:
+            print(f"[RangeWidget.get_positions] -> returning [] (not valid)")
             return []
-        return np.linspace(self.start, self.stop, self.n_step).tolist()
+        positions = np.linspace(self.start, self.stop, self.n_step).tolist()
+        print(f"[RangeWidget.get_positions] -> returning {len(positions)} positions")
+        return positions
 
     def set_enabled(self, enabled: bool):
         self.start_spin_box.setEnabled(enabled)
@@ -108,6 +133,8 @@ class RangeWidget(QtWidgets.QWidget):
         self.enabled = enabled
 
 class DiscreteWidget(QtWidgets.QWidget):
+    """Widget for specifying discrete position values as comma-separated values."""
+    
     def __init__(self, position_str: str = ""):
         super().__init__()
 
@@ -115,6 +142,7 @@ class DiscreteWidget(QtWidgets.QWidget):
         self.positions: list[float] = [float(x) for x in position_str.split(",") if x.strip().replace('.','',1).isdigit()]
         self.valid_entry: bool = False
         self.enabled: bool = False
+        self.validation_message: str = ""
 
         # create a three item QHBoxLayout with a radio button, a label, and a line edit
         self.layouts = QtWidgets.QHBoxLayout(self)
@@ -124,6 +152,7 @@ class DiscreteWidget(QtWidgets.QWidget):
         self.line_edit = QtWidgets.QLineEdit()
         self.caution_icon = QtWidgets.QLabel("⚠️")
         self.caution_icon.setVisible(False)
+        self.caution_icon.setCursor(QtCore.Qt.CursorShape.WhatsThisCursor)
 
         self.layouts.addWidget(self.radio_button)
         self.layouts.addWidget(self.label)
@@ -139,15 +168,19 @@ class DiscreteWidget(QtWidgets.QWidget):
 
 
     def update_positions(self, text: str):
+        """Parse comma-separated values and validate."""
         try:
             # convert the text to a list of floats
             self.positions = [float(x) for x in text.strip().split(",")]
             self.valid_entry = True
+            self.validation_message = ""
+            self.caution_icon.setToolTip("")
             self.caution_icon.setVisible(False)
         except ValueError:
             self.valid_entry = False
+            self.validation_message = "Invalid format: Enter comma-separated numbers (e.g., 1.0, 2.5, 3.0)"
+            self.caution_icon.setToolTip(self.validation_message)
             self.caution_icon.setVisible(True)
-            pass
 
     def set_positions(self, positions: list[float]):
         self.positions = positions
@@ -170,6 +203,8 @@ class DiscreteWidget(QtWidgets.QWidget):
         return self.line_edit.text()
 
 class AdvancedWidget(QtWidgets.QWidget):
+    """Widget for specifying positions using Python expressions (e.g., list comprehensions)."""
+    
     def __init__(self, positions: list[float] = []):
         super().__init__()
 
@@ -180,8 +215,10 @@ class AdvancedWidget(QtWidgets.QWidget):
         self.label = QtWidgets.QLabel("Advanced (Python)")
         self.caution_icon = QtWidgets.QLabel("⚠️")
         self.caution_icon.setVisible(False)
+        self.caution_icon.setCursor(QtCore.Qt.CursorShape.WhatsThisCursor)
         self.valid_entry: bool = False
         self.enabled: bool = False
+        self.validation_message: str = ""
 
         self.layouts.addWidget(self.radio_button)
         self.layouts.addWidget(self.label)
@@ -196,19 +233,26 @@ class AdvancedWidget(QtWidgets.QWidget):
         self.line_edit.setEnabled(False)
 
     def update_positions(self, text: str):
+        """Evaluate Python expression and validate result is a list of numbers."""
         try:
             # evaluate the text as a python expression
             self.positions = eval(text)
             if isinstance(self.positions, (list, tuple)) and all(isinstance(x, (int, float)) for x in self.positions):
                 self.valid_entry = True
+                self.validation_message = ""
+                self.caution_icon.setToolTip("")
                 self.caution_icon.setVisible(False)
             else:
                 self.valid_entry = False
+                self.validation_message = "Expression must return a list of numbers"
+                self.caution_icon.setToolTip(self.validation_message)
                 self.caution_icon.setVisible(True)
                 self.positions = []
 
-        except Exception:
+        except Exception as e:
             self.valid_entry = False
+            self.validation_message = f"Invalid Python expression: {str(e)}"
+            self.caution_icon.setToolTip(self.validation_message)
             self.caution_icon.setVisible(True)
 
     def get_positions(self) -> list[float]:
@@ -253,12 +297,17 @@ class MovementPositionsSubwidget(QtWidgets.QWidget):
         self.setLayout(self.layouts)
 
     def get_positions(self) -> list[float]:
-        if self.advanced_widget.radio_button.isChecked():
+        advanced_checked = self.advanced_widget.radio_button.isChecked()
+        discrete_checked = self.discrete_widget.radio_button.isChecked()
+        range_checked = self.range_widget.radio_button.isChecked()
+        print(f"[MovementPositionsSubwidget.get_positions] advanced={advanced_checked}, discrete={discrete_checked}, range={range_checked}")
+        if advanced_checked:
             return self.advanced_widget.get_positions()
-        elif self.discrete_widget.radio_button.isChecked():
+        elif discrete_checked:
             return self.discrete_widget.get_positions()
-        elif self.range_widget.radio_button.isChecked():
+        elif range_checked:
             return self.range_widget.get_positions()
+        print(f"[MovementPositionsSubwidget.get_positions] -> No radio button checked, returning []")
         return []
     
     def get_entries(self) -> dict:
@@ -282,7 +331,10 @@ class MovementPositionsSubwidget(QtWidgets.QWidget):
         # First, set all the entries without triggering radio button changes
         self.advanced_widget.set_entry(entries.get("advanced", ""))
         self.discrete_widget.set_entry(entries.get("discrete", ""))
-        self.range_widget.set_entry(entries.get("range", ""))
+        # Range expects a tuple/list of 3 values, not an empty string
+        range_entry = entries.get("range", None)
+        if range_entry:
+            self.range_widget.set_entry(range_entry)
         
         # Then restore which radio button was selected
         selected_mode = entries.get("selected_mode", None)
