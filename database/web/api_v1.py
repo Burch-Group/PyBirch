@@ -314,7 +314,7 @@ def create_project():
         if not data:
             return api_error("Request body required", code="INVALID_INPUT", status=400)
         
-        required_fields = ['name']
+        required_fields = ['name', 'lab_id']
         missing = [f for f in required_fields if f not in data]
         if missing:
             return api_error(
@@ -411,7 +411,7 @@ def create_sample():
         if not data:
             return api_error("Request body required", code="INVALID_INPUT", status=400)
         
-        required_fields = ['sample_id']
+        required_fields = ['sample_id', 'lab_id']
         missing = [f for f in required_fields if f not in data]
         if missing:
             return api_error(
@@ -511,7 +511,7 @@ def create_equipment():
         if not data:
             return api_error("Request body required", code="INVALID_INPUT", status=400)
         
-        required_fields = ['name']
+        required_fields = ['name', 'lab_id']
         missing = [f for f in required_fields if f not in data]
         if missing:
             return api_error(
@@ -608,7 +608,7 @@ def create_precursor():
         if not data:
             return api_error("Request body required", code="INVALID_INPUT", status=400)
         
-        required_fields = ['name']
+        required_fields = ['name', 'lab_id']
         missing = [f for f in required_fields if f not in data]
         if missing:
             return api_error(
@@ -705,7 +705,7 @@ def create_procedure():
         if not data:
             return api_error("Request body required", code="INVALID_INPUT", status=400)
         
-        required_fields = ['name']
+        required_fields = ['name', 'lab_id']
         missing = [f for f in required_fields if f not in data]
         if missing:
             return api_error(
@@ -802,7 +802,7 @@ def create_queue():
         if not data:
             return api_error("Request body required", code="INVALID_INPUT", status=400)
         
-        required_fields = ['name']
+        required_fields = ['name', 'lab_id']
         missing = [f for f in required_fields if f not in data]
         if missing:
             return api_error(
@@ -945,6 +945,16 @@ def create_scan():
         data = request.get_json()
         if not data:
             return api_error("Request body required", code="INVALID_INPUT", status=400)
+        
+        required_fields = ['lab_id']
+        missing = [f for f in required_fields if f not in data]
+        if missing:
+            return api_error(
+                f"Missing required fields: {', '.join(missing)}",
+                code="MISSING_FIELDS",
+                details={"missing": missing},
+                status=400
+            )
         
         db = get_db_service()
         scan = db.create_scan(data)
@@ -1154,7 +1164,7 @@ def create_instrument():
         if not data:
             return api_error("Request body required", code="INVALID_INPUT", status=400)
         
-        required_fields = ['name']
+        required_fields = ['name', 'lab_id']
         missing = [f for f in required_fields if f not in data]
         if missing:
             return api_error(

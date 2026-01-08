@@ -3513,6 +3513,9 @@ class DatabaseService:
                 if procedure:
                     lab_id = procedure.lab_id
             
+            if lab_id is None:
+                raise ValueError("lab_id is required for fabrication run (should be inherited from procedure)")
+            
             run = FabricationRun(
                 sample_id=data['sample_id'],
                 procedure_id=data['procedure_id'],

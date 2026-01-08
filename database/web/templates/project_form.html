@@ -30,8 +30,8 @@
             
             <div class="form-row">
                 <div class="form-group">
-                    <label for="lab_id">Lab</label>
-                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab">
+                    <label for="lab_id">Lab *</label>
+                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab" required>
                         <option value="">-- Select Lab --</option>
                         {% for lab in labs %}
                         <option value="{{ lab.id }}" {% if project and project.lab_id == lab.id %}selected{% endif %}>{{ lab.name }}</option>

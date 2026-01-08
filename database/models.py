@@ -40,7 +40,7 @@ class Template(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     template_data: Mapped[dict] = mapped_column(JSON, nullable=False)  # Stores default values and structure
     status: Mapped[str] = mapped_column(String(20), default='active')  # 'active', 'draft', 'archived'
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -147,7 +147,7 @@ class Project(Base):
     __tablename__ = "projects"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Short project code
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -373,7 +373,7 @@ class Instrument(Base):
     __tablename__ = "instruments"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     instrument_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'movement', 'measurement', 'fabrication'
     pybirch_class: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # e.g., 'Keithley2400', 'NewportStage'
@@ -587,7 +587,7 @@ class Computer(Base):
     __tablename__ = "computers"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     
     # Computer identification
     computer_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)  # hostname
@@ -670,7 +670,7 @@ class Equipment(Base):
     __tablename__ = "equipment"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     equipment_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'glovebox', 'chamber', 'lithography', 'furnace', 'other'
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -787,7 +787,7 @@ class Precursor(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     chemical_formula: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     cas_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
@@ -857,7 +857,7 @@ class Procedure(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     procedure_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'deposition', 'annealing', etc.
     version: Mapped[str] = mapped_column(String(20), default='1.0')
@@ -942,7 +942,7 @@ class Sample(Base):
     __tablename__ = "samples"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
     sample_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)  # User-friendly ID
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -1037,7 +1037,7 @@ class FabricationRun(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sample_id: Mapped[int] = mapped_column(Integer, ForeignKey('samples.id'), nullable=False)
     procedure_id: Mapped[int] = mapped_column(Integer, ForeignKey('procedures.id'), nullable=False)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     run_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Order in fabrication sequence
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -1118,7 +1118,7 @@ class ScanTemplate(Base):
     __tablename__ = "scan_templates"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     scan_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # '1D Scan', '2D Scan', etc.
     job_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'Raman', 'Transport', etc.
@@ -1154,7 +1154,7 @@ class QueueTemplate(Base):
     __tablename__ = "queue_templates"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     default_settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -1212,7 +1212,7 @@ class Queue(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     queue_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)  # Maps to PyBirch Queue.QID
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     sample_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('samples.id'), nullable=True)
@@ -1319,7 +1319,7 @@ class Scan(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
-    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
     scan_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)  # User-friendly ID
     queue_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('queues.id'), nullable=True)
     sample_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('samples.id'), nullable=True)

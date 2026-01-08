@@ -105,9 +105,9 @@
             
             <div class="form-grid">
                 <div class="form-group">
-                    <label for="lab_id">Lab</label>
-                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab">
-                        <option value="">-- No Lab --</option>
+                    <label for="lab_id">Lab *</label>
+                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab" required>
+                        <option value="">-- Select Lab --</option>
                         {% for lab in labs %}
                         <option value="{{ lab.id }}" 
                                 {% if (sample and sample.lab_id and sample.lab_id == lab.id) or (default_lab_id == lab.id and (not sample or not sample.lab_id)) %}selected{% endif %}>
