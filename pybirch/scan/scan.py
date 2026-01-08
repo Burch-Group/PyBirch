@@ -97,12 +97,15 @@ class ScanSettings:
     
     def __setstate__(self, state):
         """Restore state after unpickling - deserialize ScanTreeModel from dict."""
+        # Import at runtime since TYPE_CHECKING imports are not available at runtime
+        from GUI.widgets.scan_tree.treemodel import ScanTreeModel
+        from GUI.widgets.scan_tree.treeitem import InstrumentTreeItem
+        
         # Restore scan_tree from serialized data
         scan_tree_data = state.pop('_scan_tree_data', None)
         self.__dict__.update(state)
         
         if scan_tree_data is not None:
-            from GUI.widgets.scan_tree.treeitem import InstrumentTreeItem
             self.scan_tree = ScanTreeModel()
             # Restore root_item
             self.scan_tree.root_item = InstrumentTreeItem.deserialize(scan_tree_data.get("root_item", {}))
@@ -247,6 +250,9 @@ class Scan():
 
     def execute(self):
         """Execute the scan procedure using the FastForward traversal and move_next functionality."""
+        # Import at runtime since TYPE_CHECKING imports are not available at runtime
+        from GUI.widgets.scan_tree.treeitem import InstrumentTreeItem
+        
         print(f"\n[Scan.execute] ========== SCAN EXECUTION START ==========")
         print(f"[Scan.execute] Scan name: {self.scan_settings.scan_name}")
         print(f"[Scan.execute] Owner: {self.owner}")
@@ -487,6 +493,9 @@ class Scan():
 
 def get_empty_scan() -> Scan:
     """Create an empty scan with default settings."""
+    # Import at runtime since TYPE_CHECKING imports are not available at runtime
+    from GUI.widgets.scan_tree.treemodel import ScanTreeModel
+    
     scan_settings = ScanSettings(
         project_name="default_project",
         scan_name="default_scan",

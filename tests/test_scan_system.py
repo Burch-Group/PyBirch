@@ -542,7 +542,8 @@ class TestInstrumentTreeItem:
         # Initially not finished
         assert tree_item.finished() == False
         
-        # Manually set to final position
+        # Manually set to final position (simulate having been executed)
+        tree_item._runtime_initialized = True
         tree_item.item_indices = [2]
         tree_item.final_indices = [2]
         assert tree_item.finished() == True
@@ -555,7 +556,8 @@ class TestInstrumentTreeItem:
         # Initially not finished (indices [0], final [1])
         assert tree_item.finished() == False
         
-        # After measurement
+        # After measurement (simulate having been executed)
+        tree_item._runtime_initialized = True
         tree_item.item_indices = [1]
         assert tree_item.finished() == True
     

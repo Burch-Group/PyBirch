@@ -196,6 +196,12 @@ class InstrumentTreeItem:
         has_item_indices = bool(self.item_indices)
         has_final_indices = bool(self.final_indices)
         
+        # If we have an instrument but haven't been executed yet, we're not finished
+        # This prevents single-position movements from appearing "finished" before execution
+        if self.instrument_object is not None and not self._runtime_initialized:
+            print(f"[finished] item='{self.name}': has instrument but not yet executed -> finished=False")
+            return False
+        
         if self.item_indices and self.final_indices:
             result = self.item_indices == self.final_indices
             print(f"[finished] item='{self.name}': item_indices={self.item_indices}, final_indices={self.final_indices} -> finished={result}")

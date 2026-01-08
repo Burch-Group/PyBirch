@@ -8,6 +8,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from pybirch.scan.measurements import Measurement, VisaMeasurement
 from pybirch.scan.movements import Movement, VisaMovement
 from PySide6 import QtCore, QtWidgets, QtGui
+from shiboken6 import isValid
 
 logger = logging.getLogger(__name__)
 
@@ -374,7 +375,8 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
     
     def _process_item_change(self, item: QtWidgets.QTreeWidgetItem):
         """Process item changes with batch updates for better performance"""
-        if not item:
+        # Check if item is valid (not deleted by tree.clear())
+        if not item or not isValid(item):
             return
             
         self._updating_items = True
@@ -386,7 +388,7 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
                 if state != QtCore.Qt.PartiallyChecked:
                     self._update_children_state(item, state)
             
-            if item.parent is not None:
+            if item.parent() is not None:
                 # If the item is a class, update the parent folder's state
                 self._update_parent_state(item)
         finally:

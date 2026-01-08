@@ -1491,7 +1491,8 @@ class QueuePage(QMainWindow):
                                 # item.final_indices was already set by InstrumentTreeItem.deserialize()
                                 if not item.final_indices:
                                     # Only calculate if not set - fallback
-                                    if positions:
+                                    # Use len() to check numpy arrays (can't use truth value directly)
+                                    if len(positions) > 0:
                                         item.final_indices = [len(positions) - 1]
                                     else:
                                         # Empty positions shouldn't happen for a movement
