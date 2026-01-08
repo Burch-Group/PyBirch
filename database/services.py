@@ -3046,19 +3046,30 @@ class DatabaseService:
             
             return [self._procedure_to_dict(p) for p in procedures], total
     
-    def get_procedures_simple_list(self) -> List[Dict]:
-        """Get simple list of active procedures for dropdowns."""
+    def get_procedures_simple_list(self, include_params: bool = False) -> List[Dict]:
+        """Get simple list of active procedures for dropdowns.
+        
+        Args:
+            include_params: If True, include parameters and steps for fabrication run forms
+        """
         with self.session_scope() as session:
             procedures = session.query(Procedure).filter(
                 Procedure.is_active == True
             ).order_by(Procedure.name).all()
             
-            return [{
-                'id': p.id,
-                'name': p.name,
-                'procedure_type': p.procedure_type,
-                'version': p.version,
-            } for p in procedures]
+            result = []
+            for p in procedures:
+                item = {
+                    'id': p.id,
+                    'name': p.name,
+                    'procedure_type': p.procedure_type,
+                    'version': p.version,
+                }
+                if include_params:
+                    item['parameters'] = p.parameters or []
+                    item['steps'] = p.steps or []
+                result.append(item)
+            return result
     
     def get_procedure(self, procedure_id: int) -> Optional[Dict]:
         """Get a single procedure by ID with fabrication runs."""

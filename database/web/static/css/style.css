@@ -1015,6 +1015,13 @@ input[readonly] {
     border-bottom: 1px solid var(--color-border);
 }
 
+.detail-section-warning {
+    border-left: 4px solid var(--color-warning, #f59e0b);
+    background-color: rgba(245, 158, 11, 0.05);
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+}
+
 .detail-list {
     margin: 0;
 }

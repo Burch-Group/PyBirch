@@ -23,10 +23,13 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label for="procedure_id">Procedure *</label>
-                        <select id="procedure_id" name="procedure_id" required class="searchable-select" data-entity-type="procedure">
+                        <select id="procedure_id" name="procedure_id" required class="searchable-select" data-entity-type="procedure" onchange="loadProcedureParams()">
                             <option value="">Select a procedure...</option>
                             {% for proc in procedures %}
-                            <option value="{{ proc.id }}" {% if run and run.procedure_id == proc.id %}selected{% endif %}>
+                            <option value="{{ proc.id }}" 
+                                    data-parameters='{{ proc.parameters|tojson if proc.parameters else "[]" }}'
+                                    data-steps='{{ proc.steps|tojson if proc.steps else "[]" }}'
+                                    {% if run and run.procedure_id == proc.id %}selected{% endif %}>
                                 {{ proc.name }} {% if proc.procedure_type %}({{ proc.procedure_type }}){% endif %} v{{ proc.version }}
                             </option>
                             {% endfor %}
@@ -77,6 +80,20 @@
                 </div>
             </div>
             
+            <!-- Procedure Parameters Section (dynamically populated) -->
+            <div class="form-section" id="procedure-params-section" style="display: none;">
+                <h2>⚙️ Procedure Parameters</h2>
+                <p class="form-help">These are the default parameters for this procedure. Modify values as needed for this run.</p>
+                <div id="procedure-params-container"></div>
+            </div>
+            
+            <!-- Step Parameters Section (dynamically populated) -->
+            <div class="form-section" id="step-params-section" style="display: none;">
+                <h2>📋 Step Parameters</h2>
+                <p class="form-help">Parameters for each step in the procedure. Modify values as needed.</p>
+                <div id="step-params-container"></div>
+            </div>
+            
             <div class="form-section">
                 <h2>📝 Notes & Results</h2>
                 
@@ -108,5 +125,170 @@
     color: var(--color-text-secondary);
     margin-bottom: 1.5rem;
 }
+.param-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border-radius: 6px;
+}
+.param-row label {
+    min-width: 150px;
+    font-weight: 500;
+    margin: 0;
+}
+.param-row .param-input {
+    flex: 1;
+}
+.param-row input[type="checkbox"].param-input {
+    flex: none;
+    width: 18px;
+    height: 18px;
+}
+.param-row .param-unit {
+    color: #666;
+    font-size: 0.9rem;
+    min-width: 50px;
+}
+.param-row .param-default {
+    color: #999;
+    font-size: 0.85rem;
+}
+.step-params-group {
+    margin-bottom: 1.5rem;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.step-params-header {
+    background: #f0f0f0;
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    border-bottom: 1px solid #e0e0e0;
+}
+.step-params-body {
+    padding: 1rem;
+}
+.no-params {
+    color: #999;
+    font-style: italic;
+    padding: 0.5rem 0;
+}
 </style>
+
+<script>
+// Store actual parameter values from existing run
+const existingParams = {{ run.actual_parameters|tojson if run and run.actual_parameters else '{}' }};
+
+function loadProcedureParams() {
+    const select = document.getElementById('procedure_id');
+    const option = select.options[select.selectedIndex];
+    
+    if (!option.value) {
+        document.getElementById('procedure-params-section').style.display = 'none';
+        document.getElementById('step-params-section').style.display = 'none';
+        return;
+    }
+    
+    let parameters = [];
+    let steps = [];
+    
+    try {
+        parameters = JSON.parse(option.dataset.parameters || '[]');
+        steps = JSON.parse(option.dataset.steps || '[]');
+    } catch (e) {
+        console.error('Error parsing procedure data:', e);
+    }
+    
+    // Render procedure-level parameters
+    const procParamsContainer = document.getElementById('procedure-params-container');
+    const procParamsSection = document.getElementById('procedure-params-section');
+    
+    if (parameters && parameters.length > 0) {
+        procParamsSection.style.display = 'block';
+        procParamsContainer.innerHTML = parameters.map(param => {
+            const savedValue = existingParams.procedure_parameters ? existingParams.procedure_parameters[param.name] : null;
+            const value = savedValue !== null && savedValue !== undefined ? savedValue : param.default;
+            return renderParamInput(param, `proc_param[${param.name}]`, value);
+        }).join('');
+    } else {
+        procParamsSection.style.display = 'none';
+        procParamsContainer.innerHTML = '';
+    }
+    
+    // Render step parameters
+    const stepParamsContainer = document.getElementById('step-params-container');
+    const stepParamsSection = document.getElementById('step-params-section');
+    
+    const stepsWithParams = steps.filter(step => step.parameters && step.parameters.length > 0);
+    
+    if (stepsWithParams.length > 0) {
+        stepParamsSection.style.display = 'block';
+        stepParamsContainer.innerHTML = steps.map((step, stepIndex) => {
+            if (!step.parameters || step.parameters.length === 0) return '';
+            
+            const stepSavedParams = existingParams.step_parameters ? existingParams.step_parameters[stepIndex] : {};
+            
+            const paramsHtml = step.parameters.map(param => {
+                const savedValue = stepSavedParams ? stepSavedParams[param.name] : null;
+                const value = savedValue !== null && savedValue !== undefined ? savedValue : param.default;
+                return renderParamInput(param, `step_param[${stepIndex}][${param.name}]`, value);
+            }).join('');
+            
+            return `
+                <div class="step-params-group">
+                    <div class="step-params-header">
+                        Step ${stepIndex + 1}: ${step.name}
+                    </div>
+                    <div class="step-params-body">
+                        ${paramsHtml}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } else {
+        stepParamsSection.style.display = 'none';
+        stepParamsContainer.innerHTML = '';
+    }
+}
+
+function renderParamInput(param, inputName, value) {
+    let inputHtml = '';
+    const escapedValue = value !== null && value !== undefined ? String(value).replace(/"/g, '&quot;') : '';
+    
+    if (param.type === 'select' && param.options && param.options.length > 0) {
+        const optionsHtml = param.options.map(opt => 
+            `<option value="${opt}" ${opt === value ? 'selected' : ''}>${opt}</option>`
+        ).join('');
+        inputHtml = `<select name="${inputName}" class="param-input">${optionsHtml}</select>`;
+    } else if (param.type === 'checkbox') {
+        const checked = value === true || value === 'true' || value === '1' || value === 'yes';
+        inputHtml = `<input type="checkbox" name="${inputName}" class="param-input" ${checked ? 'checked' : ''} value="true">`;
+    } else if (param.type === 'number') {
+        inputHtml = `<input type="number" name="${inputName}" class="param-input" value="${escapedValue}" step="any">`;
+    } else {
+        inputHtml = `<input type="text" name="${inputName}" class="param-input" value="${escapedValue}">`;
+    }
+    
+    const unitHtml = param.unit ? `<span class="param-unit">${param.unit}</span>` : '';
+    const defaultHtml = param.default !== undefined && param.default !== '' ? 
+        `<span class="param-default">(default: ${param.default}${param.unit ? ' ' + param.unit : ''})</span>` : '';
+    
+    return `
+        <div class="param-row">
+            <label>${param.name}</label>
+            ${inputHtml}
+            ${unitHtml}
+            ${defaultHtml}
+        </div>
+    `;
+}
+
+// Load parameters on page load if procedure is already selected
+document.addEventListener('DOMContentLoaded', function() {
+    loadProcedureParams();
+});
+</script>
 {% endblock %}

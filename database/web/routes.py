@@ -499,6 +499,29 @@ def fabrication_run_new(sample_id):
             except ValueError:
                 pass
         
+        # Parse procedure parameters and step parameters from form
+        actual_parameters = {'procedure_parameters': {}, 'step_parameters': {}}
+        
+        for key, value in request.form.items():
+            if key.startswith('proc_param[') and key.endswith(']'):
+                # Extract parameter name from proc_param[param_name]
+                param_name = key[11:-1]
+                actual_parameters['procedure_parameters'][param_name] = value
+            elif key.startswith('step_param['):
+                # Extract step index and param name from step_param[idx][param_name]
+                import re
+                match = re.match(r'step_param\[(\d+)\]\[(.+)\]', key)
+                if match:
+                    step_idx = match.group(1)
+                    param_name = match.group(2)
+                    if step_idx not in actual_parameters['step_parameters']:
+                        actual_parameters['step_parameters'][step_idx] = {}
+                    actual_parameters['step_parameters'][step_idx][param_name] = value
+        
+        # Only include actual_parameters if there are any
+        if not actual_parameters['procedure_parameters'] and not actual_parameters['step_parameters']:
+            actual_parameters = None
+        
         data = {
             'sample_id': sample_id,
             'procedure_id': int(request.form.get('procedure_id')),
@@ -507,6 +530,7 @@ def fabrication_run_new(sample_id):
             'status': request.form.get('status', 'pending'),
             'started_at': started_at,
             'notes': request.form.get('notes'),
+            'actual_parameters': actual_parameters,
         }
         
         try:
@@ -516,7 +540,7 @@ def fabrication_run_new(sample_id):
         except Exception as e:
             flash(f'Error creating fabrication run: {str(e)}', 'error')
     
-    procedures = db.get_procedures_simple_list()
+    procedures = db.get_procedures_simple_list(include_params=True)
     
     # Get current datetime for auto-populating started_at
     from datetime import datetime
@@ -555,6 +579,7 @@ def fabrication_run_edit(run_id):
             'completed_at': run_obj.completed_at.isoformat() if run_obj.completed_at else None,
             'notes': run_obj.notes,
             'results': run_obj.results,
+            'actual_parameters': run_obj.actual_parameters,
         }
         sample_id = run_obj.sample_id
     
@@ -579,6 +604,29 @@ def fabrication_run_edit(run_id):
             except ValueError:
                 pass
         
+        # Parse procedure parameters and step parameters from form
+        actual_parameters = {'procedure_parameters': {}, 'step_parameters': {}}
+        
+        for key, value in request.form.items():
+            if key.startswith('proc_param[') and key.endswith(']'):
+                # Extract parameter name from proc_param[param_name]
+                param_name = key[11:-1]
+                actual_parameters['procedure_parameters'][param_name] = value
+            elif key.startswith('step_param['):
+                # Extract step index and param name from step_param[idx][param_name]
+                import re
+                match = re.match(r'step_param\[(\d+)\]\[(.+)\]', key)
+                if match:
+                    step_idx = match.group(1)
+                    param_name = match.group(2)
+                    if step_idx not in actual_parameters['step_parameters']:
+                        actual_parameters['step_parameters'][step_idx] = {}
+                    actual_parameters['step_parameters'][step_idx][param_name] = value
+        
+        # Only include actual_parameters if there are any
+        if not actual_parameters['procedure_parameters'] and not actual_parameters['step_parameters']:
+            actual_parameters = None
+        
         data = {
             'procedure_id': int(request.form.get('procedure_id')),
             'run_number': int(request.form.get('run_number')) if request.form.get('run_number') else None,
@@ -588,6 +636,7 @@ def fabrication_run_edit(run_id):
             'completed_at': completed_at,
             'notes': request.form.get('notes'),
             'results': request.form.get('results'),
+            'actual_parameters': actual_parameters,
         }
         
         try:
@@ -597,7 +646,7 @@ def fabrication_run_edit(run_id):
         except Exception as e:
             flash(f'Error updating fabrication run: {str(e)}', 'error')
     
-    procedures = db.get_procedures_simple_list()
+    procedures = db.get_procedures_simple_list(include_params=True)
     
     return render_template('fabrication_run_form.html',
                           sample=sample,
@@ -642,6 +691,7 @@ def fabrication_run_from_procedure(procedure_id):
     
     if request.method == 'POST':
         from datetime import datetime
+        import re
         
         # Get selected sample IDs
         sample_ids = request.form.getlist('sample_ids')
@@ -661,6 +711,28 @@ def fabrication_run_from_procedure(procedure_id):
             notes = request.form.get('notes')
             run_number = int(request.form.get('run_number')) if request.form.get('run_number') else None
             
+            # Parse actual_parameters from form
+            actual_parameters = {'procedure_parameters': {}, 'step_parameters': {}}
+            
+            # Parse procedure-level parameters: proc_param[name]
+            proc_param_pattern = re.compile(r'^proc_param\[(.+)\]$')
+            for key, value in request.form.items():
+                match = proc_param_pattern.match(key)
+                if match:
+                    param_name = match.group(1)
+                    actual_parameters['procedure_parameters'][param_name] = value
+            
+            # Parse step-level parameters: step_param[idx][name]
+            step_param_pattern = re.compile(r'^step_param\[(\d+)\]\[(.+)\]$')
+            for key, value in request.form.items():
+                match = step_param_pattern.match(key)
+                if match:
+                    step_idx = match.group(1)
+                    param_name = match.group(2)
+                    if step_idx not in actual_parameters['step_parameters']:
+                        actual_parameters['step_parameters'][step_idx] = {}
+                    actual_parameters['step_parameters'][step_idx][param_name] = value
+            
             # Create a fabrication run for each selected sample
             created_count = 0
             for sample_id in sample_ids:
@@ -673,6 +745,7 @@ def fabrication_run_from_procedure(procedure_id):
                         'status': status,
                         'started_at': started_at,
                         'notes': notes,
+                        'actual_parameters': actual_parameters,
                     }
                     db.create_fabrication_run(data, fetch_weather=(created_count == 0))  # Fetch weather only once
                     created_count += 1
@@ -1582,6 +1655,27 @@ def procedure_new():
             }
     
     if request.method == 'POST':
+        # Parse procedure-level parameters
+        proc_params = []
+        proc_param_names = request.form.getlist('proc_param_name[]')
+        proc_param_types = request.form.getlist('proc_param_type[]')
+        proc_param_defaults = request.form.getlist('proc_param_default[]')
+        proc_param_units = request.form.getlist('proc_param_unit[]')
+        proc_param_options = request.form.getlist('proc_param_options[]')
+        
+        for i, name in enumerate(proc_param_names):
+            if name.strip():
+                param = {
+                    'name': name.strip(),
+                    'type': proc_param_types[i] if i < len(proc_param_types) else 'text',
+                    'default': proc_param_defaults[i].strip() if i < len(proc_param_defaults) else '',
+                }
+                if i < len(proc_param_units) and proc_param_units[i].strip():
+                    param['unit'] = proc_param_units[i].strip()
+                if i < len(proc_param_options) and proc_param_options[i].strip():
+                    param['options'] = [o.strip() for o in proc_param_options[i].split(',') if o.strip()]
+                proc_params.append(param)
+        
         # Parse steps from form
         steps = []
         step_names = request.form.getlist('step_name[]')
@@ -1598,6 +1692,31 @@ def procedure_new():
                         step['duration_minutes'] = int(step_durations[i])
                     except ValueError:
                         pass
+                
+                # Parse step-level parameters
+                step_param_names = request.form.getlist(f'step_param_name_{i}[]')
+                step_param_types = request.form.getlist(f'step_param_type_{i}[]')
+                step_param_defaults = request.form.getlist(f'step_param_default_{i}[]')
+                step_param_units = request.form.getlist(f'step_param_unit_{i}[]')
+                step_param_options = request.form.getlist(f'step_param_options_{i}[]')
+                
+                step_params = []
+                for j, pname in enumerate(step_param_names):
+                    if pname.strip():
+                        sparam = {
+                            'name': pname.strip(),
+                            'type': step_param_types[j] if j < len(step_param_types) else 'text',
+                            'default': step_param_defaults[j].strip() if j < len(step_param_defaults) else '',
+                        }
+                        if j < len(step_param_units) and step_param_units[j].strip():
+                            sparam['unit'] = step_param_units[j].strip()
+                        if j < len(step_param_options) and step_param_options[j].strip():
+                            sparam['options'] = [o.strip() for o in step_param_options[j].split(',') if o.strip()]
+                        step_params.append(sparam)
+                
+                if step_params:
+                    step['parameters'] = step_params
+                
                 steps.append(step)
         
         lab_id = request.form.get('lab_id')
@@ -1607,6 +1726,7 @@ def procedure_new():
             'version': request.form.get('version', '1.0'),
             'description': request.form.get('description'),
             'steps': steps if steps else None,
+            'parameters': proc_params if proc_params else None,
             'estimated_duration_minutes': int(request.form.get('estimated_duration_minutes')) if request.form.get('estimated_duration_minutes') else None,
             'safety_requirements': request.form.get('safety_requirements'),
             'created_by': request.form.get('created_by'),
@@ -1642,6 +1762,27 @@ def procedure_edit(procedure_id):
         return redirect(url_for('main.procedures'))
     
     if request.method == 'POST':
+        # Parse procedure-level parameters
+        proc_params = []
+        proc_param_names = request.form.getlist('proc_param_name[]')
+        proc_param_types = request.form.getlist('proc_param_type[]')
+        proc_param_defaults = request.form.getlist('proc_param_default[]')
+        proc_param_units = request.form.getlist('proc_param_unit[]')
+        proc_param_options = request.form.getlist('proc_param_options[]')
+        
+        for i, name in enumerate(proc_param_names):
+            if name.strip():
+                param = {
+                    'name': name.strip(),
+                    'type': proc_param_types[i] if i < len(proc_param_types) else 'text',
+                    'default': proc_param_defaults[i].strip() if i < len(proc_param_defaults) else '',
+                }
+                if i < len(proc_param_units) and proc_param_units[i].strip():
+                    param['unit'] = proc_param_units[i].strip()
+                if i < len(proc_param_options) and proc_param_options[i].strip():
+                    param['options'] = [o.strip() for o in proc_param_options[i].split(',') if o.strip()]
+                proc_params.append(param)
+        
         # Parse steps from form
         steps = []
         step_names = request.form.getlist('step_name[]')
@@ -1658,6 +1799,31 @@ def procedure_edit(procedure_id):
                         step['duration_minutes'] = int(step_durations[i])
                     except ValueError:
                         pass
+                
+                # Parse step-level parameters
+                step_param_names = request.form.getlist(f'step_param_name_{i}[]')
+                step_param_types = request.form.getlist(f'step_param_type_{i}[]')
+                step_param_defaults = request.form.getlist(f'step_param_default_{i}[]')
+                step_param_units = request.form.getlist(f'step_param_unit_{i}[]')
+                step_param_options = request.form.getlist(f'step_param_options_{i}[]')
+                
+                step_params = []
+                for j, pname in enumerate(step_param_names):
+                    if pname.strip():
+                        sparam = {
+                            'name': pname.strip(),
+                            'type': step_param_types[j] if j < len(step_param_types) else 'text',
+                            'default': step_param_defaults[j].strip() if j < len(step_param_defaults) else '',
+                        }
+                        if j < len(step_param_units) and step_param_units[j].strip():
+                            sparam['unit'] = step_param_units[j].strip()
+                        if j < len(step_param_options) and step_param_options[j].strip():
+                            sparam['options'] = [o.strip() for o in step_param_options[j].split(',') if o.strip()]
+                        step_params.append(sparam)
+                
+                if step_params:
+                    step['parameters'] = step_params
+                
                 steps.append(step)
         
         lab_id = request.form.get('lab_id')
@@ -1667,6 +1833,7 @@ def procedure_edit(procedure_id):
             'version': request.form.get('version', '1.0'),
             'description': request.form.get('description'),
             'steps': steps if steps else None,
+            'parameters': proc_params if proc_params else None,
             'estimated_duration_minutes': int(request.form.get('estimated_duration_minutes')) if request.form.get('estimated_duration_minutes') else None,
             'safety_requirements': request.form.get('safety_requirements'),
             'created_by': request.form.get('created_by'),

@@ -89,6 +89,90 @@
                 </div>
             </div>
             
+            <!-- Procedure Parameters Section -->
+            {% if procedure.parameters and procedure.parameters|length > 0 %}
+            <div class="form-section" id="procedure-params-section">
+                <h2>⚙️ Procedure Parameters</h2>
+                <p class="form-help">Default parameters for this procedure. Modify values as needed for this run.</p>
+                <div id="procedure-params-container">
+                    {% for param in procedure.parameters %}
+                    <div class="param-row">
+                        <label>{{ param.name }}</label>
+                        {% if param.type == 'select' and param.options %}
+                        <select name="proc_param[{{ param.name }}]" class="param-input">
+                            {% for opt in param.options %}
+                            <option value="{{ opt }}" {% if opt == param.default %}selected{% endif %}>{{ opt }}</option>
+                            {% endfor %}
+                        </select>
+                        {% elif param.type == 'checkbox' %}
+                        <input type="checkbox" name="proc_param[{{ param.name }}]" class="param-input" value="true"
+                               {% if param.default == true or param.default == 'true' %}checked{% endif %}>
+                        {% elif param.type == 'number' %}
+                        <input type="number" name="proc_param[{{ param.name }}]" class="param-input" 
+                               value="{{ param.default }}" step="any">
+                        {% else %}
+                        <input type="text" name="proc_param[{{ param.name }}]" class="param-input" 
+                               value="{{ param.default }}">
+                        {% endif %}
+                        {% if param.unit %}<span class="param-unit">{{ param.unit }}</span>{% endif %}
+                        {% if param.default is defined %}<span class="param-default">(default: {{ param.default }}{% if param.unit %} {{ param.unit }}{% endif %})</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Step Parameters Section -->
+            {% set ns = namespace(has_step_params=false) %}
+            {% for step in procedure.steps or [] %}
+                {% if step.parameters and step.parameters|length > 0 %}
+                    {% set ns.has_step_params = true %}
+                {% endif %}
+            {% endfor %}
+            {% if ns.has_step_params %}
+            <div class="form-section" id="step-params-section">
+                <h2>📋 Step Parameters</h2>
+                <p class="form-help">Parameters for each step in the procedure. Modify values as needed.</p>
+                <div id="step-params-container">
+                    {% for step in procedure.steps or [] %}
+                    {% set step_idx = loop.index0 %}
+                    {% if step.parameters and step.parameters|length > 0 %}
+                    <div class="step-params-group">
+                        <div class="step-params-header">
+                            Step {{ loop.index }}: {{ step.name or 'Unnamed Step' }}
+                        </div>
+                        <div class="step-params-body">
+                            {% for param in step.parameters %}
+                            <div class="param-row">
+                                <label>{{ param.name }}</label>
+                                {% if param.type == 'select' and param.options %}
+                                <select name="step_param[{{ step_idx }}][{{ param.name }}]" class="param-input">
+                                    {% for opt in param.options %}
+                                    <option value="{{ opt }}" {% if opt == param.default %}selected{% endif %}>{{ opt }}</option>
+                                    {% endfor %}
+                                </select>
+                                {% elif param.type == 'checkbox' %}
+                                <input type="checkbox" name="step_param[{{ step_idx }}][{{ param.name }}]" class="param-input" value="true"
+                                       {% if param.default == true or param.default == 'true' %}checked{% endif %}>
+                                {% elif param.type == 'number' %}
+                                <input type="number" name="step_param[{{ step_idx }}][{{ param.name }}]" class="param-input" 
+                                       value="{{ param.default }}" step="any">
+                                {% else %}
+                                <input type="text" name="step_param[{{ step_idx }}][{{ param.name }}]" class="param-input" 
+                                       value="{{ param.default }}">
+                                {% endif %}
+                                {% if param.unit %}<span class="param-unit">{{ param.unit }}</span>{% endif %}
+                                {% if param.default is defined %}<span class="param-default">(default: {{ param.default }}{% if param.unit %} {{ param.unit }}{% endif %})</span>{% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
             <div class="form-actions">
                 <a href="{{ url_for('main.procedure_detail', procedure_id=procedure.id) }}" class="btn btn-secondary">Cancel</a>
                 <button type="submit" class="btn btn-primary">Start Fabrication Run</button>
@@ -183,6 +267,73 @@
 
 .sample-checkbox.hidden {
     display: none;
+}
+
+/* Parameter styles */
+.form-help {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.param-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    background: var(--color-bg-tertiary, #f8f9fa);
+    border-radius: 6px;
+}
+
+.param-row label {
+    min-width: 150px;
+    font-weight: 500;
+    margin: 0;
+}
+
+.param-row .param-input {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg-primary);
+}
+
+.param-row input[type="checkbox"].param-input {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+}
+
+.param-row .param-unit {
+    color: var(--color-text-secondary, #666);
+    font-size: 0.9rem;
+    min-width: 50px;
+}
+
+.param-row .param-default {
+    color: var(--color-text-muted, #999);
+    font-size: 0.85rem;
+}
+
+.step-params-group {
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.step-params-header {
+    background: var(--color-bg-secondary, #f0f0f0);
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    border-bottom: 1px solid var(--color-border, #e0e0e0);
+}
+
+.step-params-body {
+    padding: 1rem;
 }
 </style>
 

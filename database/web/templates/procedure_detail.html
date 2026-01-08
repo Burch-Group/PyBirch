@@ -2,6 +2,30 @@
 
 {% block title %}{{ procedure.name }} - Procedure - PyBirch Database{% endblock %}
 
+{% block extra_head %}
+<style>
+    .params-list dt small {
+        font-weight: normal;
+        color: var(--text-muted, #666);
+    }
+    .params-list dd {
+        margin-bottom: 0.5rem;
+    }
+    .param-options {
+        color: var(--text-muted, #666);
+        display: block;
+        margin-top: 0.15rem;
+    }
+    .step-params ul {
+        margin: 0.5rem 0;
+        padding-left: 1.5rem;
+    }
+    .step-params li {
+        margin-bottom: 0.25rem;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
     <div class="header-nav">
@@ -39,7 +63,7 @@
 
 <div class="detail-grid">
     <div class="detail-main">
-        <div class="card">
+        <div class="detail-section">
             <h2>Description</h2>
             {% if procedure.description %}
             <p>{{ procedure.description }}</p>
@@ -49,7 +73,7 @@
         </div>
 
         {% if procedure.steps %}
-        <div class="card">
+        <div class="detail-section">
             <h2>Procedure Steps</h2>
             <div class="steps-list">
                 {% for step in procedure.steps %}
@@ -68,9 +92,26 @@
                         <div class="step-params">
                             <strong>Parameters:</strong>
                             <ul>
-                            {% for key, value in step.parameters.items() %}
-                                <li>{{ key }}: {{ value }}</li>
-                            {% endfor %}
+                            {% if step.parameters is mapping %}
+                                {# Old dict format: {key: value} #}
+                                {% for key, value in step.parameters.items() %}
+                                <li><strong>{{ key }}</strong>: {{ value }}</li>
+                                {% endfor %}
+                            {% else %}
+                                {# New array format: [{name, type, default, unit, options}] #}
+                                {% for param in step.parameters %}
+                                {% if param is mapping %}
+                                <li>
+                                    <strong>{{ param.name }}</strong>
+                                    {% if param.type %}({{ param.type }}){% endif %}:
+                                    {{ param.default }}{% if param.unit %} {{ param.unit }}{% endif %}
+                                    {% if param.options %}<em class="param-options">[{{ param.options|join(', ') }}]</em>{% endif %}
+                                </li>
+                                {% else %}
+                                <li>{{ param }}</li>
+                                {% endif %}
+                                {% endfor %}
+                            {% endif %}
                             </ul>
                         </div>
                         {% endif %}
@@ -85,14 +126,14 @@
         {% endif %}
 
         {% if procedure.safety_requirements %}
-        <div class="card card-warning">
+        <div class="detail-section detail-section-warning">
             <h2>Safety Requirements</h2>
             <p>{{ procedure.safety_requirements }}</p>
         </div>
         {% endif %}
         
         <!-- Required Equipment -->
-        <div class="card">
+        <div class="detail-section">
             <h2>Required Equipment</h2>
             {% if procedure.equipment and procedure.equipment|length > 0 %}
             <div class="equipment-list">
@@ -119,7 +160,7 @@
         </div>
         
         <!-- Samples that used this procedure -->
-        <div class="card">
+        <div class="detail-section">
             <h2>Samples Using This Procedure</h2>
             {% if procedure.fabrication_runs %}
             <div class="table-container">
@@ -173,7 +214,7 @@
     </div>
 
     <div class="detail-sidebar">
-        <div class="card">
+        <div class="detail-section">
             <h3>Details</h3>
             <dl class="detail-list">
                 <dt>Type</dt>
@@ -202,13 +243,18 @@
             </dl>
         </div>
 
-        {% if procedure.parameters %}
-        <div class="card">
-            <h3>Default Parameters</h3>
-            <dl class="detail-list">
-                {% for key, value in procedure.parameters.items() %}
-                <dt>{{ key }}</dt>
-                <dd>{{ value }}</dd>
+        {% if procedure.parameters is iterable and procedure.parameters is not string and procedure.parameters|length > 0 %}
+        <div class="detail-section">
+            <h3>Procedure Parameters</h3>
+            <dl class="detail-list params-list">
+                {% for param in procedure.parameters %}
+                {% if param is mapping %}
+                <dt>{{ param.name }}{% if param.type %} <small>({{ param.type }})</small>{% endif %}</dt>
+                <dd>
+                    {{ param.default if param.default is defined else '-' }}{% if param.unit %} {{ param.unit }}{% endif %}
+                    {% if param.options %}<small class="param-options">Options: {{ param.options|join(', ') }}</small>{% endif %}
+                </dd>
+                {% endif %}
                 {% endfor %}
             </dl>
         </div>

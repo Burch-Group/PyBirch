@@ -118,9 +118,36 @@
         </div>
     </div>
     
+    <!-- Procedure-Level Parameters -->
+    <div class="form-section">
+        <h2>Procedure Parameters</h2>
+        <p class="form-help">Define parameters that apply to the entire procedure. Users can override these values during fabrication runs.</p>
+        
+        <div id="procedure-params-container">
+            {% if procedure and procedure.parameters %}
+                {% for param in procedure.parameters %}
+                <div class="param-item">
+                    <input type="text" name="proc_param_name[]" value="{{ param.name }}" placeholder="Parameter name" class="param-name">
+                    <select name="proc_param_type[]" class="param-type">
+                        <option value="text" {% if param.type == 'text' %}selected{% endif %}>Text</option>
+                        <option value="number" {% if param.type == 'number' %}selected{% endif %}>Number</option>
+                        <option value="select" {% if param.type == 'select' %}selected{% endif %}>Select</option>
+                        <option value="checkbox" {% if param.type == 'checkbox' %}selected{% endif %}>Checkbox</option>
+                    </select>
+                    <input type="text" name="proc_param_default[]" value="{{ param.default }}" placeholder="Default value" class="param-default">
+                    <input type="text" name="proc_param_unit[]" value="{{ param.unit or '' }}" placeholder="Unit (optional)" class="param-unit">
+                    <input type="text" name="proc_param_options[]" value="{{ param.options|join(',') if param.options else '' }}" placeholder="Options (comma-sep)" class="param-options">
+                    <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+                </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+        <button type="button" class="btn btn-secondary" onclick="addProcedureParam()">+ Add Parameter</button>
+    </div>
+
     <div class="form-section">
         <h2>Procedure Steps</h2>
-        <p class="form-help">Define the steps in order. Each step can have a name, description, and optional duration.</p>
+        <p class="form-help">Define the steps in order. Each step can have a name, description, duration, and its own parameters.</p>
         
         <div id="steps-container">
             {% if procedure and procedure.steps %}
@@ -150,6 +177,30 @@
                                    placeholder="0">
                         </div>
                     </div>
+                    <div class="step-params-section">
+                        <label class="step-params-label">Step Parameters:</label>
+                        <div class="step-params-container">
+                            {% if step is mapping and step.parameters %}
+                                {% for param in step.parameters %}
+                                <div class="param-item step-param">
+                                    <input type="hidden" name="step_param_step_idx[]" value="{{ loop.index0 }}">
+                                    <input type="text" name="step_param_name_{{ loop.index0 }}[]" value="{{ param.name }}" placeholder="Parameter name" class="param-name">
+                                    <select name="step_param_type_{{ loop.index0 }}[]" class="param-type">
+                                        <option value="text" {% if param.type == 'text' %}selected{% endif %}>Text</option>
+                                        <option value="number" {% if param.type == 'number' %}selected{% endif %}>Number</option>
+                                        <option value="select" {% if param.type == 'select' %}selected{% endif %}>Select</option>
+                                        <option value="checkbox" {% if param.type == 'checkbox' %}selected{% endif %}>Checkbox</option>
+                                    </select>
+                                    <input type="text" name="step_param_default_{{ loop.index0 }}[]" value="{{ param.default }}" placeholder="Default" class="param-default">
+                                    <input type="text" name="step_param_unit_{{ loop.index0 }}[]" value="{{ param.unit or '' }}" placeholder="Unit" class="param-unit">
+                                    <input type="text" name="step_param_options_{{ loop.index0 }}[]" value="{{ param.options|join(',') if param.options else '' }}" placeholder="Options" class="param-options">
+                                    <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+                                </div>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="addStepParam(this)">+ Add Step Parameter</button>
+                    </div>
                 </div>
                 {% endfor %}
             {% else %}
@@ -171,6 +222,11 @@
                             <label>Duration (min)</label>
                             <input type="number" name="step_duration[]" min="0" placeholder="0">
                         </div>
+                    </div>
+                    <div class="step-params-section">
+                        <label class="step-params-label">Step Parameters:</label>
+                        <div class="step-params-container"></div>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="addStepParam(this)">+ Add Step Parameter</button>
                     </div>
                 </div>
             {% endif %}
@@ -241,13 +297,59 @@ function removeEquipment(button) {
     button.parentElement.remove();
 }
 
+// Procedure-level parameter functions
+function addProcedureParam() {
+    const container = document.getElementById('procedure-params-container');
+    const paramHtml = `
+        <div class="param-item">
+            <input type="text" name="proc_param_name[]" placeholder="Parameter name" class="param-name">
+            <select name="proc_param_type[]" class="param-type">
+                <option value="text">Text</option>
+                <option value="number">Number</option>
+                <option value="select">Select</option>
+                <option value="checkbox">Checkbox</option>
+            </select>
+            <input type="text" name="proc_param_default[]" placeholder="Default value" class="param-default">
+            <input type="text" name="proc_param_unit[]" placeholder="Unit (optional)" class="param-unit">
+            <input type="text" name="proc_param_options[]" placeholder="Options (comma-sep)" class="param-options">
+            <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+        </div>
+    `;
+    container.insertAdjacentHTML('beforeend', paramHtml);
+}
+
+// Step parameter functions
+function addStepParam(button) {
+    const stepItem = button.closest('.step-form-item');
+    const stepIndex = stepItem.dataset.stepIndex;
+    const container = stepItem.querySelector('.step-params-container');
+    
+    const paramHtml = `
+        <div class="param-item step-param">
+            <input type="text" name="step_param_name_${stepIndex}[]" placeholder="Parameter name" class="param-name">
+            <select name="step_param_type_${stepIndex}[]" class="param-type">
+                <option value="text">Text</option>
+                <option value="number">Number</option>
+                <option value="select">Select</option>
+                <option value="checkbox">Checkbox</option>
+            </select>
+            <input type="text" name="step_param_default_${stepIndex}[]" placeholder="Default" class="param-default">
+            <input type="text" name="step_param_unit_${stepIndex}[]" placeholder="Unit" class="param-unit">
+            <input type="text" name="step_param_options_${stepIndex}[]" placeholder="Options" class="param-options">
+            <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>
+        </div>
+    `;
+    container.insertAdjacentHTML('beforeend', paramHtml);
+}
+
 let stepCount = document.querySelectorAll('.step-form-item').length;
 
 function addStep() {
     stepCount++;
+    const newIndex = stepCount - 1;
     const container = document.getElementById('steps-container');
     const stepHtml = `
-        <div class="step-form-item" data-step-index="${stepCount - 1}">
+        <div class="step-form-item" data-step-index="${newIndex}">
             <div class="step-form-header">
                 <span class="step-form-number">${stepCount}</span>
                 <button type="button" class="btn btn-small btn-danger remove-step-btn" onclick="removeStep(this)">Remove</button>
@@ -266,6 +368,11 @@ function addStep() {
                     <input type="number" name="step_duration[]" min="0" placeholder="0">
                 </div>
             </div>
+            <div class="step-params-section">
+                <label class="step-params-label">Step Parameters:</label>
+                <div class="step-params-container"></div>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="addStepParam(this)">+ Add Step Parameter</button>
+            </div>
         </div>
     `;
     container.insertAdjacentHTML('beforeend', stepHtml);
@@ -282,7 +389,15 @@ function renumberSteps() {
     const steps = document.querySelectorAll('.step-form-item');
     steps.forEach((step, index) => {
         step.querySelector('.step-form-number').textContent = index + 1;
+        const oldIndex = step.dataset.stepIndex;
         step.dataset.stepIndex = index;
+        
+        // Update parameter input names to match new step index
+        step.querySelectorAll('.step-param input, .step-param select').forEach(input => {
+            if (input.name) {
+                input.name = input.name.replace(/_\d+\[\]$/, `_${index}[]`);
+            }
+        });
     });
     stepCount = steps.length;
 }
@@ -323,6 +438,60 @@ function renumberSteps() {
 }
 #equipment-container {
     margin-bottom: 1rem;
+}
+
+/* Parameter Items */
+.param-item {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+.param-item .param-name {
+    flex: 2;
+    min-width: 120px;
+}
+.param-item .param-type {
+    flex: 1;
+    min-width: 80px;
+}
+.param-item .param-default {
+    flex: 1.5;
+    min-width: 100px;
+}
+.param-item .param-unit {
+    flex: 1;
+    min-width: 60px;
+}
+.param-item .param-options {
+    flex: 2;
+    min-width: 120px;
+}
+#procedure-params-container {
+    margin-bottom: 1rem;
+}
+
+/* Step Parameters */
+.step-params-section {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed #e0e0e0;
+}
+.step-params-label {
+    font-weight: 500;
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    display: block;
+}
+.step-params-container {
+    margin-bottom: 0.5rem;
+}
+.step-param {
+    background: #f8f9fa;
+    padding: 0.5rem;
+    border-radius: 4px;
 }
 </style>
 {% endblock %}
