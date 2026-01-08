@@ -1427,6 +1427,11 @@ input[readonly] {
     color: #065f46;
 }
 
+.badge-secondary {
+    background-color: #e5e7eb;
+    color: #374151;
+}
+
 .badge-inactive {
     background-color: #e5e7eb;
     color: #6b7280;
