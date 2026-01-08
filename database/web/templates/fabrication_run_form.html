@@ -23,12 +23,13 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label for="procedure_id">Procedure *</label>
-                        <select id="procedure_id" name="procedure_id" required class="searchable-select" data-entity-type="procedure" onchange="loadProcedureParams()">
+                        <select id="procedure_id" name="procedure_id" required class="searchable-select" data-entity-type="procedure" onchange="loadProcedureParams(); updateFailureModes();">
                             <option value="">Select a procedure...</option>
                             {% for proc in procedures %}
                             <option value="{{ proc.id }}" 
                                     data-parameters='{{ proc.parameters|tojson if proc.parameters else "[]" }}'
                                     data-steps='{{ proc.steps|tojson if proc.steps else "[]" }}'
+                                    data-failure-modes='{{ proc.failure_modes|tojson if proc.failure_modes else "[]" }}'
                                     {% if run and run.procedure_id == proc.id %}selected{% endif %}>
                                 {{ proc.name }} {% if proc.procedure_type %}({{ proc.procedure_type }}){% endif %} v{{ proc.version }}
                             </option>
@@ -47,12 +48,20 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label for="status">Status *</label>
-                        <select id="status" name="status" required>
+                        <select id="status" name="status" required onchange="toggleFailureMode()">
                             <option value="pending" {% if not run or run.status == 'pending' %}selected{% endif %}>Pending</option>
                             <option value="in_progress" {% if run and run.status == 'in_progress' %}selected{% endif %}>In Progress</option>
                             <option value="completed" {% if run and run.status == 'completed' %}selected{% endif %}>Completed</option>
                             <option value="failed" {% if run and run.status == 'failed' %}selected{% endif %}>Failed</option>
                         </select>
+                    </div>
+                    
+                    <div class="form-group" id="failure-mode-group" style="display: none;">
+                        <label for="failure_mode">Failure Mode</label>
+                        <select id="failure_mode" name="failure_mode">
+                            <option value="">Select failure mode...</option>
+                        </select>
+                        <small class="form-hint">Select the type of failure that occurred</small>
                     </div>
                     
                     <div class="form-group">
@@ -286,9 +295,88 @@ function renderParamInput(param, inputName, value) {
     `;
 }
 
+// Store existing failure mode for edit mode
+const existingFailureMode = '{{ run.failure_mode if run and run.failure_mode else "" }}';
+
+function toggleFailureMode() {
+    const status = document.getElementById('status').value;
+    const failureModeGroup = document.getElementById('failure-mode-group');
+    
+    if (status === 'failed') {
+        failureModeGroup.style.display = 'block';
+        updateFailureModes();
+    } else {
+        failureModeGroup.style.display = 'none';
+        document.getElementById('failure_mode').value = '';
+    }
+}
+
+function updateFailureModes() {
+    const procedureSelect = document.getElementById('procedure_id');
+    const failureModeSelect = document.getElementById('failure_mode');
+    const option = procedureSelect.options[procedureSelect.selectedIndex];
+    
+    // Clear existing options except the first one
+    failureModeSelect.innerHTML = '<option value="">Select failure mode...</option>';
+    
+    if (!option || !option.value) return;
+    
+    let failureModes = [];
+    try {
+        failureModes = JSON.parse(option.dataset.failureModes || '[]');
+    } catch (e) {
+        console.error('Error parsing failure modes:', e);
+    }
+    
+    // Add failure mode options
+    failureModes.forEach(mode => {
+        const opt = document.createElement('option');
+        opt.value = mode;
+        opt.textContent = mode;
+        if (mode === existingFailureMode) {
+            opt.selected = true;
+        }
+        failureModeSelect.appendChild(opt);
+    });
+    
+    // Add "Other" option to allow custom input
+    if (failureModes.length > 0) {
+        const otherOpt = document.createElement('option');
+        otherOpt.value = '_other';
+        otherOpt.textContent = '-- Other (specify) --';
+        failureModeSelect.appendChild(otherOpt);
+    }
+    
+    // If existing failure mode wasn't in the list, add it and select it
+    if (existingFailureMode && !failureModes.includes(existingFailureMode)) {
+        const customOpt = document.createElement('option');
+        customOpt.value = existingFailureMode;
+        customOpt.textContent = existingFailureMode;
+        customOpt.selected = true;
+        failureModeSelect.insertBefore(customOpt, failureModeSelect.lastChild);
+    }
+}
+
+// Handle "Other" selection for custom failure mode
+document.getElementById('failure_mode').addEventListener('change', function() {
+    if (this.value === '_other') {
+        const customMode = prompt('Enter the failure mode:');
+        if (customMode && customMode.trim()) {
+            const opt = document.createElement('option');
+            opt.value = customMode.trim();
+            opt.textContent = customMode.trim();
+            opt.selected = true;
+            this.insertBefore(opt, this.lastChild);
+        } else {
+            this.value = '';
+        }
+    }
+});
+
 // Load parameters on page load if procedure is already selected
 document.addEventListener('DOMContentLoaded', function() {
     loadProcedureParams();
+    toggleFailureMode();
 });
 </script>
 {% endblock %}

@@ -861,6 +861,7 @@ class Procedure(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     steps: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Array of step objects
     parameters: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Default parameters
+    failure_modes: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # Possible failure modes for this procedure
     estimated_duration_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     safety_requirements: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -1038,6 +1039,7 @@ class FabricationRun(Base):
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default='pending')  # 'pending', 'in_progress', 'completed', 'failed'
+    failure_mode: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Selected failure mode when status is 'failed'
     created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Operator who ran the fabrication
     actual_parameters: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     results: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

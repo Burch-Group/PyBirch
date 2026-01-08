@@ -291,6 +291,7 @@ class DatabaseService:
                 'procedure_type': run.procedure.procedure_type if run.procedure else None,
                 'run_number': run.run_number,
                 'status': run.status,
+                'failure_mode': run.failure_mode,
                 'created_by': run.created_by,
                 'started_at': run.started_at.isoformat() if run.started_at else None,
                 'completed_at': run.completed_at.isoformat() if run.completed_at else None,
@@ -3319,6 +3320,7 @@ class DatabaseService:
                 if include_params:
                     item['parameters'] = p.parameters or []
                     item['steps'] = p.steps or []
+                    item['failure_modes'] = p.failure_modes or []
                 result.append(item)
             return result
     
@@ -3426,10 +3428,11 @@ class DatabaseService:
                 'sample_sample_id': run.sample.sample_id if run.sample else None,
                 'procedure_id': run.procedure_id,
                 'procedure_name': run.procedure.name if run.procedure else None,
+                'procedure_failure_modes': run.procedure.failure_modes if run.procedure else None,
                 'run_number': run.run_number,
                 'status': run.status,
+                'failure_mode': run.failure_mode,
                 'created_by': run.created_by,
-                'operator': run.operator,
                 'started_at': run.started_at.isoformat() if run.started_at else None,
                 'completed_at': run.completed_at.isoformat() if run.completed_at else None,
                 'actual_parameters': run.actual_parameters,
@@ -3465,6 +3468,7 @@ class DatabaseService:
                 run_number=data.get('run_number'),
                 started_at=data.get('started_at'),
                 status=data.get('status', 'pending'),
+                failure_mode=data.get('failure_mode'),
                 created_by=data.get('operator') or data.get('created_by'),
                 actual_parameters=data.get('actual_parameters'),
                 notes=data.get('notes'),
@@ -3492,7 +3496,7 @@ class DatabaseService:
             if not run:
                 return None
             
-            for field in ['procedure_id', 'run_number', 'status', 'created_by', 
+            for field in ['procedure_id', 'run_number', 'status', 'failure_mode', 'created_by', 
                           'actual_parameters', 'notes', 'results']:
                 if field in data:
                     setattr(run, field, data[field])
@@ -3537,6 +3541,7 @@ class DatabaseService:
                 description=data.get('description'),
                 steps=data.get('steps'),
                 parameters=data.get('parameters'),
+                failure_modes=data.get('failure_modes'),
                 estimated_duration_minutes=data.get('estimated_duration_minutes'),
                 safety_requirements=data.get('safety_requirements'),
                 created_by=data.get('created_by'),
@@ -3556,7 +3561,7 @@ class DatabaseService:
                 return None
             
             for field in ['name', 'procedure_type', 'version', 'description', 'steps', 
-                          'parameters', 'estimated_duration_minutes', 'safety_requirements', 
+                          'parameters', 'failure_modes', 'estimated_duration_minutes', 'safety_requirements', 
                           'created_by', 'is_active', 'lab_id', 'project_id']:
                 if field in data:
                     setattr(procedure, field, data[field])
@@ -3597,6 +3602,7 @@ class DatabaseService:
             'description': procedure.description,
             'steps': procedure.steps,
             'parameters': procedure.parameters,
+            'failure_modes': procedure.failure_modes,
             'estimated_duration_minutes': procedure.estimated_duration_minutes,
             'safety_requirements': procedure.safety_requirements,
             'is_active': procedure.is_active,

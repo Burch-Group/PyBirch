@@ -522,12 +522,16 @@ def fabrication_run_new(sample_id):
         if not actual_parameters['procedure_parameters'] and not actual_parameters['step_parameters']:
             actual_parameters = None
         
+        status = request.form.get('status', 'pending')
+        failure_mode = request.form.get('failure_mode') if status == 'failed' else None
+        
         data = {
             'sample_id': sample_id,
             'procedure_id': int(request.form.get('procedure_id')),
             'run_number': int(request.form.get('run_number')) if request.form.get('run_number') else None,
             'operator': request.form.get('operator') or g.current_user.get('username'),
-            'status': request.form.get('status', 'pending'),
+            'status': status,
+            'failure_mode': failure_mode,
             'started_at': started_at,
             'notes': request.form.get('notes'),
             'actual_parameters': actual_parameters,
@@ -574,6 +578,7 @@ def fabrication_run_edit(run_id):
             'procedure_id': run_obj.procedure_id,
             'run_number': run_obj.run_number,
             'status': run_obj.status,
+            'failure_mode': run_obj.failure_mode,
             'created_by': run_obj.created_by,
             'started_at': run_obj.started_at.isoformat() if run_obj.started_at else None,
             'completed_at': run_obj.completed_at.isoformat() if run_obj.completed_at else None,
@@ -627,11 +632,15 @@ def fabrication_run_edit(run_id):
         if not actual_parameters['procedure_parameters'] and not actual_parameters['step_parameters']:
             actual_parameters = None
         
+        status = request.form.get('status', 'pending')
+        failure_mode = request.form.get('failure_mode') if status == 'failed' else None
+        
         data = {
             'procedure_id': int(request.form.get('procedure_id')),
             'run_number': int(request.form.get('run_number')) if request.form.get('run_number') else None,
             'operator': request.form.get('operator'),
-            'status': request.form.get('status', 'pending'),
+            'status': status,
+            'failure_mode': failure_mode,
             'started_at': started_at,
             'completed_at': completed_at,
             'notes': request.form.get('notes'),
@@ -1806,6 +1815,10 @@ def procedure_new():
                 
                 steps.append(step)
         
+        # Parse failure modes
+        failure_modes_raw = request.form.get('failure_modes', '').strip()
+        failure_modes = [m.strip() for m in failure_modes_raw.split('\n') if m.strip()] if failure_modes_raw else None
+        
         lab_id = request.form.get('lab_id')
         data = {
             'name': request.form.get('name'),
@@ -1814,6 +1827,7 @@ def procedure_new():
             'description': request.form.get('description'),
             'steps': steps if steps else None,
             'parameters': proc_params if proc_params else None,
+            'failure_modes': failure_modes,
             'estimated_duration_minutes': int(request.form.get('estimated_duration_minutes')) if request.form.get('estimated_duration_minutes') else None,
             'safety_requirements': request.form.get('safety_requirements'),
             'created_by': request.form.get('created_by'),
@@ -1913,6 +1927,10 @@ def procedure_edit(procedure_id):
                 
                 steps.append(step)
         
+        # Parse failure modes
+        failure_modes_raw = request.form.get('failure_modes', '').strip()
+        failure_modes = [m.strip() for m in failure_modes_raw.split('\n') if m.strip()] if failure_modes_raw else None
+        
         lab_id = request.form.get('lab_id')
         data = {
             'name': request.form.get('name'),
@@ -1921,6 +1939,7 @@ def procedure_edit(procedure_id):
             'description': request.form.get('description'),
             'steps': steps if steps else None,
             'parameters': proc_params if proc_params else None,
+            'failure_modes': failure_modes,
             'estimated_duration_minutes': int(request.form.get('estimated_duration_minutes')) if request.form.get('estimated_duration_minutes') else None,
             'safety_requirements': request.form.get('safety_requirements'),
             'created_by': request.form.get('created_by'),

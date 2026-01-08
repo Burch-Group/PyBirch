@@ -115,6 +115,13 @@
                 <textarea id="safety_requirements" name="safety_requirements" rows="3"
                           placeholder="PPE requirements, hazards, emergency procedures...">{{ procedure.safety_requirements if procedure else '' }}</textarea>
             </div>
+            
+            <div class="form-group full-width">
+                <label for="failure_modes">Failure Modes</label>
+                <textarea id="failure_modes" name="failure_modes" rows="4"
+                          placeholder="Enter one failure mode per line, e.g.:&#10;Film delamination&#10;Uneven deposition&#10;Target contamination&#10;Temperature overshoot">{{ procedure.failure_modes|join('\n') if procedure and procedure.failure_modes else '' }}</textarea>
+                <small class="form-hint">Define possible failure modes for this procedure (one per line). These will be available to select when marking a fabrication run as failed.</small>
+            </div>
         </div>
     </div>
     
