@@ -13,6 +13,26 @@
     <h1>{{ action }} Computer</h1>
     
     <form method="POST" class="entity-form">
+        <!-- Lab Assignment Section -->
+        <div class="form-section">
+            <h2>Assignment</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="lab_id">Lab</label>
+                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab">
+                        <option value="">-- No Lab --</option>
+                        {% for lab in labs %}
+                        <option value="{{ lab.id }}" 
+                                {% if (computer and computer.lab_id and computer.lab_id == lab.id) or (default_lab_id == lab.id and (not computer or not computer.lab_id)) %}selected{% endif %}>
+                            {{ lab.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small>Associate this computer with a lab <a href="#" class="set-default-link" data-field="default_lab_id" data-source="lab_id">Set as default</a></small>
+                </div>
+            </div>
+        </div>
+        
         <div class="form-section">
             <h2>Computer Information</h2>
             <div class="form-grid">

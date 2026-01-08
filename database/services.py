@@ -2497,6 +2497,8 @@ class DatabaseService:
         
         return {
             'id': computer.id,
+            'lab_id': getattr(computer, 'lab_id', None),
+            'lab_name': computer.lab.name if getattr(computer, 'lab', None) else None,
             'computer_name': computer.computer_name,
             'computer_id': computer.computer_id,
             'nickname': computer.nickname,
@@ -2513,6 +2515,7 @@ class DatabaseService:
         nickname: Optional[str] = None,
         location: Optional[str] = None,
         description: Optional[str] = None,
+        lab_id: Optional[int] = None,
     ) -> Dict:
         """Create a new computer.
         
@@ -2522,6 +2525,7 @@ class DatabaseService:
             nickname: Friendly name (optional)
             location: Physical location (optional)
             description: Additional notes (optional)
+            lab_id: Lab ID (optional)
             
         Returns:
             Created computer as dictionary
@@ -2535,6 +2539,7 @@ class DatabaseService:
                 nickname=nickname,
                 location=location,
                 description=description,
+                lab_id=lab_id,
             )
             session.add(computer)
             session.flush()
@@ -2548,6 +2553,7 @@ class DatabaseService:
         nickname: Optional[str] = None,
         location: Optional[str] = None,
         description: Optional[str] = None,
+        lab_id: Optional[int] = None,
     ) -> Optional[Dict]:
         """Update a computer by database ID.
         
@@ -2558,6 +2564,7 @@ class DatabaseService:
             nickname: Friendly name (None to keep existing)
             location: Physical location (None to keep existing)
             description: Additional notes (None to keep existing)
+            lab_id: Lab ID (None to keep existing)
             
         Returns:
             Updated computer as dictionary, or None if not found
@@ -2582,6 +2589,8 @@ class DatabaseService:
                 computer.location = location
             if description is not None:
                 computer.description = description
+            if lab_id is not None:
+                computer.lab_id = lab_id
             
             session.flush()
             return self._computer_to_dict(computer)
@@ -3231,6 +3240,41 @@ class DatabaseService:
             session.delete(precursor)
             return True
     
+    def replace_precursor_in_templates(self, old_precursor_id: int, new_precursor_id: int) -> int:
+        """
+        Replace references to an old precursor with a new precursor in all templates.
+        
+        Args:
+            old_precursor_id: The ID of the precursor being replaced
+            new_precursor_id: The ID of the new precursor to use instead
+            
+        Returns:
+            Number of templates updated
+        """
+        updated_count = 0
+        with self.session_scope() as session:
+            # Find all active templates
+            templates = session.query(Template).filter(Template.is_active == True).all()
+            
+            for template in templates:
+                if not template.template_data:
+                    continue
+                    
+                linked_ids = template.template_data.get('linked_precursor_ids', [])
+                if old_precursor_id in linked_ids:
+                    # Replace old ID with new ID
+                    new_linked_ids = [new_precursor_id if pid == old_precursor_id else pid for pid in linked_ids]
+                    
+                    # Update template_data (need to copy to trigger change detection)
+                    new_template_data = dict(template.template_data)
+                    new_template_data['linked_precursor_ids'] = new_linked_ids
+                    template.template_data = new_template_data
+                    updated_count += 1
+            
+            session.flush()
+        
+        return updated_count
+    
     def _precursor_to_dict(self, precursor: Precursor) -> Dict:
         """Convert Precursor model to dictionary."""
         return {
@@ -3462,6 +3506,13 @@ class DatabaseService:
                 except Exception:
                     pass  # Weather fetch is best-effort
             
+            # Inherit lab_id from procedure if not explicitly provided
+            lab_id = data.get('lab_id')
+            if lab_id is None and data.get('procedure_id'):
+                procedure = session.query(Procedure).filter(Procedure.id == data['procedure_id']).first()
+                if procedure:
+                    lab_id = procedure.lab_id
+            
             run = FabricationRun(
                 sample_id=data['sample_id'],
                 procedure_id=data['procedure_id'],
@@ -3473,6 +3524,7 @@ class DatabaseService:
                 actual_parameters=data.get('actual_parameters'),
                 notes=data.get('notes'),
                 weather_conditions=weather,
+                lab_id=lab_id,
             )
             session.add(run)
             session.flush()
@@ -3487,6 +3539,7 @@ class DatabaseService:
                 'started_at': run.started_at.isoformat() if run.started_at else None,
                 'weather_conditions': run.weather_conditions,
                 'created_at': run.created_at.isoformat() if run.created_at else None,
+                'lab_id': run.lab_id,
             }
     
     def update_fabrication_run(self, run_id: int, data: Dict) -> Optional[Dict]:
@@ -3497,7 +3550,7 @@ class DatabaseService:
                 return None
             
             for field in ['procedure_id', 'run_number', 'status', 'failure_mode', 'created_by', 
-                          'actual_parameters', 'notes', 'results']:
+                          'actual_parameters', 'notes', 'results', 'lab_id']:
                 if field in data:
                     setattr(run, field, data[field])
             
@@ -3520,6 +3573,7 @@ class DatabaseService:
                 'completed_at': run.completed_at.isoformat() if run.completed_at else None,
                 'notes': run.notes,
                 'weather_conditions': run.weather_conditions,
+                'lab_id': run.lab_id,
             }
     
     def delete_fabrication_run(self, run_id: int) -> bool:

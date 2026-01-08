@@ -23,6 +23,15 @@
     </div>
     {% endif %}
     
+    {% if original_precursor %}
+    <div class="replace-notice">
+        <span class="replace-badge">🔄 Replacing</span>
+        <strong>{{ original_precursor.name }}</strong>
+        {% if original_precursor.chemical_formula %}<code>{{ original_precursor.chemical_formula }}</code>{% endif %}
+        <p class="replace-hint">Creating a new precursor that will replace the original in all templates that reference it.</p>
+    </div>
+    {% endif %}
+    
     <form method="POST" class="entity-form">
         <!-- Lab & Project Assignment Section -->
         <div class="form-section">
@@ -165,6 +174,34 @@
     margin: 0.5rem 0 0 0;
     font-size: 0.9rem;
     color: #558b2f;
+}
+
+.replace-notice {
+    background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+    border: 1px solid #ffb74d;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.replace-badge {
+    background: #ff9800;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+}
+.replace-notice strong { color: #e65100; margin-right: 0.5rem; }
+.replace-notice code { 
+    background: rgba(0,0,0,0.1); 
+    padding: 0.1rem 0.3rem; 
+    border-radius: 3px;
+    font-size: 0.9rem;
+}
+.replace-hint {
+    margin: 0.5rem 0 0 0;
+    font-size: 0.9rem;
+    color: #f57c00;
 }
 </style>
 {% endblock %}

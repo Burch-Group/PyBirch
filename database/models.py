@@ -587,6 +587,7 @@ class Computer(Base):
     __tablename__ = "computers"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
     
     # Computer identification
     computer_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)  # hostname
@@ -600,11 +601,13 @@ class Computer(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
+    lab: Mapped[Optional["Lab"]] = relationship("Lab", foreign_keys=[lab_id])
     bindings: Mapped[List["ComputerBinding"]] = relationship("ComputerBinding", back_populates="computer")
     
     __table_args__ = (
         Index('idx_computer_name', 'computer_name'),
         Index('idx_computer_nickname', 'nickname'),
+        Index('idx_computer_lab', 'lab_id'),
     )
     
     def __repr__(self):

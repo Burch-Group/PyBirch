@@ -1732,6 +1732,63 @@ def precursor_duplicate(precursor_id):
     )
 
 
+@main_bp.route('/precursors/<int:precursor_id>/replace', methods=['GET', 'POST'])
+@login_required
+def precursor_replace(precursor_id):
+    """Replace a precursor with a new one, updating all template references."""
+    db = get_db_service()
+    original = db.get_precursor(precursor_id)
+    
+    if not original:
+        flash('Precursor not found', 'error')
+        return redirect(url_for('main.precursors'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        data = {
+            'name': request.form.get('name'),
+            'chemical_formula': request.form.get('chemical_formula'),
+            'cas_number': request.form.get('cas_number'),
+            'supplier': request.form.get('supplier'),
+            'lot_number': request.form.get('lot_number'),
+            'purity': float(request.form.get('purity')) if request.form.get('purity') else None,
+            'state': request.form.get('state'),
+            'status': request.form.get('status', 'new'),
+            'storage_conditions': request.form.get('storage_conditions'),
+            'lab_id': int(lab_id) if lab_id else None,
+        }
+        try:
+            # Create the new precursor
+            item = db.create_precursor(data)
+            
+            # Replace the old precursor with the new one in all templates
+            templates_updated = db.replace_precursor_in_templates(precursor_id, item['id'])
+            
+            if templates_updated > 0:
+                flash(f'Precursor "{item["name"]}" created and replaced in {templates_updated} template(s)', 'success')
+            else:
+                flash(f'Precursor "{item["name"]}" created (no templates referenced the original)', 'success')
+            
+            return redirect(url_for('main.precursor_detail', precursor_id=item['id']))
+        except Exception as e:
+            flash(f'Error creating precursor: {str(e)}', 'error')
+    
+    # Pre-fill form with original data but new name indicating replacement
+    replaced = original.copy()
+    replaced['name'] = f"{original['name']} (Replacement)"
+    replaced['lot_number'] = ''  # Clear lot number for replacement
+    
+    # Get labs for dropdown
+    labs = db.get_labs_simple_list()
+    
+    return render_template('precursor_form.html',
+        precursor=replaced,
+        action='Replace',
+        original_precursor=original,
+        labs=labs,
+    )
+
+
 # -------------------- Procedures --------------------
 
 @main_bp.route('/procedures')
@@ -5374,12 +5431,14 @@ def computer_new():
     db = get_db_service()
     
     if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
         data = {
             'computer_name': request.form.get('computer_name', '').strip(),
             'computer_id': request.form.get('computer_id', '').strip() or None,
             'nickname': request.form.get('nickname', '').strip() or None,
             'location': request.form.get('location', '').strip() or None,
             'description': request.form.get('description', '').strip() or None,
+            'lab_id': int(lab_id) if lab_id else None,
         }
         
         if not data['computer_name']:
@@ -5399,12 +5458,18 @@ def computer_new():
     except:
         computer_info = {'computer_name': '', 'computer_id': '', 'username': ''}
     
+    # Get labs and default lab
+    labs = db.get_labs_simple_list()
+    default_lab_id = g.current_user.get('default_lab_id') if g.current_user else None
+    
     return render_template('computer_form.html',
         action='New',
         computer={
             'computer_name': computer_info.get('computer_name', ''),
             'computer_id': computer_info.get('computer_id', ''),
         },
+        labs=labs,
+        default_lab_id=default_lab_id,
     )
 
 
@@ -5420,12 +5485,14 @@ def computer_edit(computer_id):
         return redirect(url_for('main.computers'))
     
     if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
         data = {
             'computer_name': request.form.get('computer_name', '').strip() or None,
             'computer_id': request.form.get('computer_id', '').strip() or None,
             'nickname': request.form.get('nickname', '').strip() or None,
             'location': request.form.get('location', '').strip() or None,
             'description': request.form.get('description', '').strip() or None,
+            'lab_id': int(lab_id) if lab_id else None,
         }
         
         try:
@@ -5435,9 +5502,13 @@ def computer_edit(computer_id):
         except Exception as e:
             flash(f'Error updating computer: {str(e)}', 'error')
     
+    # Get labs
+    labs = db.get_labs_simple_list()
+    
     return render_template('computer_form.html',
         action='Edit',
         computer=computer,
+        labs=labs,
     )
 
 

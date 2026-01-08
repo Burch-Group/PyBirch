@@ -17,6 +17,7 @@
             <span class="status-badge status-{{ precursor.status }}">{{ precursor.status }}</span>
             {% endif %}
             <a href="{{ url_for('main.precursor_duplicate', precursor_id=precursor.id) }}" class="btn btn-secondary">Duplicate</a>
+            <a href="{{ url_for('main.precursor_replace', precursor_id=precursor.id) }}" class="btn btn-secondary" title="Create a new precursor and replace this one in all templates">Replace</a>
             <a href="{{ url_for('main.precursor_edit', precursor_id=precursor.id) }}" class="btn btn-secondary">Edit</a>
         </div>
     </div>
