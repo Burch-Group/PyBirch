@@ -30,6 +30,16 @@ def login_required(f):
     return decorated_function
 
 
+def api_login_required(f):
+    """Decorator to require login for API routes (returns JSON error instead of redirect)."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'success': False, 'error': 'Authentication required. Please log in.'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 def admin_required(f):
     """Decorator to require admin role."""
     @wraps(f)
@@ -47,6 +57,15 @@ def admin_required(f):
 @main_bp.before_request
 def load_current_user():
     """Load current user before each request."""
+    g.current_user = None
+    if 'user_id' in session:
+        db = get_db_service()
+        g.current_user = db.get_user_by_id(session['user_id'])
+
+
+@api_bp.before_request
+def api_load_current_user():
+    """Load current user before each API request."""
     g.current_user = None
     if 'user_id' in session:
         db = get_db_service()
@@ -194,7 +213,8 @@ def sample_detail(sample_id):
     if not sample:
         flash('Sample not found', 'error')
         return redirect(url_for('main.samples'))
-    return render_template('sample_detail.html', sample=sample)
+    images = db.get_entity_images('sample', sample_id)
+    return render_template('sample_detail.html', sample=sample, images=images)
 
 
 @main_bp.route('/samples/new', methods=['GET', 'POST'])
@@ -1321,7 +1341,8 @@ def precursor_detail(precursor_id):
     if not item:
         flash('Precursor not found', 'error')
         return redirect(url_for('main.precursors'))
-    return render_template('precursor_detail.html', precursor=item)
+    images = db.get_entity_images('precursor', precursor_id)
+    return render_template('precursor_detail.html', precursor=item, images=images)
 
 
 @main_bp.route('/precursors/new', methods=['GET', 'POST'])
@@ -1509,7 +1530,8 @@ def procedure_detail(procedure_id):
     if not procedure:
         flash('Procedure not found', 'error')
         return redirect(url_for('main.procedures'))
-    return render_template('procedure_detail.html', procedure=procedure)
+    images = db.get_entity_images('procedure', procedure_id)
+    return render_template('procedure_detail.html', procedure=procedure, images=images)
 
 
 @main_bp.route('/procedures/new', methods=['GET', 'POST'])
@@ -2549,7 +2571,7 @@ def unpin_item(entity_type, entity_id):
 
 
 @api_bp.route('/pins/<entity_type>/<int:entity_id>', methods=['POST'])
-@login_required
+@api_login_required
 def api_pin_item(entity_type, entity_id):
     """API endpoint to pin an item."""
     db = get_db_service()
@@ -2566,7 +2588,7 @@ def api_pin_item(entity_type, entity_id):
 
 
 @api_bp.route('/pins/<entity_type>/<int:entity_id>', methods=['DELETE'])
-@login_required
+@api_login_required
 def api_unpin_item(entity_type, entity_id):
     """API endpoint to unpin an item."""
     db = get_db_service()
@@ -2583,7 +2605,7 @@ def api_unpin_item(entity_type, entity_id):
 
 
 @api_bp.route('/pins', methods=['GET'])
-@login_required
+@api_login_required
 def api_get_pins():
     """Get all pinned items for the current user."""
     db = get_db_service()
@@ -3782,7 +3804,7 @@ def api_stats():
 
 
 @api_bp.route('/images/<entity_type>/<int:entity_id>/upload', methods=['POST'])
-@login_required
+@api_login_required
 def api_upload_entity_image(entity_type, entity_id):
     """Upload an image for any entity type."""
     import os
@@ -3865,7 +3887,7 @@ def delete_entity_image(image_id):
 
 
 @api_bp.route('/images/<int:image_id>', methods=['PUT'])
-@login_required
+@api_login_required
 def api_update_entity_image(image_id):
     """Update an entity image's metadata."""
     db = get_db_service()
@@ -3932,7 +3954,8 @@ def instrument_detail(instrument_id):
     if not instrument:
         flash('Instrument not found', 'error')
         return redirect(url_for('main.instruments'))
-    return render_template('instrument_detail.html', instrument=instrument)
+    images = db.get_entity_images('instrument', instrument_id)
+    return render_template('instrument_detail.html', instrument=instrument, images=images)
 
 
 @main_bp.route('/instruments/new', methods=['GET', 'POST'])

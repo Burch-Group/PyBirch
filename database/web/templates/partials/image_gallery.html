@@ -14,10 +14,10 @@
             <div class="drop-icon"></div>
             <p>Drag & drop images here</p>
             <p class="drop-hint">or</p>
-            <label class="btn btn-secondary btn-small upload-btn">
-                <input type="file" id="image-file-input" accept="image/*" multiple style="display: none;">
+            <label class="btn btn-secondary btn-small upload-btn" for="image-file-input">
                 Choose Files
             </label>
+            <input type="file" id="image-file-input" accept="image/*" multiple class="visually-hidden">
             <p class="file-types">PNG, JPG, GIF, WEBP, BMP (max 10MB)</p>
         </div>
         <div class="upload-progress" id="upload-progress" style="display: none;">
@@ -161,6 +161,7 @@
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
+    position: relative;
 }
 
 .drop-icon {
@@ -177,6 +178,24 @@
     color: var(--text-muted, #999);
     font-size: 0.75rem;
     margin-top: 0.5rem;
+}
+
+/* Visually hidden but still accessible for file input */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Make drop zone clickable */
+.image-upload-zone {
+    cursor: pointer;
 }
 
 .upload-progress {
@@ -440,9 +459,37 @@
 </style>
 
 <script>
-// Image gallery functionality for entity type: {{ entity_type }}, entity id: {{ entity_id }}
+// Image gallery functionality - auto-detect entity type and id from available context
+{% if entity_type is defined and entity_id is defined %}
 const entityType = '{{ entity_type }}';
 const entityId = {{ entity_id }};
+{% elif sample is defined %}
+const entityType = 'sample';
+const entityId = {{ sample.id }};
+{% elif equipment is defined %}
+const entityType = 'equipment';
+const entityId = {{ equipment.id }};
+{% elif precursor is defined %}
+const entityType = 'precursor';
+const entityId = {{ precursor.id }};
+{% elif procedure is defined %}
+const entityType = 'procedure';
+const entityId = {{ procedure.id }};
+{% elif instrument is defined %}
+const entityType = 'instrument';
+const entityId = {{ instrument.id }};
+{% elif project is defined %}
+const entityType = 'project';
+const entityId = {{ project.id }};
+{% elif lab is defined %}
+const entityType = 'lab';
+const entityId = {{ lab.id }};
+{% else %}
+// Fallback - entity type not detected
+const entityType = '';
+const entityId = 0;
+console.error('Image gallery: entity_type and entity_id not detected. Image upload will not work.');
+{% endif %}
 
 document.addEventListener('DOMContentLoaded', function() {
     const dropZone = document.getElementById('image-drop-zone');
@@ -473,12 +520,13 @@ document.addEventListener('DOMContentLoaded', function() {
     dropZone.addEventListener('drop', handleDrop, false);
     fileInput.addEventListener('change', handleFileSelect, false);
     
-    // Also allow clicking anywhere in drop zone to open file picker
+    // Allow clicking anywhere in drop zone to open file picker
     dropZone.addEventListener('click', function(e) {
-        // Don't trigger if clicking on the actual file input label/button
-        if (e.target.tagName !== 'INPUT' && !e.target.closest('label')) {
-            fileInput.click();
-        }
+        // Don't trigger if clicking on the label (it handles its own click via 'for' attribute)
+        // or if clicking the input itself
+        if (e.target.tagName === 'INPUT') return;
+        if (e.target.tagName === 'LABEL' || e.target.closest('label')) return;
+        fileInput.click();
     });
 });
 

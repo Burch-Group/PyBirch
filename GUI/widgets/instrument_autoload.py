@@ -60,9 +60,12 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
     
     Now supports loading instrument definitions from the database via InstrumentFactory.
     Database instruments are shown under a "📦 Database Instruments" section.
+    
+    Auto-discovery: When "Show bound only" is enabled, only shows database instruments
+    that are bound to this computer (via ComputerBinding) or marked as public.
     """
     def __init__(self, directory: str, acceptable_class_types: tuple = (Measurement, Movement, VisaMeasurement, VisaMovement), 
-                 db_service=None, enable_database: bool = True):
+                 db_service=None, enable_database: bool = True, filter_by_computer: bool = False):
         super().__init__()
         self.directory = directory
         self.pybirch_classes = get_classes_from_directory(self.directory, acceptable_class_types)
@@ -71,6 +74,11 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
         self.enable_database = enable_database
         self._instrument_factory = None
         self._database_classes = {}  # Cache of database instrument classes
+        self._filter_by_computer = filter_by_computer  # Auto-discovery filter
+        self._computer_info = None  # Cache computer info
+        
+        # Get computer info for auto-discovery filtering
+        self._load_computer_info()
         
         # Load database instruments if enabled
         if self.enable_database:
@@ -85,8 +93,23 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         # Styling handled by global theme
     
+    def _load_computer_info(self):
+        """Load identifying information about this computer for auto-discovery."""
+        try:
+            from pybirch.Instruments.factory import get_computer_info
+            self._computer_info = get_computer_info()
+            logger.debug(f"Computer info: {self._computer_info.get('computer_name', 'unknown')}")
+        except Exception as e:
+            logger.warning(f"Could not get computer info: {e}")
+            self._computer_info = {'computer_name': 'unknown', 'computer_id': '', 'username': ''}
+    
     def _load_database_instruments(self):
-        """Load instrument definitions from the database using InstrumentFactory."""
+        """Load instrument definitions from the database using InstrumentFactory.
+        
+        If _filter_by_computer is True, only loads definitions that:
+        - Have an instrument instance bound to this computer, OR
+        - Are marked as public (is_public=True)
+        """
         try:
             from pybirch.Instruments.factory import InstrumentFactory
             
@@ -97,6 +120,19 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
             # Get all definitions from database
             definitions = self._instrument_factory.get_available_definitions()
             
+            # Filter by computer binding if enabled
+            allowed_definition_ids = None
+            if self._filter_by_computer and self.db_service and self._computer_info:
+                computer_name = self._computer_info.get('computer_name', '')
+                if computer_name:
+                    allowed_definition_ids = set(
+                        self.db_service.get_definition_ids_for_computer(
+                            computer_name=computer_name,
+                            include_public=True  # Always include public definitions
+                        )
+                    )
+                    logger.debug(f"Auto-discovery: {len(allowed_definition_ids)} definitions for computer '{computer_name}'")
+            
             # Organize by category/type
             self._database_classes = {
                 'measurement': [],
@@ -104,6 +140,11 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
             }
             
             for defn in definitions:
+                # Skip if filtering by computer and this definition isn't allowed
+                if allowed_definition_ids is not None and defn.get('id') not in allowed_definition_ids:
+                    logger.debug(f"Skipping {defn.get('name')} - not bound to this computer")
+                    continue
+                
                 try:
                     # Create the class from the definition
                     cls = self._instrument_factory.create_class_from_definition(defn)
@@ -115,7 +156,8 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
                 except Exception as e:
                     logger.warning(f"Failed to create class for {defn.get('name', 'unknown')}: {e}")
             
-            logger.info(f"Loaded {sum(len(v) for v in self._database_classes.values())} instruments from database")
+            filter_status = "filtered" if self._filter_by_computer else "all"
+            logger.info(f"Loaded {sum(len(v) for v in self._database_classes.values())} instruments from database ({filter_status})")
             
         except ImportError as e:
             logger.warning(f"Could not import InstrumentFactory: {e}")
@@ -131,6 +173,33 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
             self._instrument_factory.db_service = db_service
         self._load_database_instruments()
         self.refresh_classes()
+    
+    @property
+    def filter_by_computer(self) -> bool:
+        """Get the current auto-discovery filter setting."""
+        return self._filter_by_computer
+    
+    @filter_by_computer.setter
+    def filter_by_computer(self, value: bool):
+        """Set the auto-discovery filter and refresh the list."""
+        if self._filter_by_computer != value:
+            self._filter_by_computer = value
+            if hasattr(self, 'filter_checkbox'):
+                self.filter_checkbox.setChecked(value)
+            else:
+                # If checkbox doesn't exist yet, just update the internal state
+                self._load_database_instruments()
+                if hasattr(self, 'tree'):
+                    self.populate_tree()
+    
+    @property
+    def computer_info(self) -> dict:
+        """Get the current computer identification info.
+        
+        Returns:
+            Dictionary with 'computer_name' (hostname), 'computer_id' (MAC), 'username'
+        """
+        return self._computer_info.copy() if self._computer_info else {}
     
     def init_ui(self):
         """Initialize the user interface components."""
@@ -157,6 +226,25 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
 
         # Ensure all objects are collapsed initially
         self.tree.collapseAll()
+
+        # Create filter checkbox for auto-discovery (only show if database is enabled)
+        if self.enable_database:
+            filter_container = QtWidgets.QWidget()
+            filter_layout = QtWidgets.QHBoxLayout(filter_container)
+            filter_layout.setContentsMargins(0, 4, 0, 4)
+            filter_layout.setSpacing(8)
+            
+            self.filter_checkbox = QtWidgets.QCheckBox("Show bound instruments only")
+            self.filter_checkbox.setChecked(self._filter_by_computer)
+            computer_name = self._computer_info.get('computer_name', 'unknown') if self._computer_info else 'unknown'
+            self.filter_checkbox.setToolTip(
+                f"When checked, only show database instruments bound to this computer ({computer_name}) "
+                "or marked as public. Uncheck to see all database instruments."
+            )
+            filter_layout.addWidget(self.filter_checkbox)
+            filter_layout.addStretch()
+            
+            layout.addWidget(filter_container)
 
         # Create the refresh button
         self.refresh_button = QtWidgets.QPushButton("Refresh")
@@ -307,6 +395,19 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
         self.tree.itemChanged.connect(self.handle_item_changed)
         self.open_front_panel_button.clicked.connect(self.open_front_panel)
         self.open_settings_panel_button.clicked.connect(self.open_settings)
+        
+        # Connect filter checkbox if database is enabled
+        if self.enable_database and hasattr(self, 'filter_checkbox'):
+            self.filter_checkbox.stateChanged.connect(self._on_filter_changed)
+    
+    def _on_filter_changed(self, state):
+        """Handle filter checkbox state change."""
+        self._filter_by_computer = (state == QtCore.Qt.Checked)
+        logger.debug(f"Auto-discovery filter changed: {self._filter_by_computer}")
+        
+        # Reload database instruments with new filter setting
+        self._load_database_instruments()
+        self.populate_tree()
 
     def open_settings(self):
         """Open the instrument front panel using measurement.settings_UI() if available."""

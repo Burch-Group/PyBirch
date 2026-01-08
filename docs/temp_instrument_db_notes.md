@@ -1,6 +1,6 @@
 # Instrument Database Storage - Implementation Notes
 
-## Current Status: Phase 4 Complete (GUI Integration)
+## Current Status: Phase 5 In Progress (Auto-Discovery)
 
 ### Progress
 - [x] New models added to models.py
@@ -13,6 +13,9 @@
 - [x] InstrumentAutoLoadWidget updated to load from database
 - [x] InstrumentsPage integrated with database service
 - [x] MainWindow passes database service on state change
+- [x] Auto-discovery filter added to InstrumentAutoLoadWidget
+- [x] DatabaseService.get_definition_ids_for_computer() method added
+- [ ] Computer binding Web UI
 - [ ] Unit tests written
 - [ ] Web UI for browser-based creation
 
@@ -49,3 +52,24 @@ python scripts/migrate_instruments_to_database.py --db database/pybirch.db
 - Settings can use `_define_settings()` or custom property override
 - InstrumentFactory caches compiled classes for performance
 - `get_computer_info()` utility provides hostname/MAC/username
+
+### Auto-Discovery Feature
+The `InstrumentAutoLoadWidget` now supports auto-discovery filtering:
+- **Checkbox**: "Show bound instruments only" toggle in the GUI
+- **Behavior**: When checked, only shows database instruments that:
+  - Have an instrument instance bound to this computer (via `ComputerBinding`), OR
+  - Are marked as public (`is_public=True`)
+- **Computer identification**: Uses hostname from `get_computer_info()`
+- **API**: `filter_by_computer` property to get/set filter state programmatically
+
+Usage in code:
+```python
+# Enable auto-discovery filter
+widget = InstrumentAutoLoadWidget(directory, filter_by_computer=True)
+
+# Or toggle at runtime
+widget.filter_by_computer = True
+
+# Get current computer info
+print(widget.computer_info)  # {'computer_name': 'HOSTNAME', 'computer_id': '...', 'username': '...'}
+```

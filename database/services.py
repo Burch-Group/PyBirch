@@ -1917,6 +1917,47 @@ class DatabaseService:
             session.delete(binding)
             return True
     
+    def get_definition_ids_for_computer(
+        self,
+        computer_name: str,
+        include_public: bool = True,
+    ) -> List[int]:
+        """Get instrument definition IDs that are bound to a specific computer.
+        
+        This method finds all InstrumentDefinition IDs where at least one
+        Instrument instance using that definition is bound to the given computer.
+        
+        Args:
+            computer_name: The hostname of the computer
+            include_public: If True, also include all public (is_public=True) definitions
+        
+        Returns:
+            List of InstrumentDefinition IDs available on this computer
+        """
+        from database.models import ComputerBinding, Instrument, InstrumentDefinition
+        from sqlalchemy import distinct
+        
+        with self.session_scope() as session:
+            # Get definition IDs from instruments bound to this computer
+            bound_definition_ids = session.query(distinct(Instrument.definition_id)).join(
+                ComputerBinding,
+                ComputerBinding.instrument_id == Instrument.id
+            ).filter(
+                ComputerBinding.computer_name == computer_name,
+                Instrument.definition_id.isnot(None)
+            ).all()
+            
+            definition_ids = {row[0] for row in bound_definition_ids}
+            
+            # Optionally include all public definitions
+            if include_public:
+                public_ids = session.query(InstrumentDefinition.id).filter(
+                    InstrumentDefinition.is_public == True
+                ).all()
+                definition_ids.update(row[0] for row in public_ids)
+            
+            return list(definition_ids)
+    
     def _computer_binding_to_dict(self, binding) -> Dict:
         """Convert ComputerBinding model to dictionary."""
         if not binding:
