@@ -286,6 +286,8 @@ class User(Base):
     owned_equipment = relationship("Equipment", back_populates="owner")
     equipment_issues_created = relationship("EquipmentIssue", back_populates="reporter", foreign_keys="EquipmentIssue.reporter_id")
     equipment_issues_assigned = relationship("EquipmentIssue", back_populates="assignee", foreign_keys="EquipmentIssue.assignee_id")
+    definition_issues_created = relationship("InstrumentDefinitionIssue", back_populates="reporter", foreign_keys="InstrumentDefinitionIssue.reporter_id")
+    definition_issues_assigned = relationship("InstrumentDefinitionIssue", back_populates="assignee", foreign_keys="InstrumentDefinitionIssue.assignee_id")
     
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', role='{self.role}')>"
@@ -473,6 +475,9 @@ class InstrumentDefinition(Base):
     position_column: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     position_units: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     
+    # Status
+    status: Mapped[Optional[str]] = mapped_column(String(50), default='operational')  # operational, development, testing, deprecated, experimental
+    
     # Ownership and versioning
     lab_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('labs.id'), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -490,6 +495,10 @@ class InstrumentDefinition(Base):
     versions: Mapped[List["InstrumentDefinitionVersion"]] = relationship(
         "InstrumentDefinitionVersion", back_populates="definition", 
         order_by="InstrumentDefinitionVersion.version.desc()", cascade="all, delete-orphan"
+    )
+    issues: Mapped[List["InstrumentDefinitionIssue"]] = relationship(
+        "InstrumentDefinitionIssue", back_populates="definition",
+        order_by="InstrumentDefinitionIssue.created_at.desc()", cascade="all, delete-orphan"
     )
     
     __table_args__ = (
@@ -527,6 +536,50 @@ class InstrumentDefinitionVersion(Base):
     
     def __repr__(self):
         return f"<InstrumentDefinitionVersion(id={self.id}, definition_id={self.definition_id}, version={self.version})>"
+
+
+class InstrumentDefinitionIssue(Base):
+    """
+    Issue tracking for instrument definition problems, bugs, feature requests, etc.
+    Helps track issues with specific instrument code/drivers.
+    """
+    __tablename__ = "instrument_definition_issues"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    definition_id: Mapped[int] = mapped_column(Integer, ForeignKey('instrument_definitions.id'), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category: Mapped[str] = mapped_column(String(50), default='bug')  # 'bug', 'feature', 'compatibility', 'documentation', 'performance', 'other'
+    priority: Mapped[str] = mapped_column(String(50), default='medium')  # 'low', 'medium', 'high', 'critical'
+    status: Mapped[str] = mapped_column(String(50), default='open')  # 'open', 'in_progress', 'resolved', 'closed', 'wont_fix'
+    reporter_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    assignee_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    steps_to_reproduce: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    affected_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Which version has this issue
+    fixed_in_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Which version fixed it
+    environment_info: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # OS, Python version, etc.
+    resolution: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resolution_steps: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Steps to resolve/workaround
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    definition: Mapped["InstrumentDefinition"] = relationship("InstrumentDefinition", back_populates="issues")
+    reporter = relationship("User", back_populates="definition_issues_created", foreign_keys=[reporter_id])
+    assignee = relationship("User", back_populates="definition_issues_assigned", foreign_keys=[assignee_id])
+    
+    __table_args__ = (
+        Index('idx_instrument_def_issues_definition', 'definition_id'),
+        Index('idx_instrument_def_issues_status', 'status'),
+        Index('idx_instrument_def_issues_priority', 'priority'),
+        Index('idx_instrument_def_issues_reporter', 'reporter_id'),
+        Index('idx_instrument_def_issues_assignee', 'assignee_id'),
+    )
+    
+    def __repr__(self):
+        return f"<InstrumentDefinitionIssue(id={self.id}, definition_id={self.definition_id}, title='{self.title}')>"
 
 
 class Computer(Base):

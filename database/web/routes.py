@@ -4284,6 +4284,7 @@ def instrument_definition_new():
             'base_class': request.form.get('base_class', '').strip(),
             'dependencies': request.form.get('dependencies', '').strip() or None,
             'is_public': request.form.get('is_public') == 'on',
+            'status': request.form.get('status', 'operational'),
             'created_by': g.current_user.get('username') if g.current_user else None,
         }
         
@@ -4386,6 +4387,7 @@ def instrument_definition_edit(definition_id):
             'base_class': request.form.get('base_class', '').strip(),
             'dependencies': request.form.get('dependencies', '').strip() or None,
             'is_public': request.form.get('is_public') == 'on',
+            'status': request.form.get('status', 'operational'),
         }
         change_summary = request.form.get('change_summary', '').strip() or None
         
@@ -4661,6 +4663,206 @@ def instrument_definition_unlink_instrument(definition_id, instrument_id):
         flash(f'Error unlinking instrument: {str(e)}', 'error')
     
     return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+
+
+# -------------------- Instrument Definition Issues --------------------
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/issues')
+def instrument_definition_issues(definition_id):
+    """List issues for a specific instrument definition."""
+    page = request.args.get('page', 1, type=int)
+    status = request.args.get('status', '')
+    priority = request.args.get('priority', '')
+    
+    db = get_db_service()
+    definition = db.get_instrument_definition(definition_id)
+    if not definition:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    issues, total = db.get_instrument_definition_issues(
+        definition_id=definition_id,
+        status=status if status else None,
+        priority=priority if priority else None,
+        page=page
+    )
+    
+    total_pages = (total + 19) // 20
+    
+    return render_template('instrument_definition_issues.html',
+        definition=definition,
+        issues=issues,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        status=status,
+        priority=priority,
+    )
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/issues/<int:issue_id>')
+def instrument_definition_issue_detail(definition_id, issue_id):
+    """View a specific instrument definition issue."""
+    db = get_db_service()
+    definition = db.get_instrument_definition(definition_id)
+    if not definition:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    issue = db.get_instrument_definition_issue(issue_id)
+    if not issue:
+        flash('Issue not found', 'error')
+        return redirect(url_for('main.instrument_definition_issues', definition_id=definition_id))
+    
+    # Get versions for display
+    versions = db.get_instrument_definition_versions(definition_id)
+    
+    return render_template('instrument_definition_issue_detail.html',
+        definition=definition,
+        issue=issue,
+        versions=versions,
+    )
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/issues/new', methods=['GET', 'POST'])
+@login_required
+def instrument_definition_issue_new(definition_id):
+    """Create a new issue for an instrument definition."""
+    db = get_db_service()
+    definition = db.get_instrument_definition(definition_id)
+    if not definition:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    if request.method == 'POST':
+        assignee_id = request.form.get('assignee_id')
+        affected_version = request.form.get('affected_version')
+        data = {
+            'definition_id': definition_id,
+            'title': request.form.get('title'),
+            'description': request.form.get('description'),
+            'priority': request.form.get('priority', 'medium'),
+            'category': request.form.get('category', 'bug'),
+            'status': 'open',
+            'assignee_id': int(assignee_id) if assignee_id else None,
+            'error_message': request.form.get('error_message'),
+            'steps_to_reproduce': request.form.get('steps_to_reproduce'),
+            'environment_info': request.form.get('environment_info'),
+            'affected_version': int(affected_version) if affected_version else None,
+        }
+        
+        # Set reporter from current user
+        if g.current_user:
+            data['reporter_id'] = g.current_user.get('id')
+        
+        try:
+            issue = db.create_instrument_definition_issue(data)
+            flash(f'Issue "{issue["title"]}" reported successfully', 'success')
+            return redirect(url_for('main.instrument_definition_issue_detail', definition_id=definition_id, issue_id=issue['id']))
+        except Exception as e:
+            flash(f'Error reporting issue: {str(e)}', 'error')
+    
+    # Get users for assignee dropdown
+    users, _ = db.get_users(per_page=1000)
+    
+    # Get versions for dropdown
+    versions = db.get_instrument_definition_versions(definition_id)
+    
+    return render_template('instrument_definition_issue_form.html',
+        definition=definition,
+        issue=None,
+        action='Report',
+        users=users,
+        versions=versions,
+    )
+
+
+@main_bp.route('/instrument-definitions/<int:definition_id>/issues/<int:issue_id>/edit', methods=['GET', 'POST'])
+@login_required
+def instrument_definition_issue_edit(definition_id, issue_id):
+    """Edit an instrument definition issue."""
+    db = get_db_service()
+    definition = db.get_instrument_definition(definition_id)
+    if not definition:
+        flash('Instrument definition not found', 'error')
+        return redirect(url_for('main.instrument_definitions'))
+    
+    issue = db.get_instrument_definition_issue(issue_id)
+    if not issue:
+        flash('Issue not found', 'error')
+        return redirect(url_for('main.instrument_definition_issues', definition_id=definition_id))
+    
+    if request.method == 'POST':
+        assignee_id = request.form.get('assignee_id')
+        affected_version = request.form.get('affected_version')
+        fixed_in_version = request.form.get('fixed_in_version')
+        data = {
+            'title': request.form.get('title'),
+            'description': request.form.get('description'),
+            'priority': request.form.get('priority'),
+            'category': request.form.get('category'),
+            'status': request.form.get('status'),
+            'assignee_id': int(assignee_id) if assignee_id else None,
+            'error_message': request.form.get('error_message'),
+            'steps_to_reproduce': request.form.get('steps_to_reproduce'),
+            'environment_info': request.form.get('environment_info'),
+            'resolution': request.form.get('resolution'),
+            'resolution_steps': request.form.get('resolution_steps'),
+            'affected_version': int(affected_version) if affected_version else None,
+            'fixed_in_version': int(fixed_in_version) if fixed_in_version else None,
+        }
+        
+        # Handle resolved_at based on status change
+        from datetime import datetime
+        if data['status'] in ['resolved', 'closed'] and issue['status'] not in ['resolved', 'closed']:
+            data['resolved_at'] = datetime.utcnow()
+        
+        try:
+            db.update_instrument_definition_issue(issue_id, data)
+            flash('Issue updated successfully', 'success')
+            return redirect(url_for('main.instrument_definition_issue_detail', definition_id=definition_id, issue_id=issue_id))
+        except Exception as e:
+            flash(f'Error updating issue: {str(e)}', 'error')
+    
+    # Get users for assignee dropdown
+    users, _ = db.get_users(per_page=1000)
+    
+    # Get versions for dropdown
+    versions = db.get_instrument_definition_versions(definition_id)
+    
+    return render_template('instrument_definition_issue_form.html',
+        definition=definition,
+        issue=issue,
+        action='Update',
+        users=users,
+        versions=versions,
+    )
+
+
+@main_bp.route('/instrument-definitions/issues')
+def all_instrument_definition_issues():
+    """List all instrument definition issues across all definitions."""
+    page = request.args.get('page', 1, type=int)
+    status = request.args.get('status', '')
+    priority = request.args.get('priority', '')
+    
+    db = get_db_service()
+    issues, total = db.get_instrument_definition_issues(
+        status=status if status else None,
+        priority=priority if priority else None,
+        page=page
+    )
+    
+    total_pages = (total + 19) // 20
+    
+    return render_template('all_instrument_definition_issues.html',
+        issues=issues,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        status=status,
+        priority=priority,
+    )
 
 
 # -------------------- Computer Bindings --------------------

@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}{{ issue.title }} - {{ definition.display_name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / 
+            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
+            <a href="{{ url_for('main.instrument_definition_issues', definition_id=definition.id) }}">Issues</a> /
+            #{{ issue.id }}
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <div class="issue-title-row">
+            <h1>{{ issue.title }}</h1>
+            <span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span>
+        </div>
+        <div class="detail-actions">
+            <span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span>
+            <a href="{{ url_for('main.instrument_definition_issue_edit', definition_id=definition.id, issue_id=issue.id) }}" class="btn btn-secondary">Edit</a>
+        </div>
+    </div>
+    
+    <div class="issue-meta">
+        <span>Reported {{ issue.created_at[:10] if issue.created_at else 'Unknown' }}</span>
+        {% if issue.reporter_name %}
+        <span>by {{ issue.reporter_name }}</span>
+        {% endif %}
+        {% if issue.assignee_name %}
+        <span>• Assigned to <strong>{{ issue.assignee_name }}</strong></span>
+        {% endif %}
+    </div>
+    
+    <div class="detail-grid">
+        <div class="detail-section">
+            <h2>Details</h2>
+            <dl class="detail-list">
+                <dt>Category</dt>
+                <dd>{{ issue.category }}</dd>
+                
+                <dt>Instrument Definition</dt>
+                <dd><a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a></dd>
+                
+                <dt>Status</dt>
+                <dd><span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span></dd>
+                
+                <dt>Priority</dt>
+                <dd><span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span></dd>
+                
+                {% if issue.affected_version %}
+                <dt>Affected Version</dt>
+                <dd>v{{ issue.affected_version }}</dd>
+                {% endif %}
+                
+                {% if issue.fixed_in_version %}
+                <dt>Fixed in Version</dt>
+                <dd>v{{ issue.fixed_in_version }}</dd>
+                {% endif %}
+                
+                {% if issue.resolved_at %}
+                <dt>Resolved</dt>
+                <dd>{{ issue.resolved_at[:10] }}</dd>
+                {% endif %}
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Timestamps</h2>
+            <dl class="detail-list">
+                <dt>Created</dt>
+                <dd>{{ issue.created_at[:16] if issue.created_at else '-' }}</dd>
+                
+                <dt>Last Updated</dt>
+                <dd>{{ issue.updated_at[:16] if issue.updated_at else '-' }}</dd>
+                
+                {% if issue.resolved_at %}
+                <dt>Resolved</dt>
+                <dd>{{ issue.resolved_at[:16] }}</dd>
+                {% endif %}
+            </dl>
+        </div>
+    </div>
+    
+    {% if issue.description %}
+    <div class="detail-section full-width">
+        <h2>Description</h2>
+        <div class="text-content">
+            {{ issue.description | nl2br | safe }}
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if issue.error_message %}
+    <div class="detail-section full-width">
+        <h2>Error Message</h2>
+        <pre class="error-display">{{ issue.error_message }}</pre>
+    </div>
+    {% endif %}
+    
+    {% if issue.steps_to_reproduce %}
+    <div class="detail-section full-width">
+        <h2>Steps to Reproduce</h2>
+        <div class="text-content">
+            {{ issue.steps_to_reproduce | nl2br | safe }}
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if issue.environment_info %}
+    <div class="detail-section full-width">
+        <h2>Environment Info</h2>
+        <pre class="env-display">{{ issue.environment_info }}</pre>
+    </div>
+    {% endif %}
+    
+    {% if issue.resolution %}
+    <div class="detail-section full-width resolution-section">
+        <h2>Resolution</h2>
+        <div class="text-content">
+            {{ issue.resolution | nl2br | safe }}
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if issue.resolution_steps %}
+    <div class="detail-section full-width resolution-section">
+        <h2>Resolution Steps / Workaround</h2>
+        <div class="text-content">
+            {{ issue.resolution_steps | nl2br | safe }}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.issue-title-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+.issue-title-row h1 {
+    margin: 0;
+}
+.issue-meta {
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+}
+.issue-meta span {
+    margin-right: 0.25rem;
+}
+.detail-section.full-width {
+    grid-column: 1 / -1;
+}
+.priority-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+.priority-low { background: #e3f2fd; color: #1565c0; }
+.priority-medium { background: #fff3e0; color: #e65100; }
+.priority-high { background: #ffebee; color: #c62828; }
+.priority-critical { background: #c62828; color: white; }
+
+.text-content {
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+.error-display {
+    background: #ffebee;
+    color: #c62828;
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+}
+.env-display {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+}
+.resolution-section {
+    background: #e8f5e9;
+    border: 1px solid #c8e6c9;
+}
+</style>
+{% endblock %}

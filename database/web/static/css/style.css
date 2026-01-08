@@ -937,6 +937,7 @@ input[readonly] {
 }
 
 .quick-actions {
+    margin-top: 1.5rem;
     background-color: var(--color-bg-primary);
     border-radius: var(--border-radius);
     padding: 1.25rem;

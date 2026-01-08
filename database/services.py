@@ -18,7 +18,8 @@ from database.models import (
     Tag, EntityTag, FabricationRun,
     Lab, LabMember, Project, ProjectMember, ItemGuest,
     User, UserPin, Issue, EntityImage,
-    EquipmentImage, EquipmentIssue, ProcedureEquipment
+    EquipmentImage, EquipmentIssue, ProcedureEquipment,
+    InstrumentDefinitionIssue
 )
 from database.session import get_session, init_db
 
@@ -2066,6 +2067,7 @@ class DatabaseService:
             'is_public': definition.is_public,
             'is_builtin': definition.is_builtin,
             'is_approved': definition.is_approved,
+            'status': definition.status or 'operational',
             'created_by': definition.created_by,
             'created_at': definition.created_at.isoformat() if definition.created_at else None,
             'updated_at': definition.updated_at.isoformat() if definition.updated_at else None,
@@ -2696,6 +2698,114 @@ class DatabaseService:
             'resolution': issue.resolution,
             'cost': float(issue.cost) if issue.cost else None,
             'downtime_hours': float(issue.downtime_hours) if issue.downtime_hours else None,
+            'resolved_at': issue.resolved_at.isoformat() if issue.resolved_at else None,
+            'created_at': issue.created_at.isoformat() if issue.created_at else None,
+            'updated_at': issue.updated_at.isoformat() if issue.updated_at else None,
+        }
+
+    # ==================== Instrument Definition Issues ====================
+    
+    def get_instrument_definition_issues(
+        self,
+        definition_id: Optional[int] = None,
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+        category: Optional[str] = None,
+        assignee_id: Optional[int] = None,
+        reporter_id: Optional[int] = None,
+        page: int = 1,
+        per_page: int = 20
+    ) -> Tuple[List[Dict], int]:
+        """Get paginated list of instrument definition issues."""
+        with self.session_scope() as session:
+            query = session.query(InstrumentDefinitionIssue)
+            
+            if definition_id:
+                query = query.filter(InstrumentDefinitionIssue.definition_id == definition_id)
+            
+            if status:
+                query = query.filter(InstrumentDefinitionIssue.status == status)
+            
+            if priority:
+                query = query.filter(InstrumentDefinitionIssue.priority == priority)
+            
+            if category:
+                query = query.filter(InstrumentDefinitionIssue.category == category)
+            
+            if assignee_id:
+                query = query.filter(InstrumentDefinitionIssue.assignee_id == assignee_id)
+            
+            if reporter_id:
+                query = query.filter(InstrumentDefinitionIssue.reporter_id == reporter_id)
+            
+            total = query.count()
+            offset = (page - 1) * per_page
+            issues = query.order_by(InstrumentDefinitionIssue.created_at.desc()).offset(offset).limit(per_page).all()
+            
+            return [self._instrument_definition_issue_to_dict(i) for i in issues], total
+    
+    def get_instrument_definition_issue(self, issue_id: int) -> Optional[Dict]:
+        """Get a single instrument definition issue by ID."""
+        with self.session_scope() as session:
+            issue = session.query(InstrumentDefinitionIssue).filter(InstrumentDefinitionIssue.id == issue_id).first()
+            return self._instrument_definition_issue_to_dict(issue) if issue else None
+    
+    def create_instrument_definition_issue(self, data: Dict[str, Any]) -> Dict:
+        """Create new instrument definition issue."""
+        with self.session_scope() as session:
+            issue = InstrumentDefinitionIssue(**data)
+            session.add(issue)
+            session.flush()
+            return self._instrument_definition_issue_to_dict(issue)
+    
+    def update_instrument_definition_issue(self, issue_id: int, data: Dict) -> Optional[Dict]:
+        """Update an existing instrument definition issue."""
+        with self.session_scope() as session:
+            issue = session.query(InstrumentDefinitionIssue).filter(InstrumentDefinitionIssue.id == issue_id).first()
+            if not issue:
+                return None
+            
+            for field in ['title', 'description', 'category', 'priority', 'status',
+                          'assignee_id', 'error_message', 'steps_to_reproduce',
+                          'affected_version', 'fixed_in_version', 'environment_info',
+                          'resolution', 'resolution_steps', 'resolved_at']:
+                if field in data:
+                    setattr(issue, field, data[field])
+            
+            session.flush()
+            return self._instrument_definition_issue_to_dict(issue)
+    
+    def _instrument_definition_issue_to_dict(self, issue: InstrumentDefinitionIssue) -> Dict:
+        """Convert InstrumentDefinitionIssue model to dictionary."""
+        reporter_name = None
+        if issue.reporter:
+            reporter_name = issue.reporter.name or issue.reporter.username
+        assignee_name = None
+        if issue.assignee:
+            assignee_name = issue.assignee.name or issue.assignee.username
+        definition_name = None
+        if issue.definition:
+            definition_name = issue.definition.display_name or issue.definition.name
+        return {
+            'id': issue.id,
+            'definition_id': issue.definition_id,
+            'definition_name': definition_name,
+            'title': issue.title,
+            'description': issue.description,
+            'category': issue.category,
+            'priority': issue.priority,
+            'status': issue.status,
+            'reporter_id': issue.reporter_id,
+            'reporter_name': reporter_name,
+            'assignee_id': issue.assignee_id,
+            'assignee_name': assignee_name,
+            'error_message': issue.error_message,
+            'steps_to_reproduce': issue.steps_to_reproduce,
+            'affected_version': issue.affected_version,
+            'fixed_in_version': issue.fixed_in_version,
+            'environment_info': issue.environment_info,
+            'resolution': issue.resolution,
+            'resolution_steps': issue.resolution_steps,
             'resolved_at': issue.resolved_at.isoformat() if issue.resolved_at else None,
             'created_at': issue.created_at.isoformat() if issue.created_at else None,
             'updated_at': issue.updated_at.isoformat() if issue.updated_at else None,

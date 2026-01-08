@@ -189,6 +189,18 @@
                 </div>
                 
                 <div class="form-group">
+                    <label>Status</label>
+                    <select name="status">
+                        <option value="operational" {% if definition.status == 'operational' or not definition.status %}selected{% endif %}>Operational</option>
+                        <option value="development" {% if definition.status == 'development' %}selected{% endif %}>Development</option>
+                        <option value="testing" {% if definition.status == 'testing' %}selected{% endif %}>Testing</option>
+                        <option value="experimental" {% if definition.status == 'experimental' %}selected{% endif %}>Experimental</option>
+                        <option value="deprecated" {% if definition.status == 'deprecated' %}selected{% endif %}>Deprecated</option>
+                    </select>
+                    <div class="help-text">Current development/deployment status</div>
+                </div>
+                
+                <div class="form-group">
                     <div class="checkbox-group">
                         <input type="checkbox" name="is_public" id="is_public" {% if definition.is_public %}checked{% endif %}>
                         <label for="is_public">Make publicly available</label>

@@ -225,6 +225,19 @@
         border: 1px dashed #e2e8f0;
         border-radius: 8px;
     }
+    /* Definition status badge */
+    .definition-status {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+    .definition-status.operational { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+    .definition-status.development { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+    .definition-status.testing { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+    .definition-status.deprecated { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+    .definition-status.experimental { background: rgba(168, 85, 247, 0.1); color: #a855f7; }
 </style>
 {% endblock %}
 
@@ -240,12 +253,17 @@
             <div class="definition-class-name">Class: <code>{{ definition.name }}</code></div>
         </div>
         <div class="action-buttons">
+            <a href="{{ url_for('main.instrument_definition_issues', definition_id=definition.id) }}" class="btn btn-secondary">Issues</a>
             <a href="{{ url_for('main.instrument_definition_edit', definition_id=definition.id) }}" class="btn btn-primary">Edit</a>
             <a href="{{ url_for('main.instrument_definition_duplicate', definition_id=definition.id) }}" class="btn btn-secondary">Duplicate</a>
         </div>
     </div>
     
     <div class="definition-meta">
+        <div class="meta-item">
+            <span class="meta-label">Status</span>
+            <span class="definition-status {{ definition.status or 'operational' }}">{{ definition.status or 'operational' }}</span>
+        </div>
         <div class="meta-item">
             <span class="meta-label">Type</span>
             <span class="definition-type {{ definition.instrument_type }}">{{ definition.instrument_type }}</span>
