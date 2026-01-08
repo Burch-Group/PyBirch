@@ -101,6 +101,27 @@ class DatabaseService:
                     'open': session.query(func.count(Issue.id)).filter(Issue.status == 'open').scalar() or 0,
                     'in_progress': session.query(func.count(Issue.id)).filter(Issue.status == 'in_progress').scalar() or 0,
                 },
+                'templates': {
+                    'total': session.query(func.count(Template.id)).scalar() or 0,
+                    'active': session.query(func.count(Template.id)).filter(Template.is_active == True).scalar() or 0,
+                },
+                'fabrication_runs': {
+                    'total': session.query(func.count(FabricationRun.id)).scalar() or 0,
+                    'completed': session.query(func.count(FabricationRun.id)).filter(FabricationRun.status == 'completed').scalar() or 0,
+                },
+            }
+            
+            # Import models not in main imports for stats
+            from database.models import InstrumentDefinition, Computer
+            
+            stats['instrument_definitions'] = {
+                'total': session.query(func.count(InstrumentDefinition.id)).scalar() or 0,
+                'movement': session.query(func.count(InstrumentDefinition.id)).filter(InstrumentDefinition.instrument_type == 'movement').scalar() or 0,
+                'measurement': session.query(func.count(InstrumentDefinition.id)).filter(InstrumentDefinition.instrument_type == 'measurement').scalar() or 0,
+            }
+            
+            stats['computers'] = {
+                'total': session.query(func.count(Computer.id)).scalar() or 0,
             }
             
             # Recent activity
@@ -1577,9 +1598,8 @@ class DatabaseService:
                 return None
             
             for field in ['name', 'instrument_type', 'pybirch_class', 'manufacturer', 'model',
-                          'serial_number', 'adapter', 'location', 'status', 'specifications',
-                          'calibration_date', 'next_calibration_date', 'lab_id', 'equipment_id',
-                          'definition_id']:
+                          'serial_number', 'location', 'status', 'specifications',
+                          'lab_id', 'equipment_id', 'definition_id']:
                 if field in data:
                     setattr(instrument, field, data[field])
             
@@ -1736,7 +1756,6 @@ class DatabaseService:
             definition_id: ID of the InstrumentDefinition to link
             data: Instrument data including:
                 - name: Display name for this instance (required)
-                - adapter: VISA address or connection string (optional)
                 - serial_number: Physical device serial (optional)
                 - location: Physical location (optional)
                 - manufacturer, model: Device info (optional)
@@ -1763,7 +1782,6 @@ class DatabaseService:
                 manufacturer=data.get('manufacturer') or definition.manufacturer,
                 model=data.get('model'),
                 serial_number=data.get('serial_number'),
-                adapter=data.get('adapter'),
                 location=data.get('location'),
                 status=data.get('status', 'available'),
                 lab_id=data.get('lab_id'),
@@ -1793,7 +1811,6 @@ class DatabaseService:
             'manufacturer': instrument.manufacturer,
             'model': instrument.model,
             'serial_number': instrument.serial_number,
-            'adapter': instrument.adapter,
             'location': instrument.location,
             'status': instrument.status,
             'specifications': instrument.specifications,
@@ -1802,8 +1819,6 @@ class DatabaseService:
             'definition_id': instrument.definition_id,
             'definition_name': definition_name,
             'definition_display_name': definition_display_name,
-            'calibration_date': instrument.calibration_date.isoformat() if instrument.calibration_date else None,
-            'next_calibration_date': instrument.next_calibration_date.isoformat() if instrument.next_calibration_date else None,
             'created_at': instrument.created_at.isoformat() if instrument.created_at else None,
         }
         
@@ -3344,12 +3359,18 @@ class DatabaseService:
         sample_id: Optional[int] = None,
         procedure_id: Optional[int] = None,
         status: Optional[str] = None,
+        search: Optional[str] = None,
         page: int = 1,
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
         """Get paginated list of fabrication runs with optional filtering."""
+        from sqlalchemy.orm import joinedload
+        
         with self.session_scope() as session:
-            query = session.query(FabricationRun)
+            query = session.query(FabricationRun).options(
+                joinedload(FabricationRun.sample),
+                joinedload(FabricationRun.procedure)
+            )
             
             if sample_id:
                 query = query.filter(FabricationRun.sample_id == sample_id)
@@ -3357,6 +3378,19 @@ class DatabaseService:
                 query = query.filter(FabricationRun.procedure_id == procedure_id)
             if status:
                 query = query.filter(FabricationRun.status == status)
+            if search:
+                search_term = f"%{search}%"
+                query = query.outerjoin(Sample, FabricationRun.sample_id == Sample.id).outerjoin(
+                    Procedure, FabricationRun.procedure_id == Procedure.id
+                ).filter(
+                    or_(
+                        Sample.name.ilike(search_term),
+                        Sample.sample_id.ilike(search_term),
+                        Procedure.name.ilike(search_term),
+                        FabricationRun.created_by.ilike(search_term),
+                        FabricationRun.notes.ilike(search_term),
+                    )
+                )
             
             total = query.count()
             runs = query.order_by(FabricationRun.created_at.desc()).offset(

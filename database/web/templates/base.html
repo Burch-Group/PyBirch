@@ -256,9 +256,13 @@
                 <img src="{{ url_for('static', filename='images/precursors.svg') }}" class="nav-icon" alt="">
                 <span>Precursors</span>
             </a>
-            <a href="{{ url_for('main.procedures') }}" class="nav-drawer-link {% if request.endpoint and 'procedure' in request.endpoint %}active{% endif %}">
+            <a href="{{ url_for('main.procedures') }}" class="nav-drawer-link {% if request.endpoint and 'procedure' in request.endpoint and 'fabrication_run' not in request.endpoint %}active{% endif %}">
                 <img src="{{ url_for('static', filename='images/procedures.svg') }}" class="nav-icon" alt="">
                 <span>Procedures</span>
+            </a>
+            <a href="{{ url_for('main.fabrication_runs') }}" class="nav-drawer-link {% if request.endpoint and 'fabrication_run' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/fabrication_runs.svg') }}" class="nav-icon" alt="">
+                <span>Fabrication Runs</span>
             </a>
             <a href="{{ url_for('main.issues') }}" class="nav-drawer-link {% if request.endpoint and 'issue' in request.endpoint and 'equipment_issue' not in request.endpoint %}active{% endif %}">
                 <img src="{{ url_for('static', filename='images/issues.svg') }}" class="nav-icon" alt="">

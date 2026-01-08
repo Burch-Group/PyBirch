@@ -122,6 +122,41 @@
             </div>
             <a href="{{ url_for('main.issues') }}" class="stat-link">View all →</a>
         </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Templates</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.templates.total }}</div>
+                <div class="stat-detail">{{ stats.templates.active }} active</div>
+            </div>
+            <a href="{{ url_for('main.templates') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Fabrication Runs</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.fabrication_runs.total }}</div>
+                <div class="stat-detail">{{ stats.fabrication_runs.completed }} completed</div>
+            </div>
+            <a href="{{ url_for('main.fabrication_runs') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Instrument Definitions</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.instrument_definitions.total }}</div>
+                <div class="stat-detail">{{ stats.instrument_definitions.movement }} movement, {{ stats.instrument_definitions.measurement }} measurement</div>
+            </div>
+            <a href="{{ url_for('main.instrument_definitions') }}" class="stat-link">View all →</a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-title">Computers</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.computers.total }}</div>
+            </div>
+            <a href="{{ url_for('main.computers') }}" class="stat-link">View all →</a>
+        </div>
     </div>
     
     <div class="dashboard-row">

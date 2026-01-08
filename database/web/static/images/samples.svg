@@ -1,7 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <!-- Microscope for Samples -->
-  <path d="M6 21h12M9 3v3m0 0L7 9m2-3l2 3m0 0v9m-2 0h4"/>
-  <circle cx="11" cy="18" r="3"/>
-  <path d="M18 11a6 6 0 0 0-6-6"/>
-  <path d="M14 6h4v4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="4" y="2" width="8" height="10" rx="1"/>
+  <path d="M6 14h4"/>
+  <path d="M8 12v2"/>
+  <circle cx="8" cy="7" r="2"/>
 </svg>

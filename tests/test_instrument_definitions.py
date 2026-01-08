@@ -944,14 +944,13 @@ class TestInstrumentDefinitionIntegration:
             definition['id'],
             {
                 'name': 'Lab Voltmeter #1',
-                'adapter': 'GPIB0::8::INSTR',
                 'serial_number': 'WF-001',
             }
         )
         
         assert instrument['definition_id'] == definition['id']
         
-        # 3. Bind to computer
+        # 3. Bind to computer (adapter is stored on the binding, not the instrument)
         binding = db_service.bind_instrument_to_computer(
             instrument_id=instrument['id'],
             computer_name='WORKFLOW-PC',
@@ -960,6 +959,7 @@ class TestInstrumentDefinitionIntegration:
         )
         
         assert binding['computer_name'] == 'WORKFLOW-PC'
+        assert binding['adapter'] == 'GPIB0::8::INSTR'
         
         # 4. Verify discovery
         definition_ids = db_service.get_definition_ids_for_computer(
@@ -975,10 +975,10 @@ class TestInstrumentDefinitionIntegration:
         
         assert instrument_class.__name__ == 'TestMeasurementInstrument'
         
-        # 6. Create instance
+        # 6. Create instance using adapter from binding
         instance = InstrumentFactory.create_instance(
             definition_data,
-            adapter=instrument['adapter'],
+            adapter=binding['adapter'],
             name=instrument['name']
         )
         

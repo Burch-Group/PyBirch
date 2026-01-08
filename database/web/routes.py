@@ -574,8 +574,7 @@ def fabrication_run_edit(run_id):
             'procedure_id': run_obj.procedure_id,
             'run_number': run_obj.run_number,
             'status': run_obj.status,
-            'operator': run_obj.operator,
-            'created_by': run_obj.operator,  # Template uses created_by
+            'created_by': run_obj.created_by,
             'started_at': run_obj.started_at.isoformat() if run_obj.started_at else None,
             'completed_at': run_obj.completed_at.isoformat() if run_obj.completed_at else None,
             'notes': run_obj.notes,
@@ -680,7 +679,7 @@ def fabrication_run_detail(run_id):
             'procedure_id': run_obj.procedure_id,
             'run_number': run_obj.run_number,
             'status': run_obj.status,
-            'operator': run_obj.operator,
+            'created_by': run_obj.created_by,
             'started_at': run_obj.started_at.isoformat() if run_obj.started_at else None,
             'completed_at': run_obj.completed_at.isoformat() if run_obj.completed_at else None,
             'notes': run_obj.notes,
@@ -824,6 +823,40 @@ def fabrication_run_from_procedure(procedure_id):
                           procedure=procedure,
                           samples=samples,
                           now=now)
+
+
+# -------------------- Fabrication Runs --------------------
+
+@main_bp.route('/fabrication-runs')
+def fabrication_runs():
+    """Fabrication runs list page."""
+    page = request.args.get('page', 1, type=int)
+    search = request.args.get('search', '')
+    status = request.args.get('status', '')
+    
+    db = get_db_service()
+    runs_list, total = db.get_fabrication_runs(
+        search=search if search else None,
+        status=status if status else None,
+        page=page
+    )
+    
+    total_pages = (total + 19) // 20
+    
+    # Get pinned IDs for current user
+    pinned_ids = []
+    if g.current_user:
+        pinned_ids = db.get_pinned_ids(g.current_user['id'], 'fabrication_run')
+    
+    return render_template('fabrication_runs.html',
+        runs=runs_list,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        search=search,
+        status=status,
+        pinned_ids=pinned_ids
+    )
 
 
 # -------------------- Scans --------------------
@@ -2823,7 +2856,7 @@ def api_pin_item(entity_type, entity_id):
     """API endpoint to pin an item."""
     db = get_db_service()
     
-    valid_types = ['sample', 'scan', 'queue', 'equipment', 'precursor', 'procedure', 'project', 'lab', 'instrument']
+    valid_types = ['sample', 'scan', 'queue', 'equipment', 'precursor', 'procedure', 'project', 'lab', 'instrument', 'fabrication_run']
     if entity_type not in valid_types:
         return jsonify({'success': False, 'error': f'Invalid entity type: {entity_type}'}), 400
     
@@ -2840,7 +2873,7 @@ def api_unpin_item(entity_type, entity_id):
     """API endpoint to unpin an item."""
     db = get_db_service()
     
-    valid_types = ['sample', 'scan', 'queue', 'equipment', 'precursor', 'procedure', 'project', 'lab', 'instrument']
+    valid_types = ['sample', 'scan', 'queue', 'equipment', 'precursor', 'procedure', 'project', 'lab', 'instrument', 'fabrication_run']
     if entity_type not in valid_types:
         return jsonify({'success': False, 'error': f'Invalid entity type: {entity_type}'}), 400
     
@@ -4281,7 +4314,6 @@ def instrument_new():
             'name': request.form.get('name'),
             'instrument_type': request.form.get('instrument_type'),
             'definition_id': definition_id,
-            'adapter': request.form.get('adapter'),
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
@@ -4340,7 +4372,6 @@ def instrument_edit(instrument_id):
             'name': request.form.get('name'),
             'instrument_type': request.form.get('instrument_type'),
             'definition_id': definition_id,
-            'adapter': request.form.get('adapter'),
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
@@ -4409,7 +4440,6 @@ def instrument_duplicate(instrument_id):
             'name': request.form.get('name'),
             'instrument_type': request.form.get('instrument_type'),
             'pybirch_class': request.form.get('pybirch_class'),
-            'adapter': request.form.get('adapter'),
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
@@ -4773,7 +4803,6 @@ def instrument_definition_new_instance(definition_id):
     if request.method == 'POST':
         data = {
             'name': request.form.get('name', '').strip(),
-            'adapter': request.form.get('adapter', '').strip() or None,
             'serial_number': request.form.get('serial_number', '').strip() or None,
             'location': request.form.get('location', '').strip() or None,
             'manufacturer': request.form.get('manufacturer', '').strip() or None,
@@ -5161,7 +5190,6 @@ def instrument_binding_new(instrument_id):
             'computer_name': current_computer_name,
             'computer_id': computer_info.get('computer_id', ''),
             'username': computer_info.get('username', ''),
-            'adapter': instrument.get('adapter', ''),
         },
         computer=existing_computer,
         form_action=url_for('main.instrument_binding_new', instrument_id=instrument_id),

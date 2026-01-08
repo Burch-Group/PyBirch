@@ -1,13 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <!-- Molecular Structure for Templates -->
-  <circle cx="12" cy="5" r="2"/>
-  <circle cx="6" cy="11" r="2"/>
-  <circle cx="18" cy="11" r="2"/>
-  <circle cx="9" cy="17" r="2"/>
-  <circle cx="15" cy="17" r="2"/>
-  <line x1="12" y1="7" x2="12" y2="10"/>
-  <line x1="10.5" y1="6" x2="7.5" y2="10"/>
-  <line x1="13.5" y1="6" x2="16.5" y2="10"/>
-  <line x1="7" y1="13" x2="10" y2="15.5"/>
-  <line x1="17" y1="13" x2="14" y2="15.5"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="2" y="2" width="12" height="12" rx="1"/>
+  <path d="M2 5h12"/>
+  <path d="M5 5v9"/>
 </svg>

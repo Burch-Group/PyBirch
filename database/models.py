@@ -380,12 +380,9 @@ class Instrument(Base):
     manufacturer: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     serial_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    adapter: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # VISA address or connection string
     location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default='available')  # 'available', 'in_use', 'maintenance', 'retired'
     specifications: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Technical specs
-    calibration_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    next_calibration_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Additional metadata
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

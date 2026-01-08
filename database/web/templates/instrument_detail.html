@@ -212,27 +212,12 @@
         </div>
         {% endif %}
         
+        {% if instrument.specifications %}
         <div class="detail-section">
-            <h2>Connection & Calibration</h2>
-            <dl class="detail-list">
-                <dt>Adapter / Connection</dt>
-                <dd><code>{{ instrument.adapter or '-' }}</code></dd>
-                
-                <dt>Last Calibration</dt>
-                <dd>{{ instrument.calibration_date or '-' }}</dd>
-                
-                <dt>Next Calibration</dt>
-                <dd>{{ instrument.next_calibration_date or '-' }}</dd>
-                
-                <dt>Added</dt>
-                <dd>{{ instrument.created_at[:10] if instrument.created_at else '-' }}</dd>
-            </dl>
-            
-            {% if instrument.specifications %}
-            <h3>Specifications</h3>
+            <h2>Specifications</h2>
             <pre class="json-display">{{ instrument.specifications | tojson(indent=2) }}</pre>
-            {% endif %}
         </div>
+        {% endif %}
     </div>
     
     <!-- Images Section -->

@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}Fabrication Runs - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="header-title-row">
+        <div>
+            <h1>Fabrication Runs</h1>
+            <p class="subtitle">Records of procedure executions for sample fabrication</p>
+        </div>
+    </div>
+</div>
+
+<div class="filters">
+    <form method="get" action="{{ url_for('main.fabrication_runs') }}">
+        <div class="filter-group">
+            <input type="text" name="search" placeholder="Search runs..." 
+                   value="{{ search }}" class="search-input">
+            <select name="status" class="filter-select">
+                <option value="">All Status</option>
+                <option value="pending" {% if status == 'pending' %}selected{% endif %}>Pending</option>
+                <option value="in_progress" {% if status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
+                <option value="failed" {% if status == 'failed' %}selected{% endif %}>Failed</option>
+                <option value="cancelled" {% if status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+            </select>
+            <button type="submit" class="btn btn-primary">Filter</button>
+            {% if search or status %}
+            <a href="{{ url_for('main.fabrication_runs') }}" class="btn btn-secondary">Clear</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+<div class="results-summary">
+    Showing {{ runs|length }} of {{ total }} fabrication runs
+</div>
+
+{% if runs %}
+{# Separate pinned and unpinned items #}
+{% set pinned_items = runs | selectattr('id', 'in', pinned_ids) | list %}
+{% set unpinned_items = runs | rejectattr('id', 'in', pinned_ids) | list %}
+
+<div class="table-container">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 30px;"></th>
+                <th>Run #</th>
+                <th>Sample</th>
+                <th>Procedure</th>
+                <th>Status</th>
+                <th>Operator</th>
+                <th>Started</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {# Pinned items first #}
+            {% for run in pinned_items %}
+            <tr class="pinned-row">
+                <td>
+                    {% if current_user %}
+                    <button class="pin-btn pinned" data-entity-type="fabrication_run" data-entity-id="{{ run.id }}" title="Unpin">📌</button>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{{ url_for('main.fabrication_run_detail', run_id=run.id) }}">
+                        #{{ run.run_number or run.id }}
+                    </a>
+                </td>
+                <td>
+                    {% if run.sample_id %}
+                    <a href="{{ url_for('main.sample_detail', sample_id=run.sample_id) }}">
+                        {{ run.sample_name or run.sample_sample_id or 'Sample #' ~ run.sample_id }}
+                    </a>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if run.procedure_id %}
+                    <a href="{{ url_for('main.procedure_detail', procedure_id=run.procedure_id) }}">
+                        {{ run.procedure_name or 'Procedure #' ~ run.procedure_id }}
+                    </a>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="status-badge status-{{ run.status }}">{{ run.status }}</span>
+                </td>
+                <td>{{ run.created_by or '—' }}</td>
+                <td>{{ run.started_at[:10] if run.started_at else '—' }}</td>
+                <td>
+                    <a href="{{ url_for('main.fabrication_run_detail', run_id=run.id) }}" 
+                       class="btn btn-small">View</a>
+                    <a href="{{ url_for('main.fabrication_run_edit', run_id=run.id) }}" 
+                       class="btn btn-small btn-secondary">Edit</a>
+                </td>
+            </tr>
+            {% endfor %}
+            {# Unpinned items #}
+            {% for run in unpinned_items %}
+            <tr>
+                <td>
+                    {% if current_user %}
+                    <button class="pin-btn" data-entity-type="fabrication_run" data-entity-id="{{ run.id }}" title="Pin">📍</button>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{{ url_for('main.fabrication_run_detail', run_id=run.id) }}">
+                        #{{ run.run_number or run.id }}
+                    </a>
+                </td>
+                <td>
+                    {% if run.sample_id %}
+                    <a href="{{ url_for('main.sample_detail', sample_id=run.sample_id) }}">
+                        {{ run.sample_name or run.sample_sample_id or 'Sample #' ~ run.sample_id }}
+                    </a>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if run.procedure_id %}
+                    <a href="{{ url_for('main.procedure_detail', procedure_id=run.procedure_id) }}">
+                        {{ run.procedure_name or 'Procedure #' ~ run.procedure_id }}
+                    </a>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="status-badge status-{{ run.status }}">{{ run.status }}</span>
+                </td>
+                <td>{{ run.created_by or '—' }}</td>
+                <td>{{ run.started_at[:10] if run.started_at else '—' }}</td>
+                <td>
+                    <a href="{{ url_for('main.fabrication_run_detail', run_id=run.id) }}" 
+                       class="btn btn-small">View</a>
+                    <a href="{{ url_for('main.fabrication_run_edit', run_id=run.id) }}" 
+                       class="btn btn-small btn-secondary">Edit</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+        <a href="{{ url_for('main.fabrication_runs', page=page-1, search=search, status=status) }}" class="btn btn-sm">← Previous</a>
+    {% endif %}
+    <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+        <a href="{{ url_for('main.fabrication_runs', page=page+1, search=search, status=status) }}" class="btn btn-sm">Next →</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+    <p>No fabrication runs found.</p>
+    <p class="text-muted">Fabrication runs are created from sample detail pages or procedure pages.</p>
+</div>
+{% endif %}
+{% endblock %}
