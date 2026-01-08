@@ -13,9 +13,9 @@ from contextlib import contextmanager
 
 from database.models import (
     Template, Equipment, Instrument, Precursor, PrecursorInventory,
-    Procedure, Sample, SamplePrecursor,
+    Procedure, Sample, SamplePrecursor, ProcedurePrecursor,
     Queue, QueueLog, Scan, ScanLog, MeasurementObject, MeasurementDataPoint,
-    Tag, EntityTag, FabricationRun,
+    Tag, EntityTag, FabricationRun, FabricationRunPrecursor,
     Lab, LabMember, Project, ProjectMember, ItemGuest,
     User, UserPin, Issue, EntityImage,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
@@ -3594,6 +3594,22 @@ class DatabaseService:
                         'is_required': assoc.is_required,
                     })
         
+        # Get linked precursors
+        precursor_list = []
+        if hasattr(procedure, 'precursor_associations') and procedure.precursor_associations:
+            for assoc in procedure.precursor_associations:
+                if assoc.precursor:
+                    precursor_list.append({
+                        'id': assoc.id,
+                        'precursor_id': assoc.precursor.id,
+                        'precursor_name': assoc.precursor.name,
+                        'chemical_formula': assoc.precursor.chemical_formula,
+                        'quantity': float(assoc.quantity) if assoc.quantity else None,
+                        'quantity_unit': assoc.quantity_unit,
+                        'purpose': assoc.purpose,
+                        'is_required': assoc.is_required,
+                    })
+        
         return {
             'id': procedure.id,
             'name': procedure.name,
@@ -3609,6 +3625,7 @@ class DatabaseService:
             'created_at': procedure.created_at.isoformat() if procedure.created_at else None,
             'created_by': procedure.created_by,
             'equipment': equipment_list,
+            'precursors': precursor_list,
             'lab_id': procedure.lab_id,
             'project_id': procedure.project_id,
         }
@@ -3712,6 +3729,237 @@ class DatabaseService:
                         procedure_id=procedure_id,
                         equipment_id=equipment_id,
                         is_required=True
+                    )
+                    session.add(association)
+            
+            session.flush()
+    
+    # ==================== Procedure-Precursor Associations ====================
+    
+    def get_procedure_precursors(self, procedure_id: int) -> List[Dict]:
+        """Get all precursors linked to a procedure."""
+        with self.session_scope() as session:
+            associations = session.query(ProcedurePrecursor).options(
+                joinedload(ProcedurePrecursor.precursor)
+            ).filter(ProcedurePrecursor.procedure_id == procedure_id).all()
+            
+            return [{
+                'id': a.id,
+                'precursor_id': a.precursor_id,
+                'precursor_name': a.precursor.name if a.precursor else None,
+                'chemical_formula': a.precursor.chemical_formula if a.precursor else None,
+                'quantity': float(a.quantity) if a.quantity else None,
+                'quantity_unit': a.quantity_unit,
+                'purpose': a.purpose,
+                'is_required': a.is_required,
+            } for a in associations]
+    
+    def add_procedure_precursor(
+        self,
+        procedure_id: int,
+        precursor_id: int,
+        quantity: Optional[float] = None,
+        quantity_unit: Optional[str] = None,
+        purpose: Optional[str] = None,
+        is_required: bool = True
+    ) -> Optional[Dict]:
+        """Link a precursor to a procedure."""
+        with self.session_scope() as session:
+            # Check if association already exists
+            existing = session.query(ProcedurePrecursor).filter(
+                ProcedurePrecursor.procedure_id == procedure_id,
+                ProcedurePrecursor.precursor_id == precursor_id
+            ).first()
+            
+            if existing:
+                return None
+            
+            association = ProcedurePrecursor(
+                procedure_id=procedure_id,
+                precursor_id=precursor_id,
+                quantity=quantity,
+                quantity_unit=quantity_unit,
+                purpose=purpose,
+                is_required=is_required
+            )
+            session.add(association)
+            session.flush()
+            
+            return {
+                'id': association.id,
+                'procedure_id': association.procedure_id,
+                'precursor_id': association.precursor_id,
+                'quantity': float(association.quantity) if association.quantity else None,
+                'quantity_unit': association.quantity_unit,
+                'purpose': association.purpose,
+                'is_required': association.is_required,
+            }
+    
+    def remove_procedure_precursor(self, procedure_id: int, precursor_id: int) -> bool:
+        """Remove a precursor link from a procedure."""
+        with self.session_scope() as session:
+            association = session.query(ProcedurePrecursor).filter(
+                ProcedurePrecursor.procedure_id == procedure_id,
+                ProcedurePrecursor.precursor_id == precursor_id
+            ).first()
+            
+            if association:
+                session.delete(association)
+                return True
+            return False
+    
+    def clear_procedure_precursors(self, procedure_id: int) -> int:
+        """Remove all precursors from a procedure.
+        
+        Returns:
+            Number of precursors removed
+        """
+        with self.session_scope() as session:
+            count = session.query(ProcedurePrecursor).filter(
+                ProcedurePrecursor.procedure_id == procedure_id
+            ).delete()
+            return count
+    
+    def update_procedure_precursor_list(
+        self, 
+        procedure_id: int, 
+        precursors: List[Dict]
+    ) -> None:
+        """Update the list of precursors linked to a procedure (replaces all associations).
+        
+        Args:
+            procedure_id: ID of the procedure
+            precursors: List of dicts with keys: precursor_id, quantity, quantity_unit, purpose, is_required
+        """
+        with self.session_scope() as session:
+            # Remove all existing associations
+            session.query(ProcedurePrecursor).filter(
+                ProcedurePrecursor.procedure_id == procedure_id
+            ).delete()
+            
+            # Add new associations
+            for prec in precursors:
+                if prec.get('precursor_id'):
+                    association = ProcedurePrecursor(
+                        procedure_id=procedure_id,
+                        precursor_id=prec['precursor_id'],
+                        quantity=prec.get('quantity'),
+                        quantity_unit=prec.get('quantity_unit'),
+                        purpose=prec.get('purpose'),
+                        is_required=prec.get('is_required', True)
+                    )
+                    session.add(association)
+            
+            session.flush()
+    
+    # ==================== Fabrication Run Precursors ====================
+    
+    def get_fabrication_run_precursors(self, run_id: int) -> List[Dict]:
+        """Get all precursors consumed in a fabrication run."""
+        with self.session_scope() as session:
+            associations = session.query(FabricationRunPrecursor).options(
+                joinedload(FabricationRunPrecursor.precursor)
+            ).filter(FabricationRunPrecursor.fabrication_run_id == run_id).all()
+            
+            return [{
+                'id': a.id,
+                'precursor_id': a.precursor_id,
+                'precursor_name': a.precursor.name if a.precursor else None,
+                'chemical_formula': a.precursor.chemical_formula if a.precursor else None,
+                'quantity_consumed': float(a.quantity_consumed) if a.quantity_consumed else None,
+                'quantity_unit': a.quantity_unit,
+                'notes': a.notes,
+            } for a in associations]
+    
+    def add_fabrication_run_precursor(
+        self,
+        run_id: int,
+        precursor_id: int,
+        quantity_consumed: Optional[float] = None,
+        quantity_unit: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> Optional[Dict]:
+        """Add a precursor to a fabrication run."""
+        with self.session_scope() as session:
+            # Check if association already exists
+            existing = session.query(FabricationRunPrecursor).filter(
+                FabricationRunPrecursor.fabrication_run_id == run_id,
+                FabricationRunPrecursor.precursor_id == precursor_id
+            ).first()
+            
+            if existing:
+                return None
+            
+            association = FabricationRunPrecursor(
+                fabrication_run_id=run_id,
+                precursor_id=precursor_id,
+                quantity_consumed=quantity_consumed,
+                quantity_unit=quantity_unit,
+                notes=notes
+            )
+            session.add(association)
+            session.flush()
+            
+            return {
+                'id': association.id,
+                'fabrication_run_id': association.fabrication_run_id,
+                'precursor_id': association.precursor_id,
+                'quantity_consumed': float(association.quantity_consumed) if association.quantity_consumed else None,
+                'quantity_unit': association.quantity_unit,
+                'notes': association.notes,
+            }
+    
+    def remove_fabrication_run_precursor(self, run_id: int, precursor_id: int) -> bool:
+        """Remove a precursor from a fabrication run."""
+        with self.session_scope() as session:
+            association = session.query(FabricationRunPrecursor).filter(
+                FabricationRunPrecursor.fabrication_run_id == run_id,
+                FabricationRunPrecursor.precursor_id == precursor_id
+            ).first()
+            
+            if association:
+                session.delete(association)
+                return True
+            return False
+    
+    def clear_fabrication_run_precursors(self, run_id: int) -> int:
+        """Remove all precursors from a fabrication run.
+        
+        Returns:
+            Number of precursors removed
+        """
+        with self.session_scope() as session:
+            count = session.query(FabricationRunPrecursor).filter(
+                FabricationRunPrecursor.fabrication_run_id == run_id
+            ).delete()
+            return count
+    
+    def update_fabrication_run_precursor_list(
+        self, 
+        run_id: int, 
+        precursors: List[Dict]
+    ) -> None:
+        """Update the list of precursors for a fabrication run (replaces all associations).
+        
+        Args:
+            run_id: ID of the fabrication run
+            precursors: List of dicts with keys: precursor_id, quantity_consumed, quantity_unit, notes
+        """
+        with self.session_scope() as session:
+            # Remove all existing associations
+            session.query(FabricationRunPrecursor).filter(
+                FabricationRunPrecursor.fabrication_run_id == run_id
+            ).delete()
+            
+            # Add new associations
+            for prec in precursors:
+                if prec.get('precursor_id'):
+                    association = FabricationRunPrecursor(
+                        fabrication_run_id=run_id,
+                        precursor_id=prec['precursor_id'],
+                        quantity_consumed=prec.get('quantity_consumed'),
+                        quantity_unit=prec.get('quantity_unit'),
+                        notes=prec.get('notes')
                     )
                     session.add(association)
             

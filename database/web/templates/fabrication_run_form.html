@@ -103,6 +103,51 @@
                 <div id="step-params-container"></div>
             </div>
             
+            <!-- Precursors Consumed Section -->
+            <div class="form-section">
+                <h2>🧪 Precursors Consumed</h2>
+                <p class="form-help">Record the precursors used in this fabrication run and the quantities consumed.</p>
+                
+                <div id="precursors-container">
+                    {% if run_precursors %}
+                        {% for rp in run_precursors %}
+                        <div class="precursor-row">
+                            <div class="precursor-fields precursor-fields--fabrication-run">
+                                <div class="form-group">
+                                    <label>Precursor</label>
+                                    <select name="precursor_id[]" class="searchable-select" data-entity-type="precursor">
+                                        <option value="">Select precursor...</option>
+                                        {% for p in precursors %}
+                                        <option value="{{ p.id }}" {% if p.id == rp.precursor_id %}selected{% endif %}>
+                                            {{ p.display }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Quantity Consumed</label>
+                                    <input type="number" step="any" name="precursor_quantity[]" value="{{ rp.quantity_consumed or '' }}" placeholder="Amount">
+                                </div>
+                                <div class="form-group">
+                                    <label>Unit</label>
+                                    <input type="text" name="precursor_unit[]" value="{{ rp.quantity_unit or '' }}" placeholder="g, mL, etc.">
+                                </div>
+                                <div class="form-group">
+                                    <label>Notes</label>
+                                    <input type="text" name="precursor_notes[]" value="{{ rp.notes or '' }}" placeholder="Optional notes">
+                                </div>
+                                <button type="button" class="btn btn-icon btn-danger remove-precursor" title="Remove" onclick="this.closest('.precursor-row').remove()">
+                                    <span>✕</span>
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+                
+                <button type="button" class="btn btn-secondary btn-sm" onclick="addPrecursor()">+ Add Precursor</button>
+            </div>
+            
             <div class="form-section">
                 <h2>📝 Notes & Results</h2>
                 
@@ -372,6 +417,54 @@ document.getElementById('failure_mode').addEventListener('change', function() {
         }
     }
 });
+
+// Precursor data for dynamic dropdowns
+const precursorData = [
+    {% for p in precursors %}
+    {id: {{ p.id }}, display: "{{ p.display|e }}"},
+    {% endfor %}
+];
+
+function addPrecursor() {
+    const container = document.getElementById('precursors-container');
+    const div = document.createElement('div');
+    div.className = 'precursor-row';
+    
+    let options = '<option value="">Select precursor...</option>';
+    precursorData.forEach(p => {
+        options += `<option value="${p.id}">${p.display}</option>`;
+    });
+    
+    div.innerHTML = `
+        <div class="precursor-fields precursor-fields--fabrication-run">
+            <div class="form-group">
+                <label>Precursor</label>
+                <select name="precursor_id[]" class="searchable-select" data-entity-type="precursor">${options}</select>
+            </div>
+            <div class="form-group">
+                <label>Quantity Consumed</label>
+                <input type="number" step="any" name="precursor_quantity[]" placeholder="Amount">
+            </div>
+            <div class="form-group">
+                <label>Unit</label>
+                <input type="text" name="precursor_unit[]" placeholder="g, mL, etc.">
+            </div>
+            <div class="form-group">
+                <label>Notes</label>
+                <input type="text" name="precursor_notes[]" placeholder="Optional notes">
+            </div>
+            <button type="button" class="btn btn-icon btn-danger remove-precursor" title="Remove" onclick="this.closest('.precursor-row').remove()">
+                <span>✕</span>
+            </button>
+        </div>
+    `;
+    container.appendChild(div);
+    
+    // Initialize searchable select if available
+    if (typeof initializeSearchableSelects === 'function') {
+        initializeSearchableSelects();
+    }
+}
 
 // Load parameters on page load if procedure is already selected
 document.addEventListener('DOMContentLoaded', function() {

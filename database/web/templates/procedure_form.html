@@ -242,6 +242,59 @@
         <button type="button" class="btn btn-secondary" onclick="addStep()">+ Add Step</button>
     </div>
     
+    <!-- Precursors Section -->
+    <div class="form-section">
+        <h2>Required Precursors</h2>
+        <p class="form-help">Select the chemical precursors and materials needed for this procedure.</p>
+        
+        <div id="precursors-container">
+            {% if procedure_precursors %}
+                {% for pp in procedure_precursors %}
+                <div class="precursor-row">
+                    <div class="precursor-fields precursor-fields--procedure">
+                        <div class="form-group">
+                            <label>Precursor</label>
+                            <select name="precursor_id[]" class="searchable-select" data-entity-type="precursor">
+                                <option value="">Select precursor...</option>
+                                {% for p in precursors %}
+                                <option value="{{ p.id }}" {% if p.id == pp.precursor_id %}selected{% endif %}>
+                                    {{ p.display }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Purpose</label>
+                            <select name="precursor_purpose[]">
+                                <option value="">Select purpose...</option>
+                                <option value="target material" {% if pp.purpose == 'target material' %}selected{% endif %}>Target Material</option>
+                                <option value="dopant" {% if pp.purpose == 'dopant' %}selected{% endif %}>Dopant</option>
+                                <option value="solvent" {% if pp.purpose == 'solvent' %}selected{% endif %}>Solvent</option>
+                                <option value="substrate" {% if pp.purpose == 'substrate' %}selected{% endif %}>Substrate</option>
+                                <option value="catalyst" {% if pp.purpose == 'catalyst' %}selected{% endif %}>Catalyst</option>
+                                <option value="other" {% if pp.purpose == 'other' %}selected{% endif %}>Other</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Quantity</label>
+                            <input type="number" step="any" name="precursor_quantity[]" value="{{ pp.quantity or '' }}" placeholder="Amount">
+                        </div>
+                        <div class="form-group">
+                            <label>Unit</label>
+                            <input type="text" name="precursor_unit[]" value="{{ pp.quantity_unit or '' }}" placeholder="g, mL, etc.">
+                        </div>
+                        <button type="button" class="btn btn-icon btn-danger remove-precursor" title="Remove" onclick="this.closest('.precursor-row').remove()">
+                            <span>✕</span>
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+        
+        <button type="button" id="add-precursor" class="btn btn-secondary" onclick="addPrecursor()">+ Add Precursor</button>
+    </div>
+    
     <!-- Equipment Section -->
     <div class="form-section">
         <h2>Required Equipment</h2>
@@ -282,6 +335,13 @@ const equipmentData = [
     {% endfor %}
 ];
 
+// Precursor data for dynamic dropdowns
+const precursorData = [
+    {% for p in precursors %}
+    {id: {{ p.id }}, display: "{{ p.display|e }}"},
+    {% endfor %}
+];
+
 function addEquipment() {
     const container = document.getElementById('equipment-container');
     const div = document.createElement('div');
@@ -302,6 +362,55 @@ function addEquipment() {
 
 function removeEquipment(button) {
     button.parentElement.remove();
+}
+
+function addPrecursor() {
+    const container = document.getElementById('precursors-container');
+    const div = document.createElement('div');
+    div.className = 'precursor-row';
+    
+    let options = '<option value="">Select precursor...</option>';
+    precursorData.forEach(p => {
+        options += `<option value="${p.id}">${p.display}</option>`;
+    });
+    
+    div.innerHTML = `
+        <div class="precursor-fields precursor-fields--procedure">
+            <div class="form-group">
+                <label>Precursor</label>
+                <select name="precursor_id[]" class="searchable-select" data-entity-type="precursor">${options}</select>
+            </div>
+            <div class="form-group">
+                <label>Purpose</label>
+                <select name="precursor_purpose[]">
+                    <option value="">Select purpose...</option>
+                    <option value="target material">Target Material</option>
+                    <option value="dopant">Dopant</option>
+                    <option value="solvent">Solvent</option>
+                    <option value="substrate">Substrate</option>
+                    <option value="catalyst">Catalyst</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Quantity</label>
+                <input type="number" step="any" name="precursor_quantity[]" placeholder="Amount">
+            </div>
+            <div class="form-group">
+                <label>Unit</label>
+                <input type="text" name="precursor_unit[]" placeholder="g, mL, etc.">
+            </div>
+            <button type="button" class="btn btn-icon btn-danger remove-precursor" title="Remove" onclick="this.closest('.precursor-row').remove()">
+                <span>✕</span>
+            </button>
+        </div>
+    `;
+    container.appendChild(div);
+    
+    // Initialize searchable select if available
+    if (typeof initializeSearchableSelects === 'function') {
+        initializeSearchableSelects();
+    }
 }
 
 // Procedure-level parameter functions

@@ -1,0 +1,101 @@
+/* ===========================================
+   Precursor Row Styles
+   Shared across sample, procedure, and fabrication run forms
+   =========================================== */
+
+/* Container */
+#precursors-container {
+    margin-bottom: 1rem;
+}
+
+/* Individual precursor row */
+.precursor-row {
+    background: #ffffff;
+    border: 1px solid var(--border-color, #e9ecef);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+/* Fields layout - grid base */
+.precursor-fields {
+    display: grid;
+    gap: 0.75rem;
+    align-items: end;
+}
+
+/* Default layout: Sample form (precursor, role, remove) */
+.precursor-fields {
+    grid-template-columns: 2fr 1fr auto;
+}
+
+/* Procedure form layout (precursor, quantity, purpose, required, remove) */
+.precursor-fields--procedure {
+    grid-template-columns: 2fr 1fr 1fr 1fr auto;
+}
+
+/* Fabrication run layout (precursor, quantity, unit, notes, remove) */
+.precursor-fields--fabrication-run {
+    grid-template-columns: 2fr 1fr 1fr 2fr auto;
+}
+
+/* Form group overrides within precursor fields */
+.precursor-fields .form-group {
+    margin-bottom: 0;
+}
+
+.precursor-fields label {
+    font-size: 0.8rem;
+    color: var(--text-muted, #666);
+    margin-bottom: 0.25rem;
+}
+
+/* Button styling for precursor actions */
+.precursor-fields .btn-icon {
+    padding: 0.5rem;
+    min-width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon {
+    padding: 0.5rem;
+    min-width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-danger {
+    background: #dc3545;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.btn-danger:hover {
+    background: #c82333;
+}
+
+/* Add precursor button */
+#add-precursor,
+.add-precursor-btn {
+    margin-top: 0.5rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .precursor-fields,
+    .precursor-fields--procedure,
+    .precursor-fields--fabrication-run {
+        grid-template-columns: 1fr;
+    }
+    
+    .precursor-fields .btn-icon {
+        justify-self: end;
+    }
+}

@@ -539,12 +539,33 @@ def fabrication_run_new(sample_id):
         
         try:
             run = db.create_fabrication_run(data, fetch_weather=True)
+            
+            # Handle precursors consumed
+            precursor_ids = request.form.getlist('precursor_id[]')
+            precursor_quantities = request.form.getlist('precursor_quantity[]')
+            precursor_units = request.form.getlist('precursor_unit[]')
+            precursor_notes = request.form.getlist('precursor_notes[]')
+            
+            precursor_list = []
+            for i, prec_id in enumerate(precursor_ids):
+                if prec_id:
+                    precursor_list.append({
+                        'precursor_id': int(prec_id),
+                        'quantity_consumed': float(precursor_quantities[i]) if i < len(precursor_quantities) and precursor_quantities[i] else None,
+                        'quantity_unit': precursor_units[i] if i < len(precursor_units) else None,
+                        'notes': precursor_notes[i] if i < len(precursor_notes) else None,
+                    })
+            
+            if precursor_list:
+                db.update_fabrication_run_precursor_list(run['id'], precursor_list)
+            
             flash(f'Fabrication run added successfully', 'success')
             return redirect(url_for('main.sample_detail', sample_id=sample_id))
         except Exception as e:
             flash(f'Error creating fabrication run: {str(e)}', 'error')
     
     procedures = db.get_procedures_simple_list(include_params=True)
+    precursors = db.get_precursors_simple_list()
     
     # Get current datetime for auto-populating started_at
     from datetime import datetime
@@ -553,6 +574,7 @@ def fabrication_run_new(sample_id):
     return render_template('fabrication_run_form.html',
                           sample=sample,
                           procedures=procedures,
+                          precursors=precursors,
                           action='Add',
                           run=None,
                           now=now)
@@ -650,16 +672,39 @@ def fabrication_run_edit(run_id):
         
         try:
             db.update_fabrication_run(run_id, data)
+            
+            # Handle precursors consumed
+            precursor_ids = request.form.getlist('precursor_id[]')
+            precursor_quantities = request.form.getlist('precursor_quantity[]')
+            precursor_units = request.form.getlist('precursor_unit[]')
+            precursor_notes = request.form.getlist('precursor_notes[]')
+            
+            precursor_list = []
+            for i, prec_id in enumerate(precursor_ids):
+                if prec_id:
+                    precursor_list.append({
+                        'precursor_id': int(prec_id),
+                        'quantity_consumed': float(precursor_quantities[i]) if i < len(precursor_quantities) and precursor_quantities[i] else None,
+                        'quantity_unit': precursor_units[i] if i < len(precursor_units) else None,
+                        'notes': precursor_notes[i] if i < len(precursor_notes) else None,
+                    })
+            
+            db.update_fabrication_run_precursor_list(run_id, precursor_list)
+            
             flash('Fabrication run updated successfully', 'success')
             return redirect(url_for('main.sample_detail', sample_id=sample_id))
         except Exception as e:
             flash(f'Error updating fabrication run: {str(e)}', 'error')
     
     procedures = db.get_procedures_simple_list(include_params=True)
+    precursors = db.get_precursors_simple_list()
+    run_precursors = db.get_fabrication_run_precursors(run_id)
     
     return render_template('fabrication_run_form.html',
                           sample=sample,
                           procedures=procedures,
+                          precursors=precursors,
+                          run_precursors=run_precursors,
                           action='Edit',
                           run=run)
 
@@ -715,10 +760,18 @@ def fabrication_run_detail(run_id):
                 'parameters': run_obj.procedure.parameters,
             }
     
+    # Get images and precursors
+    images = db.get_entity_images('fabrication_run', run_id)
+    precursors = db.get_fabrication_run_precursors(run_id)
+    
     return render_template('fabrication_run_detail.html',
                           run=run,
                           sample=sample,
-                          procedure=procedure)
+                          procedure=procedure,
+                          images=images,
+                          precursors=precursors,
+                          entity_type='fabrication_run',
+                          entity_id=run_id)
 
 
 @main_bp.route('/fabrication-runs/<int:run_id>/delete', methods=['POST'])
@@ -1835,13 +1888,35 @@ def procedure_new():
         }
         try:
             procedure = db.create_procedure(data)
+            
+            # Handle precursors
+            precursor_ids = request.form.getlist('precursor_id[]')
+            precursor_purposes = request.form.getlist('precursor_purpose[]')
+            precursor_quantities = request.form.getlist('precursor_quantity[]')
+            precursor_units = request.form.getlist('precursor_unit[]')
+            
+            precursor_list = []
+            for i, prec_id in enumerate(precursor_ids):
+                if prec_id:
+                    precursor_list.append({
+                        'precursor_id': int(prec_id),
+                        'purpose': precursor_purposes[i] if i < len(precursor_purposes) else None,
+                        'quantity': float(precursor_quantities[i]) if i < len(precursor_quantities) and precursor_quantities[i] else None,
+                        'quantity_unit': precursor_units[i] if i < len(precursor_units) else None,
+                        'is_required': True
+                    })
+            
+            if precursor_list:
+                db.update_procedure_precursor_list(procedure['id'], precursor_list)
+            
             flash(f'Procedure "{procedure["name"]}" created successfully', 'success')
             return redirect(url_for('main.procedure_detail', procedure_id=procedure['id']))
         except Exception as e:
             flash(f'Error creating procedure: {str(e)}', 'error')
     
-    # Get labs for dropdown
+    # Get labs and precursors for dropdowns
     labs = db.get_labs_simple_list()
+    precursors = db.get_precursors_simple_list()
     
     # Get user defaults
     default_lab_id = None
@@ -1849,7 +1924,7 @@ def procedure_new():
         user_prefs = db.get_user_preferences(g.current_user['id'])
         default_lab_id = user_prefs.get('default_lab_id')
     
-    return render_template('procedure_form.html', procedure=prefilled, action='Create', template=template, labs=labs, default_lab_id=default_lab_id)
+    return render_template('procedure_form.html', procedure=prefilled, action='Create', template=template, labs=labs, precursors=precursors, default_lab_id=default_lab_id)
 
 
 @main_bp.route('/procedures/<int:procedure_id>/edit', methods=['GET', 'POST'])
@@ -1947,15 +2022,39 @@ def procedure_edit(procedure_id):
         }
         try:
             updated = db.update_procedure(procedure_id, data)
+            
+            # Handle precursors
+            precursor_ids = request.form.getlist('precursor_id[]')
+            precursor_purposes = request.form.getlist('precursor_purpose[]')
+            precursor_quantities = request.form.getlist('precursor_quantity[]')
+            precursor_units = request.form.getlist('precursor_unit[]')
+            
+            precursor_list = []
+            for i, prec_id in enumerate(precursor_ids):
+                if prec_id:
+                    precursor_list.append({
+                        'precursor_id': int(prec_id),
+                        'purpose': precursor_purposes[i] if i < len(precursor_purposes) else None,
+                        'quantity': float(precursor_quantities[i]) if i < len(precursor_quantities) and precursor_quantities[i] else None,
+                        'quantity_unit': precursor_units[i] if i < len(precursor_units) else None,
+                        'is_required': True
+                    })
+            
+            db.update_procedure_precursor_list(procedure_id, precursor_list)
+            
             flash(f'Procedure "{updated["name"]}" updated successfully', 'success')
             return redirect(url_for('main.procedure_detail', procedure_id=procedure_id))
         except Exception as e:
             flash(f'Error updating procedure: {str(e)}', 'error')
     
-    # Get labs for dropdown
+    # Get labs and precursors for dropdowns
     labs = db.get_labs_simple_list()
+    precursors = db.get_precursors_simple_list()
     
-    return render_template('procedure_form.html', procedure=procedure, action='Edit', labs=labs)
+    # Get procedure's existing precursors
+    procedure_precursors = db.get_procedure_precursors(procedure_id)
+    
+    return render_template('procedure_form.html', procedure=procedure, action='Edit', labs=labs, precursors=precursors, procedure_precursors=procedure_precursors)
 
 
 @main_bp.route('/procedures/<int:procedure_id>/duplicate', methods=['GET', 'POST'])

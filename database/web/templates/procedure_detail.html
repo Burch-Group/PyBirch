@@ -159,6 +159,51 @@
             {% endif %}
         </div>
         
+        <!-- Required Precursors -->
+        <div class="detail-section">
+            <h2>Required Precursors</h2>
+            {% if procedure.precursors and procedure.precursors|length > 0 %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Precursor</th>
+                        <th>Chemical Formula</th>
+                        <th>Purpose</th>
+                        <th>Quantity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for prec in procedure.precursors %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('main.precursor_detail', precursor_id=prec.precursor_id) }}">
+                                {{ prec.precursor_name or 'Unknown' }}
+                            </a>
+                        </td>
+                        <td>{{ prec.chemical_formula or '-' }}</td>
+                        <td>
+                            {% if prec.purpose %}
+                            <span class="role-badge role-{{ prec.purpose|replace(' ', '-') }}">{{ prec.purpose }}</span>
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if prec.quantity %}
+                            {{ prec.quantity }} {{ prec.quantity_unit or '' }}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-muted">No precursors specified for this procedure.</p>
+            {% endif %}
+        </div>
+        
         <!-- Samples that used this procedure -->
         <div class="detail-section">
             <h2>Samples Using This Procedure</h2>

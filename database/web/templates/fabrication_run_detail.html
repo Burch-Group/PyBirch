@@ -180,7 +180,47 @@
         </div>
     </div>
     {% endif %}
+
+    <!-- Precursors Consumed -->
+    {% if precursors %}
+    <div class="detail-section">
+        <h3>Precursors Consumed</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Precursor</th>
+                    <th>Chemical Formula</th>
+                    <th>Quantity Consumed</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for prec in precursors %}
+                <tr>
+                    <td>
+                        <a href="{{ url_for('main.precursor_detail', precursor_id=prec.precursor_id) }}">
+                            {{ prec.precursor_name or 'Unknown' }}
+                        </a>
+                    </td>
+                    <td>{{ prec.chemical_formula or '-' }}</td>
+                    <td>
+                        {% if prec.quantity_consumed %}
+                        {{ prec.quantity_consumed }} {{ prec.quantity_unit or '' }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>{{ prec.notes or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
 </div>
+
+<!-- Images Section -->
+{% include 'partials/image_gallery.html' %}
 
 <style>
     .notes-content {
