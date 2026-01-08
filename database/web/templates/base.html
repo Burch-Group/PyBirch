@@ -241,7 +241,7 @@
                 <span>Instruments</span>
             </a>
             <a href="{{ url_for('main.instrument_definitions') }}" class="nav-drawer-link {% if request.endpoint and 'instrument_definition' in request.endpoint %}active{% endif %}">
-                <img src="{{ url_for('static', filename='images/instruments.svg') }}" class="nav-icon" alt="">
+                <img src="{{ url_for('static', filename='images/instrument_definitions.svg') }}" class="nav-icon" alt="">
                 <span>Instrument Definitions</span>
             </a>
             <a href="{{ url_for('main.equipment') }}" class="nav-drawer-link {% if request.endpoint and 'equipment' in request.endpoint %}active{% endif %}">
