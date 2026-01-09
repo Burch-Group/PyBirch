@@ -2415,6 +2415,17 @@ tr.pinned-row:hover {
 .text-muted {
     color: var(--color-text-secondary);
 }
+
+/* ==================== Icon Animations ==================== */
+@keyframes icon-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.icon-spin {
+    animation: icon-spin 1s linear infinite;
+}
+
 /* ==================== Log Panel ==================== */
 .log-panel {
     background: #1e1e1e;

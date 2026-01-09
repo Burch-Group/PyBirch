@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import detail_action_buttons %}
+{% from "macros.html" import detail_action_buttons, icon_trash %}
 
 {% block title %}{{ project.name }} - PyBirch Database{% endblock %}
 
@@ -25,6 +25,19 @@
                 show_trash=false
             ) }}
         </div>
+    </div>
+    
+    <!-- QR Code Section -->
+    <div class="qr-code-section">
+        <div class="qr-code-preview">
+            <img src="{{ url_for('main.project_qrcode_preview', project_id=project.id) }}" 
+                 alt="QR Code for {{ project.name }}" 
+                 class="qr-code-img">
+        </div>
+        <a href="{{ url_for('main.project_qrcode', project_id=project.id) }}" 
+           class="btn btn-secondary btn-small" download>
+            📥 Download QR Code
+        </a>
     </div>
     
     <div class="detail-grid">
@@ -89,9 +102,13 @@
                         {% endif %}
                     </div>
                     <div class="member-actions">
-                        <form action="{{ url_for('main.project_member_remove', project_id=project.id, member_id=member.id) }}" method="POST" style="display: inline;">
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this member?')">Remove</button>
-                        </form>
+                        <div class="action-buttons">
+                            <form action="{{ url_for('main.project_member_remove', project_id=project.id, member_id=member.id) }}" method="POST" style="display: inline;">
+                                <button type="submit" class="btn-icon btn-icon-trash" title="Remove" onclick="return confirm('Remove this member?')">
+                                    {{ icon_trash() }}
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
                 {% endfor %}
@@ -120,9 +137,13 @@
                         <a href="mailto:{{ guest.guest_email }}">{{ guest.guest_email }}</a>
                     </div>
                     <div class="guest-actions">
-                        <form action="{{ url_for('main.guest_revoke', guest_id=guest.id) }}" method="POST" style="display: inline;">
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Revoke access?')">Revoke</button>
-                        </form>
+                        <div class="action-buttons">
+                            <form action="{{ url_for('main.guest_revoke', guest_id=guest.id) }}" method="POST" style="display: inline;">
+                                <button type="submit" class="btn-icon btn-icon-trash" title="Revoke" onclick="return confirm('Revoke access?')">
+                                    {{ icon_trash() }}
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
                 {% endfor %}

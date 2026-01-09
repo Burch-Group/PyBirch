@@ -152,7 +152,7 @@
                                     <option value="">Select precursor...</option>
                                     {% for precursor in precursors %}
                                     <option value="{{ precursor.id }}" {% if precursor.id == precursor_id %}selected{% endif %}>
-                                        {{ precursor.name }}{% if precursor.chemical_formula %} ({{ precursor.chemical_formula }}){% endif %}
+                                        {{ precursor.name }}
                                     </option>
                                     {% endfor %}
                                 </select>
@@ -302,7 +302,7 @@
                                     <option value="">Select precursor...</option>
                                     {% for precursor in precursors %}
                                     <option value="{{ precursor.id }}" {% if precursor.id == precursor_id %}selected{% endif %}>
-                                        {{ precursor.name }}{% if precursor.chemical_formula %} ({{ precursor.chemical_formula }}){% endif %}
+                                        {{ precursor.name }}
                                     </option>
                                     {% endfor %}
                                 </select>
@@ -380,7 +380,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // Precursors data for dynamic dropdowns
 const precursorsData = [
     {% for precursor in precursors %}
-    {id: {{ precursor.id }}, name: "{{ precursor.name }}", formula: "{{ precursor.chemical_formula or '' }}"},
+    {id: {{ precursor.id }}, name: "{{ precursor.name }}"},
     {% endfor %}
 ];
 
@@ -398,8 +398,7 @@ function addLinkedPrecursor(containerId) {
     
     let options = '<option value="">Select precursor...</option>';
     precursorsData.forEach(p => {
-        const display = p.formula ? `${p.name} (${p.formula})` : p.name;
-        options += `<option value="${p.id}">${display}</option>`;
+        options += `<option value="${p.id}">${p.name}</option>`;
     });
     
     div.innerHTML = `

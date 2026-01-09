@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import detail_action_buttons %}
+{% from "macros.html" import detail_action_buttons, icon_view, icon_open %}
 
 {% block title %}{{ queue.name or 'Queue' }} - PyBirch Database{% endblock %}
 
@@ -103,8 +103,14 @@
                     <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
                     <td class="progress-cell">{{ scan.completed_points or 0 }} / {{ scan.total_points or 0 }}</td>
                     <td>
-                        <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+                        <div class="action-buttons">
+                            <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}" class="btn-icon btn-icon-view" title="View">
+                                {{ icon_view() }}
+                            </a>
+                            <a href="{{ scan.pybirch_uri }}" class="btn-icon btn-icon-open" title="Open in PyBirch">
+                                {{ icon_open() }}
+                            </a>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}

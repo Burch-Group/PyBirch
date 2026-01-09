@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import detail_action_buttons %}
+{% from "macros.html" import detail_action_buttons, icon_view, icon_edit, icon_trash %}
 
 {% block title %}{{ lab.name }} - PyBirch Database{% endblock %}
 
@@ -24,6 +24,19 @@
                 show_trash=false
             ) }}
         </div>
+    </div>
+    
+    <!-- QR Code Section -->
+    <div class="qr-code-section">
+        <div class="qr-code-preview">
+            <img src="{{ url_for('main.lab_qrcode_preview', lab_id=lab.id) }}" 
+                 alt="QR Code for {{ lab.name }}" 
+                 class="qr-code-img">
+        </div>
+        <a href="{{ url_for('main.lab_qrcode', lab_id=lab.id) }}" 
+           class="btn btn-secondary btn-small" download>
+            📥 Download QR Code
+        </a>
     </div>
     
     <div class="detail-grid">
@@ -78,10 +91,16 @@
                         {% endif %}
                     </div>
                     <div class="member-actions">
-                        <a href="{{ url_for('main.lab_member_edit', lab_id=lab.id, member_id=member.id) }}" class="btn btn-sm">Edit</a>
-                        <form action="{{ url_for('main.lab_member_remove', lab_id=lab.id, member_id=member.id) }}" method="POST" style="display: inline;">
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this member?')">Remove</button>
-                        </form>
+                        <div class="action-buttons">
+                            <a href="{{ url_for('main.lab_member_edit', lab_id=lab.id, member_id=member.id) }}" class="btn-icon btn-icon-edit" title="Edit">
+                                {{ icon_edit() }}
+                            </a>
+                            <form action="{{ url_for('main.lab_member_remove', lab_id=lab.id, member_id=member.id) }}" method="POST" style="display: inline;">
+                                <button type="submit" class="btn-icon btn-icon-trash" title="Remove" onclick="return confirm('Remove this member?')">
+                                    {{ icon_trash() }}
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
                 {% endfor %}
@@ -118,7 +137,11 @@
                     <td><span class="status-badge status-{{ project.status }}">{{ project.status }}</span></td>
                     <td>{{ project.start_date or '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.project_detail', project_id=project.id) }}" class="btn btn-sm">View</a>
+                        <div class="action-buttons">
+                            <a href="{{ url_for('main.project_detail', project_id=project.id) }}" class="btn-icon btn-icon-view" title="View">
+                                {{ icon_view() }}
+                            </a>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}

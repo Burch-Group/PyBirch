@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import icon_open %}
 
 {% block title %}Advanced Search - PyBirch Database{% endblock %}
 
@@ -669,7 +670,9 @@
             </div>
             <div class="result-actions">
                 <span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span>
-                <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+                <a href="{{ scan.pybirch_uri }}" class="btn-icon btn-icon-open" title="Open in PyBirch">
+                    {{ icon_open() }}
+                </a>
             </div>
         </div>
         {% endfor %}
@@ -692,7 +695,9 @@
             </div>
             <div class="result-actions">
                 <span class="status-badge status-{{ queue.status }}">{{ queue.status }}</span>
-                <a href="{{ queue.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+                <a href="{{ queue.pybirch_uri }}" class="btn-icon btn-icon-open" title="Open in PyBirch">
+                    {{ icon_open() }}
+                </a>
             </div>
         </div>
         {% endfor %}

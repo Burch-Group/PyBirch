@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import icon_view %}
 
 {% block title %}All Equipment Issues - PyBirch Database{% endblock %}
 
@@ -67,7 +68,11 @@
                     <td>{{ issue.assignee_name or '-' }}</td>
                     <td>{{ issue.created_at[:10] if issue.created_at else '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.equipment_issue_detail', equipment_id=issue.equipment_id, issue_id=issue.id) }}" class="btn btn-sm">View</a>
+                        <div class="action-buttons">
+                            <a href="{{ url_for('main.equipment_issue_detail', equipment_id=issue.equipment_id, issue_id=issue.id) }}" class="btn-icon btn-icon-view" title="View">
+                                {{ icon_view() }}
+                            </a>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}

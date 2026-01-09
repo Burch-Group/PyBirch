@@ -4695,6 +4695,180 @@ def procedure_qrcode_preview(procedure_id):
         return jsonify({'error': str(e)}), 500
 
 
+@main_bp.route('/labs/<int:lab_id>/qrcode')
+@login_required
+def lab_qrcode(lab_id):
+    """Generate and download a QR code image for a lab."""
+    db = get_db_service()
+    lab = db.get_lab(lab_id)
+    
+    if not lab:
+        flash('Lab not found', 'error')
+        return redirect(url_for('main.labs'))
+    
+    target_url = url_for('main.lab_detail', lab_id=lab_id, _external=True)
+    
+    try:
+        qr_image = generate_entity_qr_code(
+            url=target_url,
+            entity_id=lab.get('name', f'Lab #{lab_id}'),
+            entity_type='Lab',
+            project_name=''
+        )
+        
+        return send_file(
+            qr_image,
+            mimetype='image/png',
+            as_attachment=True,
+            download_name=f"qr_lab_{lab_id}.png"
+        )
+    except ImportError:
+        flash('QR code generation requires qrcode and Pillow packages.', 'error')
+        return redirect(url_for('main.lab_detail', lab_id=lab_id))
+    except Exception as e:
+        flash(f'Error generating QR code: {str(e)}', 'error')
+        return redirect(url_for('main.lab_detail', lab_id=lab_id))
+
+
+@main_bp.route('/labs/<int:lab_id>/qrcode/preview')
+def lab_qrcode_preview(lab_id):
+    """Return QR code image inline for preview."""
+    db = get_db_service()
+    lab = db.get_lab(lab_id)
+    
+    if not lab:
+        return jsonify({'error': 'Lab not found'}), 404
+    
+    target_url = url_for('main.lab_detail', lab_id=lab_id, _external=True)
+    
+    try:
+        qr_image = generate_entity_qr_code(
+            url=target_url,
+            entity_id=lab.get('name', f'Lab #{lab_id}'),
+            entity_type='Lab',
+            project_name=''
+        )
+        return send_file(qr_image, mimetype='image/png')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/projects/<int:project_id>/qrcode')
+@login_required
+def project_qrcode(project_id):
+    """Generate and download a QR code image for a project."""
+    db = get_db_service()
+    project = db.get_project(project_id)
+    
+    if not project:
+        flash('Project not found', 'error')
+        return redirect(url_for('main.projects'))
+    
+    target_url = url_for('main.project_detail', project_id=project_id, _external=True)
+    
+    try:
+        qr_image = generate_entity_qr_code(
+            url=target_url,
+            entity_id=project.get('name', f'Project #{project_id}'),
+            entity_type='Project',
+            project_name=''
+        )
+        
+        return send_file(
+            qr_image,
+            mimetype='image/png',
+            as_attachment=True,
+            download_name=f"qr_project_{project_id}.png"
+        )
+    except ImportError:
+        flash('QR code generation requires qrcode and Pillow packages.', 'error')
+        return redirect(url_for('main.project_detail', project_id=project_id))
+    except Exception as e:
+        flash(f'Error generating QR code: {str(e)}', 'error')
+        return redirect(url_for('main.project_detail', project_id=project_id))
+
+
+@main_bp.route('/projects/<int:project_id>/qrcode/preview')
+def project_qrcode_preview(project_id):
+    """Return QR code image inline for preview."""
+    db = get_db_service()
+    project = db.get_project(project_id)
+    
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    target_url = url_for('main.project_detail', project_id=project_id, _external=True)
+    
+    try:
+        qr_image = generate_entity_qr_code(
+            url=target_url,
+            entity_id=project.get('name', f'Project #{project_id}'),
+            entity_type='Project',
+            project_name=''
+        )
+        return send_file(qr_image, mimetype='image/png')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/locations/<int:location_id>/qrcode')
+@login_required
+def location_qrcode(location_id):
+    """Generate and download a QR code image for a location."""
+    db = get_db_service()
+    location = db.get_location(location_id)
+    
+    if not location:
+        flash('Location not found', 'error')
+        return redirect(url_for('main.locations'))
+    
+    target_url = url_for('main.location_detail', location_id=location_id, _external=True)
+    
+    try:
+        qr_image = generate_entity_qr_code(
+            url=target_url,
+            entity_id=location.get('name', f'Location #{location_id}'),
+            entity_type='Location',
+            project_name=''
+        )
+        
+        return send_file(
+            qr_image,
+            mimetype='image/png',
+            as_attachment=True,
+            download_name=f"qr_location_{location_id}.png"
+        )
+    except ImportError:
+        flash('QR code generation requires qrcode and Pillow packages.', 'error')
+        return redirect(url_for('main.location_detail', location_id=location_id))
+    except Exception as e:
+        flash(f'Error generating QR code: {str(e)}', 'error')
+        return redirect(url_for('main.location_detail', location_id=location_id))
+
+
+@main_bp.route('/locations/<int:location_id>/qrcode/preview')
+def location_qrcode_preview(location_id):
+    """Return QR code image inline for preview."""
+    db = get_db_service()
+    location = db.get_location(location_id)
+    
+    if not location:
+        return jsonify({'error': 'Location not found'}), 404
+    
+    target_url = url_for('main.location_detail', location_id=location_id, _external=True)
+    
+    try:
+        qr_image = generate_entity_qr_code(
+            url=target_url,
+            entity_id=location.get('name', f'Location #{location_id}'),
+            entity_type='Location',
+            project_name=''
+        )
+        return send_file(qr_image, mimetype='image/png')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ==================== API Routes ====================
 
 @api_bp.route('/search')

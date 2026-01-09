@@ -1,6 +1,7 @@
 <!-- Entity Images Gallery Component -->
 <!-- Include this partial with: { % include 'partials/image_gallery.html' % } -->
 <!-- Required variables: entity_type, entity_id, images (list) -->
+{% from "macros.html" import icon_edit, icon_trash, icon_download %}
 
 <div class="images-section" id="images-section" tabindex="0">
     <div class="section-header">
@@ -48,7 +49,9 @@
                     <img src="{{ url_for('static', filename='uploads/images/' + image.stored_filename) }}" 
                          alt="{{ image.name or image.filename }}"
                          loading="lazy"
-                         onclick="openImageModal(this.src, '{{ image.name or image.filename }}', '{{ image.description or '' }}')">
+                         class="gallery-image"
+                         data-title="{{ image.name or image.filename }}"
+                         data-description="{{ image.description or '' }}">
                 </div>
                 <div class="image-info">
                     <div class="image-name" title="{{ image.name or image.filename }}">
@@ -69,15 +72,15 @@
                 <div class="image-actions">
                     <a href="{{ url_for('static', filename='uploads/images/' + image.stored_filename) }}" 
                        download="{{ image.name or image.filename }}" 
-                       class="btn-icon" title="Download">
-                        ⬇️
+                       class="btn-icon btn-icon-download" title="Download">
+                        {{ icon_download() }}
                     </a>
-                    <button class="btn-icon" onclick="editImageMetadata({{ image.id }}, '{{ image.name or '' }}', '{{ image.description or '' }}')" title="Edit">
-                        ✏️
+                    <button class="btn-icon btn-icon-edit" onclick="editImageMetadata({{ image.id }}, '{{ image.name or '' }}', '{{ image.description or '' }}')" title="Edit">
+                        {{ icon_edit() }}
                     </button>
                     <form action="{{ url_for('main.delete_entity_image', image_id=image.id) }}" method="POST" style="display: inline;" 
                           onsubmit="return confirm('Delete this image?')">
-                        <button type="submit" class="btn-icon btn-danger" title="Delete">🗑️</button>
+                        <button type="submit" class="btn-icon btn-icon-trash btn-danger" title="Delete">{{ icon_trash() }}</button>
                     </form>
                 </div>
             </div>
@@ -108,14 +111,26 @@
 
 <!-- Image Modal (for fullscreen view) -->
 <div class="image-modal" id="image-modal" onclick="closeImageModal(event)">
-    <div class="modal-content">
-        <button class="modal-close" onclick="closeImageModal()">&times;</button>
-        <img id="modal-image" src="" alt="">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <button class="modal-close" onclick="closeImageModal()" title="Close (Esc)">&times;</button>
+        <button class="modal-nav modal-prev" id="modal-prev" onclick="navigateImage(-1)" title="Previous (←)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+        <div class="modal-image-wrapper">
+            <img id="modal-image" src="" alt="">
+        </div>
+        <button class="modal-nav modal-next" id="modal-next" onclick="navigateImage(1)" title="Next (→)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
         <div class="modal-caption">
             <h3 id="modal-title"></h3>
             <p id="modal-description"></p>
+            <div class="modal-counter" id="modal-counter"></div>
         </div>
     </div>
+    <a href="#" id="modal-download" class="modal-download-btn" download title="Download image">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+    </a>
 </div>
 
 <!-- Edit Image Metadata Modal -->
@@ -175,7 +190,7 @@
 .images-section .header-actions {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 1rem;
     margin-left: auto;
 }
 
@@ -405,6 +420,8 @@
 }
 
 .image-card {
+    display: flex;
+    flex-direction: column;
     background: var(--bg-light, #f9f9f9);
     border-radius: 8px;
     overflow: hidden;
@@ -424,6 +441,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .image-preview img {
@@ -439,6 +457,7 @@
 }
 
 .image-info {
+    flex: 1;
     padding: 0.75rem;
 }
 
@@ -476,24 +495,47 @@
     background: var(--card-bg, #fff);
 }
 
-.btn-icon {
-    background: none;
-    border: none;
-    padding: 0.25rem 0.5rem;
-    cursor: pointer;
+/* Image action buttons - inherit from main btn-icon styles */
+.image-actions .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--color-border, #ddd);
     border-radius: 4px;
-    font-size: 0.9rem;
-    transition: background 0.2s ease;
+    background-color: var(--color-bg-primary, #fff);
+    color: var(--color-text-secondary, #666);
+    cursor: pointer;
+    transition: all 0.15s;
     text-decoration: none;
-    display: inline-block;
 }
 
-.btn-icon:hover {
-    background: var(--bg-light, #f0f0f0);
+.image-actions .btn-icon:hover {
+    background-color: var(--color-bg-tertiary, #f5f5f5);
+    color: var(--color-text-primary, #333);
+    text-decoration: none;
 }
 
-.btn-icon.btn-danger:hover {
-    background: rgba(239, 68, 68, 0.1);
+.image-actions .btn-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+.image-actions .btn-icon.btn-icon-download:hover {
+    color: var(--color-success, #22c55e);
+    border-color: var(--color-success, #22c55e);
+}
+
+.image-actions .btn-icon.btn-icon-edit:hover {
+    color: var(--color-secondary, #8b5cf6);
+    border-color: var(--color-secondary, #8b5cf6);
+}
+
+.image-actions .btn-icon.btn-icon-trash:hover {
+    color: var(--color-error, #ef4444);
+    border-color: var(--color-error, #ef4444);
 }
 
 .no-images {
@@ -503,7 +545,7 @@
     color: var(--text-muted, #666);
 }
 
-/* Image Modal */
+/* Image Modal - Light Theme */
 .image-modal {
     display: none;
     position: fixed;
@@ -511,53 +553,163 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0,0,0,0.9);
+    background: rgba(255, 255, 255, 0.97);
     z-index: 1000;
     justify-content: center;
     align-items: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
 }
 
 .image-modal.active {
     display: flex;
+    opacity: 1;
 }
 
 .image-modal .modal-content {
-    max-width: 90%;
-    max-height: 90%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 95%;
+    max-height: 95%;
+    position: relative;
+}
+
+.modal-image-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
     position: relative;
 }
 
 .image-modal .modal-close {
-    position: absolute;
-    top: -40px;
-    right: 0;
-    background: none;
-    border: none;
-    color: white;
-    font-size: 2rem;
+    position: fixed;
+    top: 15px;
+    right: 20px;
+    background: var(--bg-light, #f5f5f5);
+    border: 1px solid var(--border-color, #ddd);
+    color: var(--text-color, #333);
+    font-size: 1.75rem;
     cursor: pointer;
-    padding: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    line-height: 1;
+    z-index: 1002;
+}
+
+.image-modal .modal-close:hover {
+    background: var(--bg-hover, #e5e5e5);
+    border-color: var(--border-dark, #ccc);
+}
+
+/* Navigation buttons */
+.modal-nav {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--bg-light, #f5f5f5);
+    border: 1px solid var(--border-color, #ddd);
+    color: var(--text-color, #333);
+    cursor: pointer;
+    padding: 1rem 0.75rem;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    z-index: 1002;
+}
+
+.modal-nav:hover {
+    background: var(--bg-hover, #e5e5e5);
+    border-color: var(--border-dark, #ccc);
+}
+
+.modal-nav:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.modal-prev {
+    left: 15px;
+}
+
+.modal-next {
+    right: 15px;
+}
+
+.modal-nav svg {
+    display: block;
+}
+
+/* Download button */
+.modal-download-btn {
+    position: fixed;
+    top: 15px;
+    right: 70px;
+    background: var(--bg-light, #f5f5f5);
+    border: 1px solid var(--border-color, #ddd);
+    color: var(--text-color, #333);
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1002;
+}
+
+.modal-download-btn:hover {
+    background: var(--bg-hover, #e5e5e5);
+    border-color: var(--border-dark, #ccc);
+    text-decoration: none;
 }
 
 .image-modal img {
-    max-width: 100%;
+    max-width: 90vw;
     max-height: 80vh;
     object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--border-color, #ddd);
 }
 
 .modal-caption {
-    color: white;
+    color: var(--text-color, #333);
     text-align: center;
     padding: 1rem;
+    max-width: 600px;
 }
 
 .modal-caption h3 {
-    margin: 0 0 0.5rem 0;
+    margin: 0 0 0.25rem 0;
+    font-size: 1.1rem;
+    font-weight: 500;
 }
 
 .modal-caption p {
     margin: 0;
-    opacity: 0.8;
+    color: var(--text-muted, #666);
+    font-size: 0.9rem;
+}
+
+.modal-counter {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-muted, #888);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .modal-nav {
+        padding: 0.75rem 0.5rem;
+    }
+    .modal-prev {
+        left: 5px;
+    }
+    .modal-next {
+        right: 5px;
+    }
 }
 
 /* Edit Modal */
@@ -914,26 +1066,36 @@ function addImageToGallery(image, url) {
     card.className = 'image-card';
     card.dataset.imageId = image.id;
     
+    // Escape strings for safe HTML insertion
+    const safeName = (image.name || image.filename || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const safeDesc = (image.description || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const displayName = image.name || image.filename || 'Image';
+    const displayDesc = image.description || '';
+    
+    // SVG icons for buttons
+    const downloadIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10v3.5a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5V10"/><path d="M8 2v9"/><path d="M5 8l3 3 3-3"/></svg>`;
+    const editIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2-8 8H3.5v-2z"/><path d="M10 4l2 2"/><path d="M2 14h12"/></svg>`;
+    const trashIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12"/><path d="M5 4V2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V4"/><path d="M12.5 4v9.5a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V4"/><path d="M6.5 7v5M9.5 7v5"/></svg>`;
+    
     card.innerHTML = `
         <div class="image-preview">
-            <img src="${url}" alt="${image.name || image.filename}" 
-                 onclick="openImageModal(this.src, '${image.name || image.filename}', '${image.description || ''}')">
+            <img src="${url}" alt="${displayName}" class="gallery-image" data-title="${safeName}" data-description="${safeDesc}">
         </div>
         <div class="image-info">
-            <div class="image-name" title="${image.name || image.filename}">
-                ${image.name || image.filename}
+            <div class="image-name" title="${displayName}">
+                ${displayName}
             </div>
-            ${image.description ? `<div class="image-description" title="${image.description}">${image.description}</div>` : ''}
+            ${displayDesc ? `<div class="image-description" title="${displayDesc}">${displayDesc}</div>` : ''}
             <div class="image-meta">
                 <span class="image-date">${image.created_at ? image.created_at.slice(0, 10) : ''}</span>
                 ${image.width && image.height ? `<span class="image-dimensions">${image.width}×${image.height}</span>` : ''}
             </div>
         </div>
         <div class="image-actions">
-            <a href="${url}" download="${image.name || image.filename}" class="btn-icon" title="Download">⬇️</a>
-            <button class="btn-icon" onclick="editImageMetadata(${image.id}, '${image.name || ''}', '${image.description || ''}')" title="Edit">✏️</button>
+            <a href="${url}" download="${displayName}" class="btn-icon btn-icon-download" title="Download">${downloadIcon}</a>
+            <button class="btn-icon btn-icon-edit" onclick="editImageMetadata(${image.id}, '${safeName}', '${safeDesc}')" title="Edit">${editIcon}</button>
             <form action="/images/${image.id}/delete" method="POST" style="display: inline;" onsubmit="return confirm('Delete this image?')">
-                <button type="submit" class="btn-icon btn-danger" title="Delete">🗑️</button>
+                <button type="submit" class="btn-icon btn-icon-trash btn-danger" title="Delete">${trashIcon}</button>
             </form>
         </div>
     `;
@@ -954,19 +1116,120 @@ function addImageToGallery(image, url) {
     }
 }
 
+// Image modal state
+let currentImageIndex = 0;
+let galleryImages = [];
+
 function openImageModal(src, title, description) {
     const modal = document.getElementById('image-modal');
-    document.getElementById('modal-image').src = src;
-    document.getElementById('modal-title').textContent = title;
-    document.getElementById('modal-description').textContent = description;
+    
+    // Build array of all gallery images for navigation
+    galleryImages = [];
+    const imageCards = document.querySelectorAll('.image-card');
+    imageCards.forEach((card, index) => {
+        const img = card.querySelector('.image-preview img');
+        const nameEl = card.querySelector('.image-name');
+        const descEl = card.querySelector('.image-description');
+        if (img) {
+            galleryImages.push({
+                src: img.src,
+                title: nameEl ? nameEl.textContent.trim() : 'Image',
+                description: descEl ? descEl.textContent.trim() : ''
+            });
+            // Find current image index
+            if (img.src === src) {
+                currentImageIndex = index;
+            }
+        }
+    });
+    
+    updateModalImage();
+    updateNavigationButtons();
     modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function updateModalImage() {
+    if (galleryImages.length === 0) return;
+    
+    const img = galleryImages[currentImageIndex];
+    const modalImg = document.getElementById('modal-image');
+    const downloadBtn = document.querySelector('.modal-download-btn');
+    
+    modalImg.src = img.src;
+    document.getElementById('modal-title').textContent = img.title;
+    document.getElementById('modal-description').textContent = img.description;
+    
+    // Update counter
+    const counter = document.querySelector('.modal-counter');
+    if (counter) {
+        counter.textContent = `${currentImageIndex + 1} / ${galleryImages.length}`;
+    }
+    
+    // Update download link
+    if (downloadBtn) {
+        downloadBtn.href = img.src;
+        downloadBtn.download = img.title || 'image';
+    }
+}
+
+function updateNavigationButtons() {
+    const prevBtn = document.querySelector('.modal-prev');
+    const nextBtn = document.querySelector('.modal-next');
+    
+    if (prevBtn) {
+        prevBtn.disabled = currentImageIndex === 0;
+        prevBtn.style.visibility = galleryImages.length <= 1 ? 'hidden' : 'visible';
+    }
+    if (nextBtn) {
+        nextBtn.disabled = currentImageIndex === galleryImages.length - 1;
+        nextBtn.style.visibility = galleryImages.length <= 1 ? 'hidden' : 'visible';
+    }
+}
+
+function navigateImage(direction) {
+    const newIndex = currentImageIndex + direction;
+    if (newIndex >= 0 && newIndex < galleryImages.length) {
+        currentImageIndex = newIndex;
+        updateModalImage();
+        updateNavigationButtons();
+    }
 }
 
 function closeImageModal(event) {
     if (!event || event.target === event.currentTarget) {
         document.getElementById('image-modal').classList.remove('active');
+        document.body.style.overflow = '';
     }
 }
+
+// Keyboard navigation for image modal
+document.addEventListener('keydown', function(e) {
+    const modal = document.getElementById('image-modal');
+    if (!modal || !modal.classList.contains('active')) return;
+    
+    switch(e.key) {
+        case 'Escape':
+            closeImageModal();
+            break;
+        case 'ArrowLeft':
+            navigateImage(-1);
+            break;
+        case 'ArrowRight':
+            navigateImage(1);
+            break;
+    }
+});
+
+// Event delegation for gallery image clicks
+document.addEventListener('click', function(e) {
+    const img = e.target.closest('.gallery-image');
+    if (img) {
+        const title = img.dataset.title || img.alt || 'Image';
+        const description = img.dataset.description || '';
+        openImageModal(img.src, title, description);
+    }
+});
 
 function editImageMetadata(imageId, name, description) {
     document.getElementById('edit-modal-title').textContent = 'Edit Image Details';

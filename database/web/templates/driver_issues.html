@@ -1,5 +1,4 @@
-{% extends "base.html" %}
-
+{% extends "base.html" %}{% from "macros.html" import icon_view, icon_edit %}
 {% block title %}Issues - {{ driver.display_name }} - PyBirch Database{% endblock %}
 
 {% block content %}
@@ -68,8 +67,14 @@
                     <td>{% if issue.affected_version %}v{{ issue.affected_version }}{% else %}-{% endif %}</td>
                     <td>{{ issue.created_at[:10] if issue.created_at else '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.driver_issue_detail', driver_id=driver.id, issue_id=issue.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ url_for('main.driver_issue_edit', driver_id=driver.id, issue_id=issue.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                        <div class="action-buttons">
+                            <a href="{{ url_for('main.driver_issue_detail', driver_id=driver.id, issue_id=issue.id) }}" class="btn-icon btn-icon-view" title="View">
+                                {{ icon_view() }}
+                            </a>
+                            <a href="{{ url_for('main.driver_issue_edit', driver_id=driver.id, issue_id=issue.id) }}" class="btn-icon btn-icon-edit" title="Edit">
+                                {{ icon_edit() }}
+                            </a>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}

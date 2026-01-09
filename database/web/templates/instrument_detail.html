@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import detail_action_buttons %}
+{% from "macros.html" import detail_action_buttons, icon_edit %}
 
 {% block title %}{{ instrument.name }} - PyBirch Database{% endblock %}
 
@@ -203,7 +203,9 @@
                         {% if binding.is_primary %}
                         <span class="badge badge-success">Primary</span>
                         {% endif %}
-                        <a href="{{ url_for('main.instrument_binding_edit', instrument_id=instrument.id, binding_id=binding.id) }}" class="btn btn-small btn-secondary" title="Edit binding">✏️ Edit</a>
+                        <a href="{{ url_for('main.instrument_binding_edit', instrument_id=instrument.id, binding_id=binding.id) }}" class="btn-icon btn-icon-edit" title="Edit binding">
+                            {{ icon_edit() }}
+                        </a>
                     </div>
                 </div>
                 <dl class="detail-list" style="margin: 0;">

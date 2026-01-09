@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import icon_view, icon_open %}
 
 {% block title %}Dashboard - PyBirch Database{% endblock %}
 
@@ -190,7 +191,14 @@
                             <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
                             <td>{{ scan.created_at[:10] if scan.created_at else '-' }}</td>
                             <td>
-                                <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+                                <div class="action-buttons">
+                                    <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}" class="btn-icon btn-icon-view" title="View">
+                                        {{ icon_view() }}
+                                    </a>
+                                    <a href="{{ scan.pybirch_uri }}" class="btn-icon btn-icon-open" title="Open in PyBirch">
+                                        {{ icon_open() }}
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}

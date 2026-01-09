@@ -25,6 +25,19 @@
         </div>
     </div>
     
+    <!-- QR Code Section -->
+    <div class="qr-code-section">
+        <div class="qr-code-preview">
+            <img src="{{ url_for('main.equipment_qrcode_preview', equipment_id=equipment.id) }}" 
+                 alt="QR Code for {{ equipment.name }}" 
+                 class="qr-code-img">
+        </div>
+        <a href="{{ url_for('main.equipment_qrcode', equipment_id=equipment.id) }}" 
+           class="btn btn-secondary btn-small" download>
+            📥 Download QR Code
+        </a>
+    </div>
+    
     {% if equipment.description %}
     <div class="description-section">
         <p>{{ equipment.description }}</p>

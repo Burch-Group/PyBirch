@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import action_buttons, detail_action_buttons %}
+{% from "macros.html" import action_buttons, detail_action_buttons, icon_trash %}
 
 {% block title %}{{ location.name }} - PyBirch Database{% endblock %}
 
@@ -30,6 +30,19 @@
                 show_archive=false
             ) }}
         </div>
+    </div>
+    
+    <!-- QR Code Section -->
+    <div class="qr-code-section">
+        <div class="qr-code-preview">
+            <img src="{{ url_for('main.location_qrcode_preview', location_id=location.id) }}" 
+                 alt="QR Code for {{ location.name }}" 
+                 class="qr-code-img">
+        </div>
+        <a href="{{ url_for('main.location_qrcode', location_id=location.id) }}" 
+           class="btn btn-secondary btn-small" download>
+            📥 Download QR Code
+        </a>
     </div>
     
     {% if location.description %}
@@ -154,11 +167,15 @@
                     <td>{{ obj.notes or '-' }}</td>
                     <td>{{ obj.placed_at[:10] if obj.placed_at else '-' }}{% if obj.placed_by %} by {{ obj.placed_by }}{% endif %}</td>
                     <td>
-                        <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
-                            <input type="hidden" name="object_type" value="equipment">
-                            <input type="hidden" name="object_id" value="{{ obj.object_id }}">
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this object from location?')">Remove</button>
-                        </form>
+                        <div class="action-buttons">
+                            <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
+                                <input type="hidden" name="object_type" value="equipment">
+                                <input type="hidden" name="object_id" value="{{ obj.object_id }}">
+                                <button type="submit" class="btn-icon btn-icon-trash" title="Remove" onclick="return confirm('Remove this object from location?')">
+                                    {{ icon_trash() }}
+                                </button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
@@ -169,11 +186,15 @@
                     <td>{{ obj.notes or '-' }}</td>
                     <td>{{ obj.placed_at[:10] if obj.placed_at else '-' }}{% if obj.placed_by %} by {{ obj.placed_by }}{% endif %}</td>
                     <td>
-                        <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
-                            <input type="hidden" name="object_type" value="instrument">
-                            <input type="hidden" name="object_id" value="{{ obj.object_id }}">
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this object from location?')">Remove</button>
-                        </form>
+                        <div class="action-buttons">
+                            <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
+                                <input type="hidden" name="object_type" value="instrument">
+                                <input type="hidden" name="object_id" value="{{ obj.object_id }}">
+                                <button type="submit" class="btn-icon btn-icon-trash" title="Remove" onclick="return confirm('Remove this object from location?')">
+                                    {{ icon_trash() }}
+                                </button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
@@ -184,11 +205,15 @@
                     <td>{{ obj.notes or '-' }}</td>
                     <td>{{ obj.placed_at[:10] if obj.placed_at else '-' }}{% if obj.placed_by %} by {{ obj.placed_by }}{% endif %}</td>
                     <td>
-                        <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
-                            <input type="hidden" name="object_type" value="sample">
-                            <input type="hidden" name="object_id" value="{{ obj.object_id }}">
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this object from location?')">Remove</button>
-                        </form>
+                        <div class="action-buttons">
+                            <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
+                                <input type="hidden" name="object_type" value="sample">
+                                <input type="hidden" name="object_id" value="{{ obj.object_id }}">
+                                <button type="submit" class="btn-icon btn-icon-trash" title="Remove" onclick="return confirm('Remove this object from location?')">
+                                    {{ icon_trash() }}
+                                </button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
@@ -199,11 +224,15 @@
                     <td>{{ obj.notes or '-' }}</td>
                     <td>{{ obj.placed_at[:10] if obj.placed_at else '-' }}{% if obj.placed_by %} by {{ obj.placed_by }}{% endif %}</td>
                     <td>
-                        <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
-                            <input type="hidden" name="object_type" value="precursor">
-                            <input type="hidden" name="object_id" value="{{ obj.object_id }}">
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this object from location?')">Remove</button>
-                        </form>
+                        <div class="action-buttons">
+                            <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
+                                <input type="hidden" name="object_type" value="precursor">
+                                <input type="hidden" name="object_id" value="{{ obj.object_id }}">
+                                <button type="submit" class="btn-icon btn-icon-trash" title="Remove" onclick="return confirm('Remove this object from location?')">
+                                    {{ icon_trash() }}
+                                </button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
@@ -214,11 +243,15 @@
                     <td>{{ obj.notes or '-' }}</td>
                     <td>{{ obj.placed_at[:10] if obj.placed_at else '-' }}{% if obj.placed_by %} by {{ obj.placed_by }}{% endif %}</td>
                     <td>
-                        <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
-                            <input type="hidden" name="object_type" value="computer">
-                            <input type="hidden" name="object_id" value="{{ obj.object_id }}">
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this object from location?')">Remove</button>
-                        </form>
+                        <div class="action-buttons">
+                            <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
+                                <input type="hidden" name="object_type" value="computer">
+                                <input type="hidden" name="object_id" value="{{ obj.object_id }}">
+                                <button type="submit" class="btn-icon btn-icon-trash" title="Remove" onclick="return confirm('Remove this object from location?')">
+                                    {{ icon_trash() }}
+                                </button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}

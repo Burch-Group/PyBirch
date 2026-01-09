@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import detail_action_buttons %}
+{% from "macros.html" import detail_action_buttons, action_buttons, icon_view, icon_edit, icon_open, icon_trash %}
 
 {% block title %}{{ sample.sample_id }} - PyBirch Database{% endblock %}
 
@@ -204,10 +204,16 @@
                     </td>
                     <td>
                         <div class="action-buttons">
-                            <a href="{{ url_for('main.fabrication_run_detail', run_id=run.id) }}" class="btn btn-sm" title="View">View</a>
-                            <a href="{{ url_for('main.fabrication_run_edit', run_id=run.id) }}" class="btn btn-sm btn-secondary" title="Edit">Edit</a>
+                            <a href="{{ url_for('main.fabrication_run_detail', run_id=run.id) }}" class="btn-icon btn-icon-view" title="View">
+                                {{ icon_view() }}
+                            </a>
+                            <a href="{{ url_for('main.fabrication_run_edit', run_id=run.id) }}" class="btn-icon btn-icon-edit" title="Edit">
+                                {{ icon_edit() }}
+                            </a>
                             <form method="POST" action="{{ url_for('main.fabrication_run_delete', run_id=run.id) }}" style="display:inline;">
-                                <button type="submit" class="btn btn-sm btn-danger" title="Delete" onclick="return confirm('Delete this fabrication run?')">Delete</button>
+                                <button type="submit" class="btn-icon btn-icon-trash" title="Delete" onclick="return confirm('Delete this fabrication run?')">
+                                    {{ icon_trash() }}
+                                </button>
                             </form>
                         </div>
                     </td>
@@ -286,7 +292,14 @@
                     <td><span class="status-badge status-{{ scan.status }}">{{ scan.status }}</span></td>
                     <td>{{ scan.created_at[:10] if scan.created_at else '-' }}</td>
                     <td>
-                        <a href="{{ scan.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+                        <div class="action-buttons">
+                            <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}" class="btn-icon btn-icon-view" title="View">
+                                {{ icon_view() }}
+                            </a>
+                            <a href="{{ scan.pybirch_uri }}" class="btn-icon btn-icon-open" title="Open in PyBirch">
+                                {{ icon_open() }}
+                            </a>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
@@ -316,7 +329,14 @@
                     <td>{{ queue.completed_scans or 0 }} / {{ queue.total_scans or 0 }}</td>
                     <td>{{ queue.created_at[:10] if queue.created_at else '-' }}</td>
                     <td>
-                        <a href="{{ queue.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+                        <div class="action-buttons">
+                            <a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}" class="btn-icon btn-icon-view" title="View">
+                                {{ icon_view() }}
+                            </a>
+                            <a href="{{ queue.pybirch_uri }}" class="btn-icon btn-icon-open" title="Open in PyBirch">
+                                {{ icon_open() }}
+                            </a>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import detail_action_buttons %}
+{% from "macros.html" import detail_action_buttons, icon_view %}
 
 {% block title %}{{ driver.display_name }} - Driver - PyBirch Database{% endblock %}
 
@@ -335,7 +335,9 @@
                         {% if v.created_by %} by {{ v.created_by }}{% endif %}
                     </span>
                 </div>
-                <a href="{{ url_for('main.driver_version', driver_id=driver.id, version=v.version) }}" class="btn btn-sm">View</a>
+                <a href="{{ url_for('main.driver_version', driver_id=driver.id, version=v.version) }}" class="btn-icon btn-icon-view" title="View">
+                    {{ icon_view() }}
+                </a>
             </div>
             {% endfor %}
         </div>

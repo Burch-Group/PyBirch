@@ -137,27 +137,48 @@
         color: var(--text-primary);
         min-width: 120px;
     }
-    /* Download Button */
-    .download-section {
+    /* Visualization action buttons - icon style */
+    .viz-action-buttons {
         display: flex;
         gap: 0.5rem;
         margin-left: auto;
+        align-items: center;
     }
-    .btn-download {
+    .viz-action-btn {
         display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 1rem;
-        background: #28a745;
-        color: white;
-        border: none;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        border: 1px solid var(--border-color, #ddd);
         border-radius: 4px;
+        background-color: var(--bg-primary, white);
+        color: var(--text-secondary, #666);
         cursor: pointer;
-        font-size: 0.9rem;
-        transition: background 0.2s;
+        transition: all 0.15s;
+        text-decoration: none;
     }
-    .btn-download:hover {
-        background: #218838;
+    .viz-action-btn:hover {
+        background-color: var(--bg-tertiary, #f0f0f0);
+        color: var(--text-primary, #333);
+        text-decoration: none;
+    }
+    .viz-action-btn svg {
+        width: 18px;
+        height: 18px;
+    }
+    .viz-action-btn.btn-download:hover {
+        color: #28a745;
+        border-color: #28a745;
+    }
+    .viz-action-btn.btn-save-to-sample:hover {
+        color: #0275d8;
+        border-color: #0275d8;
+    }
+    .viz-action-btn:disabled {
+        opacity: 0.7;
+        cursor: wait;
     }
     /* Heatmap container */
     .heatmap-container {
@@ -188,27 +209,12 @@
     .show-heatmap .chart-view { display: none; }
     .show-heatmap .heatmap-view { display: block; }
     
-    /* Save to sample button */
-    .viz-save-actions {
-        display: flex;
-        justify-content: flex-end;
-        margin-top: 12px;
-        padding-top: 12px;
-        border-top: 1px solid var(--border-color);
-    }
-    .save-to-sample-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-    }
-    .save-to-sample-btn:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-    }
+    /* Save hint (shown when no sample linked) */
     .save-hint {
         color: var(--text-tertiary);
-        font-size: 0.85rem;
+        font-size: 0.75rem;
         font-style: italic;
+        margin-left: 0.5rem;
     }
     /* Dimension Reduction Panel */
     .dim-reduction-panel {
@@ -512,14 +518,34 @@
     <div class="related-section">
         <h2>Data Visualization</h2>
         
-        <!-- Global Download Button -->
+        <!-- Global Visualization Actions -->
         <div class="viz-controls">
             <div class="viz-control-group">
                 <label>Scan Data</label>
             </div>
-            <div class="download-section">
-                <a href="{{ url_for('main.download_scan_csv', scan_id=scan.id) }}" class="btn-download">
-                    📥 Download CSV
+            <div class="viz-action-buttons">
+                {% if scan.sample %}
+                <button type="button" class="viz-action-btn btn-save-to-sample save-to-sample-btn" 
+                        data-measurement="global"
+                        data-measurement-name="All Data"
+                        data-sample-id="{{ scan.sample.id }}"
+                        data-sample-name="{{ scan.sample.sample_id }}"
+                        data-scan-name="{{ scan.scan_name or scan.scan_id }}"
+                        title="Save visualization to {{ scan.sample.sample_id }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="2" width="12" height="12" rx="1"/>
+                        <path d="M5 5h6M5 8h4"/>
+                        <circle cx="10.5" cy="10.5" r="1.5"/>
+                    </svg>
+                </button>
+                {% else %}
+                <span class="save-hint" title="Link this scan to a sample to save visualizations">💡 Link to sample to save</span>
+                {% endif %}
+                <a href="{{ url_for('main.download_scan_csv', scan_id=scan.id) }}" class="viz-action-btn btn-download" title="Download CSV">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 2v8M5 7l3 3 3-3"/>
+                        <path d="M2 11v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2"/>
+                    </svg>
                 </a>
             </div>
         </div>
@@ -646,24 +672,6 @@
                 <!-- Plotly heatmap container -->
                 <div class="heatmap-view">
                     <div class="heatmap-container" id="heatmap-{{ loop.index }}"></div>
-                </div>
-                
-                <!-- Save visualization to sample -->
-                <div class="viz-save-actions">
-                    {% if scan.sample %}
-                    <button class="btn btn-secondary btn-sm save-to-sample-btn" 
-                            data-measurement="{{ loop.index }}"
-                            data-measurement-name="{{ name }}"
-                            data-sample-id="{{ scan.sample.id }}"
-                            data-sample-name="{{ scan.sample.sample_id }}"
-                            data-scan-name="{{ scan.scan_name or scan.scan_id }}">
-                        📷 Save to Sample
-                    </button>
-                    {% else %}
-                    <span class="save-hint" title="Link this scan to a sample to save visualizations">
-                        💡 Link to sample to save images
-                    </span>
-                    {% endif %}
                 </div>
                 {% else %}
                 <div class="no-data-message">No data points available for visualization.</div>
@@ -1812,6 +1820,12 @@
     });
     
     // ===== SAVE VISUALIZATION TO SAMPLE =====
+    // SVG icons for button states
+    const savingIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" class="icon-spin">
+        <path d="M8 3V1M8 15v-2M3 8H1M15 8h-2"/>
+        <path d="M4.93 4.93L3.51 3.51M12.49 12.49l-1.42-1.42M4.93 11.07l-1.42 1.42M12.49 3.51l-1.42 1.42" opacity="0.5"/>
+    </svg>`;
+    
     document.querySelectorAll('.save-to-sample-btn').forEach(btn => {
         btn.addEventListener('click', async function() {
             const measurementIndex = this.dataset.measurement;
@@ -1822,22 +1836,56 @@
             
             // Disable button during save
             this.disabled = true;
-            const originalText = this.innerHTML;
-            this.innerHTML = '⏳ Saving...';
+            const originalContent = this.innerHTML;
+            this.innerHTML = savingIcon;
+            this.title = 'Saving...';
             
             try {
                 // Determine if we're showing heatmap or chart
-                const section = document.getElementById(`measurement-${measurementIndex}`);
+                // Handle "global" button by finding active measurement section
+                let section;
+                let actualMeasurementIndex = measurementIndex;
+                
+                if (measurementIndex === 'global') {
+                    // Find the currently active measurement section
+                    section = document.querySelector('.measurement-section.active');
+                    if (!section) {
+                        // If no active section, try to get the first one
+                        section = document.querySelector('.measurement-section');
+                    }
+                    // Extract the measurement index from the section id
+                    if (section && section.id) {
+                        actualMeasurementIndex = section.id.replace('measurement-', '');
+                    }
+                } else {
+                    section = document.getElementById(`measurement-${measurementIndex}`);
+                }
+                
+                if (!section) {
+                    throw new Error('No visualization section found');
+                }
                 const chartWrapper = section.querySelector('.chart-wrapper');
-                const isHeatmap = chartWrapper && chartWrapper.classList.contains('show-heatmap');
+                // Check if heatmap is displayed by checking the heatmap-view element's display style
+                const heatmapView = chartWrapper ? chartWrapper.querySelector('.heatmap-view') : null;
+                const isHeatmap = heatmapView && (heatmapView.style.display === 'block' || getComputedStyle(heatmapView).display !== 'none');
                 
                 let imageData;
-                const chartId = `chart-${measurementIndex}`;
-                const heatmapId = `heatmap-${measurementIndex}`;
+                const chartId = `chart-${actualMeasurementIndex}`;
+                const heatmapId = `heatmap-${actualMeasurementIndex}`;
                 
                 if (isHeatmap && heatmaps[heatmapId]) {
-                    // Capture Plotly heatmap
+                    // Capture Plotly heatmap - wait for any pending renders
                     const heatmapContainer = document.getElementById(heatmapId);
+                    
+                    // Force Plotly to complete any pending updates and set white background for export
+                    await Plotly.relayout(heatmapContainer, {
+                        paper_bgcolor: 'white',
+                        plot_bgcolor: 'white'
+                    });
+                    
+                    // Small delay to ensure render completes
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    
                     imageData = await Plotly.toImage(heatmapContainer, {
                         format: 'png',
                         width: 1200,
@@ -1928,7 +1976,8 @@
                 }
             } finally {
                 this.disabled = false;
-                this.innerHTML = originalText;
+                this.innerHTML = originalContent;
+                this.title = `Save visualization to ${sampleName}`;
             }
         });
     });

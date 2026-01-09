@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import detail_action_buttons %}
+{% from "macros.html" import detail_action_buttons, icon_edit, icon_trash %}
 
 {% block title %}{{ computer.nickname or computer.computer_name }} - Computer - PyBirch Database{% endblock %}
 
@@ -118,13 +118,19 @@
                     </td>
                     <td>{{ binding.last_connected[:10] if binding.last_connected else '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.computer_binding_edit', computer_id=computer.id, binding_id=binding.id) }}" 
-                           class="btn btn-sm btn-secondary" title="Edit binding">Edit</a>
-                        <form action="{{ url_for('main.instrument_binding_delete', instrument_id=binding.instrument_id, binding_id=binding.id) }}" 
-                              method="POST" style="display:inline;"
-                              onsubmit="return confirm('Remove this binding?');">
-                            <button type="submit" class="btn btn-sm btn-danger">Remove</button>
-                        </form>
+                        <div class="action-buttons">
+                            <a href="{{ url_for('main.computer_binding_edit', computer_id=computer.id, binding_id=binding.id) }}" 
+                               class="btn-icon btn-icon-edit" title="Edit binding">
+                                {{ icon_edit() }}
+                            </a>
+                            <form action="{{ url_for('main.instrument_binding_delete', instrument_id=binding.instrument_id, binding_id=binding.id) }}" 
+                                  method="POST" style="display:inline;"
+                                  onsubmit="return confirm('Remove this binding?');">
+                                <button type="submit" class="btn-icon btn-icon-trash" title="Remove">
+                                    {{ icon_trash() }}
+                                </button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
