@@ -43,6 +43,15 @@
                 <dt>Location</dt>
                 <dd>{{ computer.location or '-' }}</dd>
                 
+                <dt>Lab</dt>
+                <dd>
+                    {% if computer.lab_id and computer.lab_name %}
+                    <a href="{{ url_for('main.lab_detail', lab_id=computer.lab_id) }}">{{ computer.lab_name }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
+                
                 <dt>Created</dt>
                 <dd>{{ computer.created_at[:10] if computer.created_at else '-' }}</dd>
                 

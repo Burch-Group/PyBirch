@@ -34,7 +34,7 @@
                     <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab" required>
                         <option value="">-- Select Lab --</option>
                         {% for lab in labs %}
-                        <option value="{{ lab.id }}" {% if project and project.lab_id == lab.id %}selected{% endif %}>{{ lab.name }}</option>
+                        <option value="{{ lab.id }}" {% if (project and project.lab_id == lab.id) or (not project and default_lab_id == lab.id) %}selected{% endif %}>{{ lab.name }}</option>
                         {% endfor %}
                     </select>
                 </div>

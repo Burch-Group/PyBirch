@@ -1950,6 +1950,7 @@ def precursor_new():
     
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
         data = {
             'name': request.form.get('name'),
             'chemical_formula': request.form.get('chemical_formula'),
@@ -1961,6 +1962,7 @@ def precursor_new():
             'status': request.form.get('status', 'new'),
             'storage_conditions': request.form.get('storage_conditions'),
             'lab_id': int(lab_id) if lab_id else None,
+            'project_id': int(project_id) if project_id else None,
         }
         try:
             item = db.create_precursor(data)
@@ -1982,19 +1984,22 @@ def precursor_new():
         except Exception as e:
             flash(f'Error creating precursor: {str(e)}', 'error')
     
-    # Get labs for dropdown
+    # Get labs, projects for dropdown
     labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
     
     # Get locations for dropdown
     locations = db.get_locations_simple_list()
     
     # Get user defaults
     default_lab_id = None
+    default_project_id = None
     if g.current_user:
         user_prefs = db.get_user_preferences(g.current_user['id'])
         default_lab_id = user_prefs.get('default_lab_id')
+        default_project_id = user_prefs.get('default_project_id')
     
-    return render_template('precursor_form.html', precursor=prefilled, action='Create', template=template, labs=labs, locations=locations, default_lab_id=default_lab_id)
+    return render_template('precursor_form.html', precursor=prefilled, action='Create', template=template, labs=labs, projects=projects, locations=locations, default_lab_id=default_lab_id, default_project_id=default_project_id)
 
 
 @main_bp.route('/precursors/<int:precursor_id>/edit', methods=['GET', 'POST'])
@@ -2009,6 +2014,7 @@ def precursor_edit(precursor_id):
     
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
         data = {
             'name': request.form.get('name'),
             'chemical_formula': request.form.get('chemical_formula'),
@@ -2020,6 +2026,7 @@ def precursor_edit(precursor_id):
             'status': request.form.get('status', 'new'),
             'storage_conditions': request.form.get('storage_conditions'),
             'lab_id': int(lab_id) if lab_id else None,
+            'project_id': int(project_id) if project_id else None,
         }
         try:
             updated = db.update_precursor(precursor_id, data)
@@ -2044,8 +2051,9 @@ def precursor_edit(precursor_id):
         except Exception as e:
             flash(f'Error updating precursor: {str(e)}', 'error')
     
-    # Get labs for dropdown
+    # Get labs, projects for dropdown
     labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
     
     # Get locations for dropdown
     locations = db.get_locations_simple_list()
@@ -2056,7 +2064,7 @@ def precursor_edit(precursor_id):
         precursor['current_location_id'] = current_location['location_id']
         precursor['current_location_notes'] = current_location.get('notes', '')
     
-    return render_template('precursor_form.html', precursor=precursor, action='Edit', labs=labs, locations=locations)
+    return render_template('precursor_form.html', precursor=precursor, action='Edit', labs=labs, projects=projects, locations=locations)
 
 
 @main_bp.route('/precursors/<int:precursor_id>/duplicate', methods=['GET', 'POST'])
@@ -2072,6 +2080,7 @@ def precursor_duplicate(precursor_id):
     
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
         data = {
             'name': request.form.get('name'),
             'chemical_formula': request.form.get('chemical_formula'),
@@ -2083,6 +2092,7 @@ def precursor_duplicate(precursor_id):
             'status': request.form.get('status', 'new'),
             'storage_conditions': request.form.get('storage_conditions'),
             'lab_id': int(lab_id) if lab_id else None,
+            'project_id': int(project_id) if project_id else None,
         }
         try:
             item = db.create_precursor(data)
@@ -2096,13 +2106,17 @@ def precursor_duplicate(precursor_id):
     duplicated['name'] = f"{original['name']} (Copy)"
     duplicated['lot_number'] = ''  # Clear lot number for duplicate
     
-    # Get labs for dropdown
+    # Get labs, projects for dropdown
     labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
+    locations = db.get_locations_simple_list()
     
     return render_template('precursor_form.html',
         precursor=duplicated,
         action='Duplicate',
         labs=labs,
+        projects=projects,
+        locations=locations,
     )
 
 
@@ -2119,6 +2133,7 @@ def precursor_replace(precursor_id):
     
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
         data = {
             'name': request.form.get('name'),
             'chemical_formula': request.form.get('chemical_formula'),
@@ -2130,6 +2145,7 @@ def precursor_replace(precursor_id):
             'status': request.form.get('status', 'new'),
             'storage_conditions': request.form.get('storage_conditions'),
             'lab_id': int(lab_id) if lab_id else None,
+            'project_id': int(project_id) if project_id else None,
         }
         try:
             # Create the new precursor
@@ -2152,14 +2168,18 @@ def precursor_replace(precursor_id):
     replaced['name'] = f"{original['name']} (Replacement)"
     replaced['lot_number'] = ''  # Clear lot number for replacement
     
-    # Get labs for dropdown
+    # Get labs, projects for dropdown
     labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
+    locations = db.get_locations_simple_list()
     
     return render_template('precursor_form.html',
         precursor=replaced,
         action='Replace',
         original_precursor=original,
         labs=labs,
+        projects=projects,
+        locations=locations,
     )
 
 
@@ -2304,6 +2324,7 @@ def procedure_new():
         failure_modes = [m.strip() for m in failure_modes_raw.split('\n') if m.strip()] if failure_modes_raw else None
         
         lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
         data = {
             'name': request.form.get('name'),
             'procedure_type': request.form.get('procedure_type'),
@@ -2316,6 +2337,7 @@ def procedure_new():
             'safety_requirements': request.form.get('safety_requirements'),
             'created_by': request.form.get('created_by'),
             'lab_id': int(lab_id) if lab_id else None,
+            'project_id': int(project_id) if project_id else None,
         }
         try:
             procedure = db.create_procedure(data)
@@ -2345,17 +2367,20 @@ def procedure_new():
         except Exception as e:
             flash(f'Error creating procedure: {str(e)}', 'error')
     
-    # Get labs and precursors for dropdowns
+    # Get labs, projects and precursors for dropdowns
     labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
     precursors = db.get_precursors_simple_list()
     
     # Get user defaults
     default_lab_id = None
+    default_project_id = None
     if g.current_user:
         user_prefs = db.get_user_preferences(g.current_user['id'])
         default_lab_id = user_prefs.get('default_lab_id')
+        default_project_id = user_prefs.get('default_project_id')
     
-    return render_template('procedure_form.html', procedure=prefilled, action='Create', template=template, labs=labs, precursors=precursors, default_lab_id=default_lab_id)
+    return render_template('procedure_form.html', procedure=prefilled, action='Create', template=template, labs=labs, projects=projects, precursors=precursors, default_lab_id=default_lab_id, default_project_id=default_project_id)
 
 
 @main_bp.route('/procedures/<int:procedure_id>/edit', methods=['GET', 'POST'])
@@ -2438,6 +2463,7 @@ def procedure_edit(procedure_id):
         failure_modes = [m.strip() for m in failure_modes_raw.split('\n') if m.strip()] if failure_modes_raw else None
         
         lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
         data = {
             'name': request.form.get('name'),
             'procedure_type': request.form.get('procedure_type'),
@@ -2450,6 +2476,7 @@ def procedure_edit(procedure_id):
             'safety_requirements': request.form.get('safety_requirements'),
             'created_by': request.form.get('created_by'),
             'lab_id': int(lab_id) if lab_id else None,
+            'project_id': int(project_id) if project_id else None,
         }
         try:
             updated = db.update_procedure(procedure_id, data)
@@ -2478,14 +2505,15 @@ def procedure_edit(procedure_id):
         except Exception as e:
             flash(f'Error updating procedure: {str(e)}', 'error')
     
-    # Get labs and precursors for dropdowns
+    # Get labs, projects and precursors for dropdowns
     labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
     precursors = db.get_precursors_simple_list()
     
     # Get procedure's existing precursors
     procedure_precursors = db.get_procedure_precursors(procedure_id)
     
-    return render_template('procedure_form.html', procedure=procedure, action='Edit', labs=labs, precursors=precursors, procedure_precursors=procedure_precursors)
+    return render_template('procedure_form.html', procedure=procedure, action='Edit', labs=labs, projects=projects, precursors=precursors, procedure_precursors=procedure_precursors)
 
 
 @main_bp.route('/procedures/<int:procedure_id>/duplicate', methods=['GET', 'POST'])
@@ -2520,6 +2548,7 @@ def procedure_duplicate(procedure_id):
                 steps.append(step)
         
         lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
         data = {
             'name': request.form.get('name'),
             'procedure_type': request.form.get('procedure_type'),
@@ -2530,6 +2559,7 @@ def procedure_duplicate(procedure_id):
             'safety_requirements': request.form.get('safety_requirements'),
             'created_by': request.form.get('created_by'),
             'lab_id': int(lab_id) if lab_id else None,
+            'project_id': int(project_id) if project_id else None,
         }
         try:
             new_procedure = db.create_procedure(data)
@@ -2542,10 +2572,12 @@ def procedure_duplicate(procedure_id):
     procedure = dict(original)
     procedure['name'] = f"{original['name']} (Copy)"
     
-    # Get labs for dropdown
+    # Get labs, projects and precursors for dropdown
     labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
+    precursors = db.get_precursors_simple_list()
     
-    return render_template('procedure_form.html', procedure=procedure, action='Duplicate', labs=labs)
+    return render_template('procedure_form.html', procedure=procedure, action='Duplicate', labs=labs, projects=projects, precursors=precursors)
 
 
 # -------------------- Labs --------------------
@@ -2833,6 +2865,12 @@ def project_new():
     db = get_db_service()
     labs_list, _ = db.get_labs(per_page=100)
     
+    # Get user defaults
+    default_lab_id = None
+    if g.current_user:
+        user_prefs = db.get_user_preferences(g.current_user['id'])
+        default_lab_id = user_prefs.get('default_lab_id')
+    
     if request.method == 'POST':
         data = {
             'name': request.form.get('name'),
@@ -2853,7 +2891,7 @@ def project_new():
         except Exception as e:
             flash(f'Error creating project: {str(e)}', 'error')
     
-    return render_template('project_form.html', project=None, labs=labs_list, action='Create')
+    return render_template('project_form.html', project=None, labs=labs_list, action='Create', default_lab_id=default_lab_id)
 
 
 @main_bp.route('/projects/<int:project_id>/edit', methods=['GET', 'POST'])

@@ -285,6 +285,24 @@
                 
                 <dt>Executions</dt>
                 <dd>{{ procedure.fabrication_runs|length if procedure.fabrication_runs else 0 }} runs</dd>
+                
+                <dt>Lab</dt>
+                <dd>
+                    {% if procedure.lab %}
+                    <a href="{{ url_for('main.lab_detail', lab_id=procedure.lab.id) }}">{{ procedure.lab.name }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
+                
+                <dt>Project</dt>
+                <dd>
+                    {% if procedure.project %}
+                    <a href="{{ url_for('main.project_detail', project_id=procedure.project.id) }}">{{ procedure.project.name }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
             </dl>
         </div>
 

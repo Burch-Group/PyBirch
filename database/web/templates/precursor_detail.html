@@ -81,6 +81,29 @@
                 <dd>{{ precursor.created_at[:10] if precursor.created_at else '-' }}</dd>
             </dl>
         </div>
+        
+        <div class="detail-section">
+            <h2>Organization</h2>
+            <dl class="detail-list">
+                <dt>Lab</dt>
+                <dd>
+                    {% if precursor.lab %}
+                    <a href="{{ url_for('main.lab_detail', lab_id=precursor.lab.id) }}">{{ precursor.lab.name }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
+                
+                <dt>Project</dt>
+                <dd>
+                    {% if precursor.project %}
+                    <a href="{{ url_for('main.project_detail', project_id=precursor.project.id) }}">{{ precursor.project.name }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
+            </dl>
+        </div>
     </div>
     
     <!-- Images Section -->

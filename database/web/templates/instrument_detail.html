@@ -159,6 +159,15 @@
                 <dt>Serial Number</dt>
                 <dd>{{ instrument.serial_number or '-' }}</dd>
                 
+                <dt>Lab</dt>
+                <dd>
+                    {% if instrument.lab %}
+                    <a href="{{ url_for('main.lab_detail', lab_id=instrument.lab.id) }}">{{ instrument.lab.name }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
+                
                 <dt>Location</dt>
                 <dd>{{ instrument.location or '-' }}</dd>
                 

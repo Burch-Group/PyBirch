@@ -381,6 +381,26 @@ class DatabaseService:
     
     def _sample_to_dict(self, sample: Sample) -> Dict:
         """Convert Sample model to dictionary."""
+        # Get lab info if linked
+        lab_info = None
+        if sample.lab_id and sample.lab:
+            lab_info = {'id': sample.lab.id, 'name': sample.lab.name}
+        
+        # Get project info if linked
+        project_info = None
+        if sample.project_id and sample.project:
+            project_info = {'id': sample.project.id, 'name': sample.project.name, 'code': sample.project.code}
+        
+        # Get parent sample info if linked
+        parent_info = None
+        if sample.parent_sample_id and sample.parent_sample:
+            parent_info = {
+                'id': sample.parent_sample.id,
+                'sample_id': sample.parent_sample.sample_id,
+                'name': sample.parent_sample.name,
+                'material': sample.parent_sample.material,
+            }
+        
         return {
             'id': sample.id,
             'sample_id': sample.sample_id,
@@ -396,8 +416,12 @@ class DatabaseService:
             'created_at': sample.created_at.isoformat() if sample.created_at else None,
             'updated_at': sample.updated_at.isoformat() if sample.updated_at else None,
             'created_by': sample.created_by,
+            'lab_id': sample.lab_id,
+            'lab': lab_info,
             'project_id': sample.project_id,
+            'project': project_info,
             'parent_sample_id': sample.parent_sample_id,
+            'parent_sample': parent_info,
         }
     
     def get_samples_simple_list(self, exclude_id: Optional[int] = None) -> List[Dict]:
@@ -1808,6 +1832,11 @@ class DatabaseService:
             definition_name = instrument.definition.name
             definition_display_name = instrument.definition.display_name
         
+        # Get lab info if linked
+        lab_info = None
+        if instrument.lab_id and instrument.lab:
+            lab_info = {'id': instrument.lab.id, 'name': instrument.lab.name}
+        
         result = {
             'id': instrument.id,
             'name': instrument.name,
@@ -1819,6 +1848,7 @@ class DatabaseService:
             'status': instrument.status,
             'specifications': instrument.specifications,
             'lab_id': instrument.lab_id,
+            'lab': lab_info,
             'equipment_id': instrument.equipment_id,
             'definition_id': instrument.definition_id,
             'definition_name': definition_name,
@@ -2831,6 +2861,12 @@ class DatabaseService:
         owner_name = None
         if equipment.owner:
             owner_name = equipment.owner.name or equipment.owner.username
+        
+        # Get lab info if linked
+        lab_info = None
+        if equipment.lab_id and equipment.lab:
+            lab_info = {'id': equipment.lab.id, 'name': equipment.lab.name}
+        
         return {
             'id': equipment.id,
             'name': equipment.name,
@@ -2850,6 +2886,7 @@ class DatabaseService:
             'specifications': equipment.specifications,
             'documentation_url': equipment.documentation_url,
             'lab_id': equipment.lab_id,
+            'lab': lab_info,
             'created_at': equipment.created_at.isoformat() if equipment.created_at else None,
             'updated_at': equipment.updated_at.isoformat() if equipment.updated_at else None,
         }
@@ -3278,6 +3315,16 @@ class DatabaseService:
     
     def _precursor_to_dict(self, precursor: Precursor) -> Dict:
         """Convert Precursor model to dictionary."""
+        # Get lab info if linked
+        lab_info = None
+        if precursor.lab_id and precursor.lab:
+            lab_info = {'id': precursor.lab.id, 'name': precursor.lab.name}
+        
+        # Get project info if linked
+        project_info = None
+        if precursor.project_id and precursor.project:
+            project_info = {'id': precursor.project.id, 'name': precursor.project.name}
+        
         return {
             'id': precursor.id,
             'name': precursor.name,
@@ -3294,7 +3341,9 @@ class DatabaseService:
             'expiration_date': precursor.expiration_date.isoformat() if precursor.expiration_date else None,
             'created_at': precursor.created_at.isoformat() if precursor.created_at else None,
             'lab_id': precursor.lab_id,
+            'lab': lab_info,
             'project_id': precursor.project_id,
+            'project': project_info,
         }
     
     # ==================== Procedures ====================
@@ -3668,6 +3717,16 @@ class DatabaseService:
                         'is_required': assoc.is_required,
                     })
         
+        # Get lab info if linked
+        lab_info = None
+        if procedure.lab_id and procedure.lab:
+            lab_info = {'id': procedure.lab.id, 'name': procedure.lab.name}
+        
+        # Get project info if linked
+        project_info = None
+        if procedure.project_id and procedure.project:
+            project_info = {'id': procedure.project.id, 'name': procedure.project.name}
+        
         return {
             'id': procedure.id,
             'name': procedure.name,
@@ -3685,7 +3744,9 @@ class DatabaseService:
             'equipment': equipment_list,
             'precursors': precursor_list,
             'lab_id': procedure.lab_id,
+            'lab': lab_info,
             'project_id': procedure.project_id,
+            'project': project_info,
         }
     
     # ==================== Procedure-Equipment Associations ====================

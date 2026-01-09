@@ -46,6 +46,15 @@
                 <dt>Serial Number</dt>
                 <dd>{{ equipment.serial_number or '-' }}</dd>
                 
+                <dt>Lab</dt>
+                <dd>
+                    {% if equipment.lab %}
+                    <a href="{{ url_for('main.lab_detail', lab_id=equipment.lab.id) }}">{{ equipment.lab.name }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
+                
                 <dt>Location</dt>
                 <dd>{{ equipment.location or '-' }}{% if equipment.room %} (Room {{ equipment.room }}){% endif %}</dd>
                 
