@@ -509,6 +509,32 @@ def sample_duplicate(sample_id):
     )
 
 
+@main_bp.route('/samples/<int:sample_id>/delete', methods=['POST'])
+@login_required
+def sample_delete(sample_id):
+    """Move a sample to trash."""
+    db = get_db_service()
+    sample = db.get_sample(sample_id)
+    
+    if not sample:
+        flash('Sample not found', 'error')
+        return redirect(url_for('main.samples'))
+    
+    try:
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('sample', sample_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            flash(f'Sample "{sample["sample_id"]}" moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Error moving sample to trash'), 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+    
+    return redirect(url_for('main.samples'))
+
+
 # -------------------- Fabrication Runs --------------------
 
 @main_bp.route('/samples/<int:sample_id>/fabrication-runs/new', methods=['GET', 'POST'])
@@ -811,10 +837,10 @@ def fabrication_run_detail(run_id):
 @main_bp.route('/fabrication-runs/<int:run_id>/delete', methods=['POST'])
 @login_required
 def fabrication_run_delete(run_id):
-    """Delete a fabrication run."""
+    """Move a fabrication run to trash."""
     db = get_db_service()
     
-    # Get sample_id before deleting
+    # Get sample_id before trashing
     with db.session_scope() as session:
         from database.models import FabricationRun
         run = session.query(FabricationRun).filter(FabricationRun.id == run_id).first()
@@ -823,10 +849,17 @@ def fabrication_run_delete(run_id):
             return redirect(url_for('main.samples'))
         sample_id = run.sample_id
     
-    if db.delete_fabrication_run(run_id):
-        flash('Fabrication run deleted', 'success')
-    else:
-        flash('Error deleting fabrication run', 'error')
+    try:
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('fabrication_run', run_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            flash('Fabrication run moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Error moving fabrication run to trash'), 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
     
     return redirect(url_for('main.sample_detail', sample_id=sample_id))
 
@@ -1066,6 +1099,32 @@ def download_scan_csv(scan_id):
     )
 
 
+@main_bp.route('/scans/<int:scan_id>/delete', methods=['POST'])
+@login_required
+def scan_delete(scan_id):
+    """Move a scan to trash."""
+    db = get_db_service()
+    scan = db.get_scan(scan_id)
+    
+    if not scan:
+        flash('Scan not found', 'error')
+        return redirect(url_for('main.scans'))
+    
+    try:
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('scan', scan_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            flash(f'Scan "{scan.get("name", scan_id)}" moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Error moving scan to trash'), 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+    
+    return redirect(url_for('main.scans'))
+
+
 # -------------------- Queues --------------------
 
 @main_bp.route('/queues')
@@ -1109,6 +1168,32 @@ def queue_detail(queue_id):
         flash('Queue not found', 'error')
         return redirect(url_for('main.queues'))
     return render_template('queue_detail.html', queue=queue)
+
+
+@main_bp.route('/queues/<int:queue_id>/delete', methods=['POST'])
+@login_required
+def queue_delete(queue_id):
+    """Move a queue to trash (cascades to scans)."""
+    db = get_db_service()
+    queue = db.get_queue(queue_id)
+    
+    if not queue:
+        flash('Queue not found', 'error')
+        return redirect(url_for('main.queues'))
+    
+    try:
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('queue', queue_id, trashed_by=username, cascade=True)
+        
+        if result['success']:
+            flash(f'Queue "{queue.get("name", queue_id)}" moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Error moving queue to trash'), 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+    
+    return redirect(url_for('main.queues'))
 
 
 # -------------------- Equipment --------------------
@@ -1339,6 +1424,32 @@ def equipment_duplicate(equipment_id):
         action='Duplicate',
         labs=labs,
     )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/delete', methods=['POST'])
+@login_required
+def equipment_delete(equipment_id):
+    """Move equipment to trash."""
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    try:
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('equipment', equipment_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            flash(f'Equipment "{equipment["name"]}" moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Error moving equipment to trash'), 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+    
+    return redirect(url_for('main.equipment'))
 
 
 @main_bp.route('/equipment/<int:equipment_id>/upload-image', methods=['POST'])
@@ -1811,17 +1922,20 @@ def location_edit(location_id):
 @main_bp.route('/locations/<int:location_id>/delete', methods=['POST'])
 @login_required
 def location_delete(location_id):
-    """Delete a location."""
+    """Move a location to trash (soft-delete with cascade to child locations)."""
     db = get_db_service()
+    location = db.get_location(location_id)
     
     try:
-        success = db.delete_location(location_id)
-        if success:
-            flash('Location deleted successfully', 'success')
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('location', location_id, trashed_by=username, cascade=True)
+        
+        if result['success']:
+            name = location.get('name', f'#{location_id}') if location else f'#{location_id}'
+            flash(f'Location "{name}" moved to trash. It will be permanently deleted in 30 days.', 'success')
         else:
-            flash('Location not found', 'error')
-    except ValueError as e:
-        flash(str(e), 'error')
+            flash(result.get('error', 'Location not found'), 'error')
     except Exception as e:
         flash(f'Error deleting location: {str(e)}', 'error')
     
@@ -2118,6 +2232,32 @@ def precursor_duplicate(precursor_id):
         projects=projects,
         locations=locations,
     )
+
+
+@main_bp.route('/precursors/<int:precursor_id>/delete', methods=['POST'])
+@login_required
+def precursor_delete(precursor_id):
+    """Move a precursor to trash."""
+    db = get_db_service()
+    precursor = db.get_precursor(precursor_id)
+    
+    if not precursor:
+        flash('Precursor not found', 'error')
+        return redirect(url_for('main.precursors'))
+    
+    try:
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('precursor', precursor_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            flash(f'Precursor "{precursor["name"]}" moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Error moving precursor to trash'), 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+    
+    return redirect(url_for('main.precursors'))
 
 
 @main_bp.route('/precursors/<int:precursor_id>/replace', methods=['GET', 'POST'])
@@ -2580,6 +2720,32 @@ def procedure_duplicate(procedure_id):
     return render_template('procedure_form.html', procedure=procedure, action='Duplicate', labs=labs, projects=projects, precursors=precursors)
 
 
+@main_bp.route('/procedures/<int:procedure_id>/delete', methods=['POST'])
+@login_required
+def procedure_delete(procedure_id):
+    """Move a procedure to trash."""
+    db = get_db_service()
+    procedure = db.get_procedure(procedure_id)
+    
+    if not procedure:
+        flash('Procedure not found', 'error')
+        return redirect(url_for('main.procedures'))
+    
+    try:
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('procedure', procedure_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            flash(f'Procedure "{procedure["name"]}" moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Error moving procedure to trash'), 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+    
+    return redirect(url_for('main.procedures'))
+
+
 # -------------------- Labs --------------------
 
 @main_bp.route('/labs')
@@ -2768,7 +2934,7 @@ def lab_member_remove(lab_id, member_id):
 @main_bp.route('/labs/<int:lab_id>/delete', methods=['POST'])
 @login_required
 def lab_delete(lab_id):
-    """Delete a lab."""
+    """Move a lab to trash (soft-delete with cascade to all children)."""
     db = get_db_service()
     lab = db.get_lab(lab_id)
     
@@ -2777,10 +2943,14 @@ def lab_delete(lab_id):
         return redirect(url_for('main.labs'))
     
     try:
-        if db.delete_lab(lab_id):
-            flash(f'Lab "{lab["name"]}" deleted successfully', 'success')
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('lab', lab_id, trashed_by=username, cascade=True)
+        
+        if result['success']:
+            flash(f'Lab "{lab["name"]}" moved to trash. It will be permanently deleted in 30 days.', 'success')
         else:
-            flash('Error deleting lab', 'error')
+            flash(result.get('error', 'Error moving lab to trash'), 'error')
     except Exception as e:
         flash(f'Cannot delete lab: {str(e)}', 'error')
     
@@ -2982,7 +3152,7 @@ def project_member_remove(project_id, member_id):
 @main_bp.route('/projects/<int:project_id>/delete', methods=['POST'])
 @login_required
 def project_delete(project_id):
-    """Delete a project."""
+    """Move a project to trash (soft-delete with cascade to samples and queues)."""
     db = get_db_service()
     project = db.get_project(project_id)
     
@@ -2991,10 +3161,14 @@ def project_delete(project_id):
         return redirect(url_for('main.projects'))
     
     try:
-        if db.delete_project(project_id):
-            flash(f'Project "{project["name"]}" deleted successfully', 'success')
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('project', project_id, trashed_by=username, cascade=True)
+        
+        if result['success']:
+            flash(f'Project "{project["name"]}" moved to trash. It will be permanently deleted in 30 days.', 'success')
         else:
-            flash('Error deleting project', 'error')
+            flash(result.get('error', 'Error moving project to trash'), 'error')
     except Exception as e:
         flash(f'Cannot delete project: {str(e)}', 'error')
     
@@ -3635,13 +3809,20 @@ def issue_update_status(issue_id):
 @main_bp.route('/issues/<int:issue_id>/delete', methods=['POST'])
 @admin_required
 def issue_delete(issue_id):
-    """Delete an issue (admin only)."""
+    """Move an issue to trash (admin only)."""
     db = get_db_service()
     
-    if db.delete_issue(issue_id):
-        flash('Issue deleted', 'success')
-    else:
-        flash('Error deleting issue', 'error')
+    try:
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('issue', issue_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            flash('Issue moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Error moving issue to trash'), 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
     
     return redirect(url_for('main.issues'))
 
@@ -3906,14 +4087,22 @@ def template_edit(template_id):
 
 
 @main_bp.route('/templates/<int:template_id>/delete', methods=['POST'])
+@login_required
 def template_delete(template_id):
-    """Delete (soft) a template."""
+    """Move a template to trash."""
     db = get_db_service()
     
-    if db.delete_template(template_id):
-        flash('Template deleted successfully', 'success')
-    else:
-        flash('Template not found', 'error')
+    try:
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('template', template_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            flash('Template moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Template not found'), 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
     
     return redirect(url_for('main.templates'))
 
@@ -5018,7 +5207,7 @@ def instrument_edit(instrument_id):
 @main_bp.route('/instruments/<int:instrument_id>/delete', methods=['POST'])
 @login_required
 def instrument_delete(instrument_id):
-    """Delete an instrument."""
+    """Move an instrument to trash."""
     db = get_db_service()
     instrument = db.get_instrument(instrument_id)
     
@@ -5027,8 +5216,14 @@ def instrument_delete(instrument_id):
         return redirect(url_for('main.instruments'))
     
     try:
-        db.delete_instrument(instrument_id)
-        flash(f'Instrument "{instrument["name"]}" deleted', 'success')
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('instrument', instrument_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            flash(f'Instrument "{instrument["name"]}" moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Error moving instrument to trash'), 'error')
     except Exception as e:
         flash(f'Error deleting instrument: {str(e)}', 'error')
     
@@ -5314,7 +5509,7 @@ def driver_edit(driver_id):
 @main_bp.route('/drivers/<int:driver_id>/delete', methods=['POST'])
 @login_required
 def driver_delete(driver_id):
-    """Delete a driver."""
+    """Move a driver to trash."""
     db = get_db_service()
     driver = db.get_driver(driver_id)
     
@@ -5323,8 +5518,14 @@ def driver_delete(driver_id):
         return redirect(url_for('main.drivers'))
     
     try:
-        db.delete_driver(driver_id)
-        flash(f'Driver "{driver["display_name"]}" deleted', 'success')
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('driver', driver_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            flash(f'Driver "{driver["display_name"]}" moved to trash', 'success')
+        else:
+            flash(result.get('error', 'Error moving driver to trash'), 'error')
     except Exception as e:
         flash(f'Error deleting driver: {str(e)}', 'error')
     
@@ -6078,14 +6279,20 @@ def computer_edit(computer_id):
 @main_bp.route('/computers/<int:computer_id>/delete', methods=['POST'])
 @login_required
 def computer_delete(computer_id):
-    """Delete a computer."""
+    """Move a computer to trash."""
     db = get_db_service()
+    computer = db.get_computer_by_id(computer_id)
     
     try:
-        if db.delete_computer(computer_id):
-            flash('Computer deleted successfully', 'success')
+        trash_svc = get_trash_service()
+        username = g.current_user.get('username') if g.current_user else None
+        result = trash_svc.trash_item('computer', computer_id, trashed_by=username, cascade=False)
+        
+        if result['success']:
+            name = computer.get('computer_name', f'#{computer_id}') if computer else f'#{computer_id}'
+            flash(f'Computer "{name}" moved to trash', 'success')
         else:
-            flash('Computer not found', 'error')
+            flash(result.get('error', 'Computer not found'), 'error')
     except Exception as e:
         flash(f'Error deleting computer: {str(e)}', 'error')
     
@@ -6138,3 +6345,103 @@ def computer_binding_new(computer_id):
         computer=computer,
         instruments=instruments,
     )
+
+
+# ==================== Trash Management ====================
+
+from database.trash_service import TrashService
+
+def get_trash_service():
+    """Get trash service instance."""
+    return TrashService()
+
+@main_bp.route('/trash')
+@login_required
+def trash():
+    """Trash management page - view and manage trashed items."""
+    trash_svc = get_trash_service()
+    
+    # Get filter parameters
+    entity_type = request.args.get('type', '')
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    
+    # Get trashed items
+    items = []
+    if entity_type:
+        items = trash_svc.get_trashed_items(entity_type, page=page, per_page=per_page)
+    
+    # Get stats for sidebar
+    stats = trash_svc.get_trash_stats()
+    
+    return render_template('trash.html',
+        items=items,
+        stats=stats,
+        entity_type=entity_type,
+        page=page
+    )
+
+
+@api_bp.route('/trash/<entity_type>/<int:entity_id>', methods=['POST'])
+@api_login_required
+def api_trash_item(entity_type, entity_id):
+    """Move an item to trash (soft-delete)."""
+    trash_svc = get_trash_service()
+    
+    username = g.current_user.get('username') if g.current_user else None
+    cascade = request.json.get('cascade', True) if request.is_json else True
+    
+    result = trash_svc.trash_item(entity_type, entity_id, trashed_by=username, cascade=cascade)
+    
+    if result['success']:
+        return jsonify(result), 200
+    else:
+        return jsonify(result), 400
+
+
+@api_bp.route('/trash/<entity_type>/<int:entity_id>/restore', methods=['POST'])
+@api_login_required
+def api_restore_item(entity_type, entity_id):
+    """Restore an item from trash."""
+    trash_svc = get_trash_service()
+    
+    cascade = request.json.get('cascade', True) if request.is_json else True
+    
+    result = trash_svc.restore_item(entity_type, entity_id, cascade=cascade)
+    
+    if result['success']:
+        return jsonify(result), 200
+    else:
+        return jsonify(result), 400
+
+
+@api_bp.route('/trash/<entity_type>/<int:entity_id>', methods=['DELETE'])
+@api_login_required
+def api_permanent_delete(entity_type, entity_id):
+    """Permanently delete a trashed item."""
+    trash_svc = get_trash_service()
+    
+    result = trash_svc.permanently_delete_item(entity_type, entity_id)
+    
+    if result['success']:
+        return jsonify(result), 200
+    else:
+        return jsonify(result), 400
+
+
+@api_bp.route('/trash/stats', methods=['GET'])
+@api_login_required
+def api_trash_stats():
+    """Get trash statistics."""
+    trash_svc = get_trash_service()
+    stats = trash_svc.get_trash_stats()
+    return jsonify(stats)
+
+
+@api_bp.route('/trash/cleanup', methods=['POST'])
+@admin_required
+def api_trash_cleanup():
+    """Permanently delete all expired trash items (admin only)."""
+    trash_svc = get_trash_service()
+    result = trash_svc.cleanup_expired_trash()
+    return jsonify(result)

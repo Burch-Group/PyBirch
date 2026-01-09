@@ -515,6 +515,455 @@
         });
     });
     </script>
+    
+    <!-- Custom Modal System -->
+    <style>
+    .pybirch-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(4px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+    .pybirch-modal-overlay.show {
+        opacity: 1;
+    }
+    .pybirch-modal {
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        max-width: 420px;
+        width: 90%;
+        transform: scale(0.9);
+        transition: transform 0.2s ease;
+        border: 1px solid #e2e8f0;
+    }
+    .pybirch-modal-overlay.show .pybirch-modal {
+        transform: scale(1);
+    }
+    .pybirch-modal-header {
+        padding: 20px 24px 16px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .pybirch-modal-header h3 {
+        margin: 0;
+        font-size: 1.25rem;
+        color: #1e293b;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .pybirch-modal-header .modal-icon {
+        font-size: 1.5rem;
+    }
+    .pybirch-modal-header.danger h3 {
+        color: #dc2626;
+    }
+    .pybirch-modal-header.success h3 {
+        color: #16a34a;
+    }
+    .pybirch-modal-header.warning h3 {
+        color: #d97706;
+    }
+    .pybirch-modal-body {
+        padding: 20px 24px;
+        color: #475569;
+        line-height: 1.6;
+    }
+    .pybirch-modal-body p {
+        margin: 0 0 12px;
+    }
+    .pybirch-modal-body p:last-child {
+        margin-bottom: 0;
+    }
+    .pybirch-modal-body strong {
+        color: #1e293b;
+    }
+    .pybirch-modal-body .info-text {
+        font-size: 0.9rem;
+        color: #64748b;
+        background: #f8fafc;
+        padding: 12px;
+        border-radius: 8px;
+        margin-top: 12px;
+        border: 1px solid #e2e8f0;
+    }
+    .pybirch-modal-footer {
+        padding: 16px 24px 20px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        background: #f8fafc;
+        border-top: 1px solid #e2e8f0;
+        border-radius: 0 0 12px 12px;
+    }
+    .pybirch-modal-btn {
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-size: 0.95rem;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+        transition: all 0.15s ease;
+    }
+    .pybirch-modal-btn-secondary {
+        background: #ffffff;
+        color: #475569;
+        border: 1px solid #cbd5e1;
+    }
+    .pybirch-modal-btn-secondary:hover {
+        background: #f1f5f9;
+        border-color: #94a3b8;
+    }
+    .pybirch-modal-btn-primary {
+        background: #3b82f6;
+        color: white;
+    }
+    .pybirch-modal-btn-primary:hover {
+        background: #2563eb;
+    }
+    .pybirch-modal-btn-danger {
+        background: #ef4444;
+        color: white;
+    }
+    .pybirch-modal-btn-danger:hover {
+        background: #dc2626;
+    }
+    .pybirch-modal-btn-success {
+        background: #22c55e;
+        color: white;
+    }
+    .pybirch-modal-btn-success:hover {
+        background: #16a34a;
+    }
+    </style>
+    
+    <!-- Trash Management Functions -->
+    <script>
+    // Custom Modal System
+    const PyBirchModal = {
+        _overlay: null,
+        
+        _createOverlay() {
+            if (this._overlay) return this._overlay;
+            
+            this._overlay = document.createElement('div');
+            this._overlay.className = 'pybirch-modal-overlay';
+            this._overlay.innerHTML = `
+                <div class="pybirch-modal">
+                    <div class="pybirch-modal-header">
+                        <h3><span class="modal-icon"></span><span class="modal-title"></span></h3>
+                    </div>
+                    <div class="pybirch-modal-body"></div>
+                    <div class="pybirch-modal-footer"></div>
+                </div>
+            `;
+            document.body.appendChild(this._overlay);
+            
+            // Close on overlay click
+            this._overlay.addEventListener('click', (e) => {
+                if (e.target === this._overlay) this.close();
+            });
+            
+            // Close on Escape key
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && this._overlay.classList.contains('show')) {
+                    this.close();
+                }
+            });
+            
+            return this._overlay;
+        },
+        
+        show(options) {
+            const overlay = this._createOverlay();
+            const modal = overlay.querySelector('.pybirch-modal');
+            const header = modal.querySelector('.pybirch-modal-header');
+            const icon = modal.querySelector('.modal-icon');
+            const title = modal.querySelector('.modal-title');
+            const body = modal.querySelector('.pybirch-modal-body');
+            const footer = modal.querySelector('.pybirch-modal-footer');
+            
+            // Set header type
+            header.className = 'pybirch-modal-header ' + (options.type || '');
+            
+            // Set icon
+            const icons = {
+                danger: '🗑️',
+                warning: '⚠️',
+                success: '✅',
+                info: 'ℹ️'
+            };
+            icon.textContent = options.icon || icons[options.type] || '';
+            
+            // Set title and body
+            title.textContent = options.title || 'Confirm';
+            body.innerHTML = options.body || '';
+            
+            // Set buttons
+            footer.innerHTML = '';
+            (options.buttons || []).forEach(btn => {
+                const button = document.createElement('button');
+                button.className = `pybirch-modal-btn pybirch-modal-btn-${btn.type || 'secondary'}`;
+                button.textContent = btn.text;
+                button.onclick = () => {
+                    if (btn.action) btn.action();
+                    if (btn.close !== false) this.close();
+                };
+                footer.appendChild(button);
+            });
+            
+            // Show modal
+            requestAnimationFrame(() => {
+                overlay.classList.add('show');
+            });
+            
+            return this;
+        },
+        
+        close() {
+            if (this._overlay) {
+                this._overlay.classList.remove('show');
+            }
+        },
+        
+        confirm(options) {
+            return new Promise((resolve) => {
+                this.show({
+                    type: options.type || 'warning',
+                    icon: options.icon,
+                    title: options.title || 'Confirm',
+                    body: options.body || 'Are you sure?',
+                    buttons: [
+                        {
+                            text: options.cancelText || 'Cancel',
+                            type: 'secondary',
+                            action: () => resolve(false)
+                        },
+                        {
+                            text: options.confirmText || 'Confirm',
+                            type: options.confirmType || 'primary',
+                            action: () => resolve(true)
+                        }
+                    ]
+                });
+            });
+        },
+        
+        alert(options) {
+            return new Promise((resolve) => {
+                this.show({
+                    type: options.type || 'info',
+                    icon: options.icon,
+                    title: options.title || 'Notice',
+                    body: options.body || '',
+                    buttons: [
+                        {
+                            text: options.buttonText || 'OK',
+                            type: options.type === 'danger' ? 'danger' : (options.type === 'success' ? 'success' : 'primary'),
+                            action: () => resolve(true)
+                        }
+                    ]
+                });
+            });
+        }
+    };
+    
+    async function moveToTrash(entityType, entityId, entityName) {
+        const name = entityName || `#${entityId}`;
+        const typeName = entityType.replace(/_/g, ' ');
+        
+        const confirmed = await PyBirchModal.confirm({
+            type: 'danger',
+            title: 'Move to Trash',
+            body: `
+                <p>Are you sure you want to move <strong>"${name}"</strong> to trash?</p>
+                <div class="info-text">
+                    💡 You can restore this ${typeName} from the Trash page within 30 days.
+                </div>
+            `,
+            cancelText: 'Cancel',
+            confirmText: 'Move to Trash',
+            confirmType: 'danger'
+        });
+        
+        if (!confirmed) return false;
+        
+        const url = `/api/trash/${entityType}/${entityId}`;
+        console.log('Trash API URL:', url);
+        
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({ cascade: true })
+            });
+            
+            console.log('Response status:', response.status);
+            console.log('Response headers:', [...response.headers.entries()]);
+            
+            // Get response text first to debug
+            const responseText = await response.text();
+            console.log('Response text (first 500 chars):', responseText.substring(0, 500));
+            
+            // Check if response is JSON
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                // Not JSON - likely a redirect or HTML error page
+                if (response.status === 401 || response.redirected) {
+                    await PyBirchModal.alert({
+                        type: 'danger',
+                        title: 'Authentication Required',
+                        body: `<p>Please log in to perform this action.</p>`,
+                        buttonText: 'OK'
+                    });
+                    window.location.href = '/login';
+                    return false;
+                }
+                throw new Error(`Server returned non-JSON response (status: ${response.status}, content-type: ${contentType})`);
+            }
+            
+            // Parse the text as JSON
+            let data;
+            try {
+                data = JSON.parse(responseText);
+            } catch (parseError) {
+                console.error('JSON parse error:', parseError);
+                console.error('Response was:', responseText);
+                throw new Error(`Invalid JSON response: ${parseError.message}`);
+            }
+            
+            if (response.ok) {
+                await PyBirchModal.alert({
+                    type: 'success',
+                    title: 'Moved to Trash',
+                    body: `<p><strong>"${name}"</strong> has been moved to trash.</p>
+                           <div class="info-text">You can restore it from the Trash page within 30 days.</div>`,
+                    buttonText: 'OK'
+                });
+                window.location.href = `/${entityType}s`;
+                return true;
+            } else {
+                await PyBirchModal.alert({
+                    type: 'danger',
+                    title: 'Error',
+                    body: `<p>${data.error || 'Failed to move item to trash.'}</p>`,
+                    buttonText: 'OK'
+                });
+                return false;
+            }
+        } catch (error) {
+            console.error('Trash error:', error);
+            await PyBirchModal.alert({
+                type: 'danger',
+                title: 'Error',
+                body: `<p>Failed to move item to trash.</p>
+                       <div class="info-text">Error: ${error.message}<br><br>Check browser console (F12) for details.</div>`,
+                buttonText: 'OK'
+            });
+            return false;
+        }
+    }
+    
+    async function restoreFromTrash(entityType, entityId, entityName) {
+        const name = entityName || `#${entityId}`;
+        
+        try {
+            const response = await fetch(`/api/trash/${entityType}/${entityId}/restore`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                credentials: 'same-origin'
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                return true;
+            } else {
+                await PyBirchModal.alert({
+                    type: 'danger',
+                    title: 'Error',
+                    body: `<p>${data.error || 'Failed to restore item.'}</p>`,
+                    buttonText: 'OK'
+                });
+                return false;
+            }
+        } catch (error) {
+            console.error('Restore error:', error);
+            await PyBirchModal.alert({
+                type: 'danger',
+                title: 'Error',
+                body: `<p>Failed to restore item. Please try again.</p>`,
+                buttonText: 'OK'
+            });
+            return false;
+        }
+    }
+    
+    async function permanentDelete(entityType, entityId, entityName) {
+        const name = entityName || `#${entityId}`;
+        
+        const confirmed = await PyBirchModal.confirm({
+            type: 'danger',
+            title: 'Permanent Delete',
+            body: `
+                <p>Are you sure you want to <strong>permanently delete</strong> "${name}"?</p>
+                <div class="info-text" style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444;">
+                    ⚠️ This action cannot be undone. The item will be permanently removed.
+                </div>
+            `,
+            cancelText: 'Cancel',
+            confirmText: 'Delete Forever',
+            confirmType: 'danger'
+        });
+        
+        if (!confirmed) return false;
+        
+        try {
+            const response = await fetch(`/api/trash/${entityType}/${entityId}`, {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                credentials: 'same-origin'
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                return true;
+            } else {
+                await PyBirchModal.alert({
+                    type: 'danger',
+                    title: 'Error',
+                    body: `<p>${data.error || 'Failed to delete item.'}</p>`,
+                    buttonText: 'OK'
+                });
+                return false;
+            }
+        } catch (error) {
+            console.error('Delete error:', error);
+            await PyBirchModal.alert({
+                type: 'danger',
+                title: 'Error',
+                body: `<p>Failed to delete item. Please try again.</p>`,
+                buttonText: 'OK'
+            });
+            return false;
+        }
+    }
+    </script>
+    
     <!-- PyBirch Real-Time WebSocket Client -->
     <script src="{{ url_for('static', filename='js/pybirch-realtime.js') }}"></script>
     <script>

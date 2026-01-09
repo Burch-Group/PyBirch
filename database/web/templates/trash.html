@@ -16,9 +16,9 @@
             <ul class="trash-type-list">
                 <li class="{% if not entity_type %}active{% endif %}">
                     <a href="{{ url_for('main.trash') }}">All Types</a>
-                    <span class="badge">{{ stats.values() | sum }}</span>
+                    <span class="badge">{{ stats.total_trashed }}</span>
                 </li>
-                {% for type_name, count in stats.items() %}
+                {% for type_name, count in stats.by_type.items() %}
                 {% if count > 0 %}
                 <li class="{% if entity_type == type_name %}active{% endif %}">
                     <a href="{{ url_for('main.trash', type=type_name) }}">{{ type_name | replace('_', ' ') | title }}</a>
@@ -107,7 +107,7 @@
                     <h2>Trash Overview</h2>
                     <p>Select a type from the sidebar to view and manage trashed items.</p>
                     
-                    {% if stats.values() | sum == 0 %}
+                    {% if stats.total_trashed == 0 %}
                     <div class="empty-trash-message">
                         <div class="empty-icon">🗑️</div>
                         <h3>Trash is empty</h3>
@@ -115,7 +115,7 @@
                     </div>
                     {% else %}
                     <div class="trash-stats-grid">
-                        {% for type_name, count in stats.items() %}
+                        {% for type_name, count in stats.by_type.items() %}
                         {% if count > 0 %}
                         <a href="{{ url_for('main.trash', type=type_name) }}" class="trash-stat-card">
                             <div class="stat-count">{{ count }}</div>
@@ -288,30 +288,48 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.addEventListener('click', async function() {
             const entityType = this.dataset.entityType;
             const entityId = this.dataset.entityId;
+            const row = this.closest('tr');
+            const itemName = row.querySelector('.item-name')?.textContent?.trim() || `#${entityId}`;
             
-            if (!confirm('Restore this item from trash?')) return;
+            const confirmed = await PyBirchModal.confirm({
+                type: 'success',
+                icon: '↩️',
+                title: 'Restore Item',
+                body: `<p>Restore <strong>"${itemName}"</strong> from trash?</p>`,
+                cancelText: 'Cancel',
+                confirmText: 'Restore',
+                confirmType: 'success'
+            });
+            
+            if (!confirmed) return;
             
             try {
                 const response = await fetch(`/api/trash/${entityType}/${entityId}/restore`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
                     body: JSON.stringify({ cascade: true })
                 });
                 
                 const result = await response.json();
                 
                 if (result.success) {
-                    // Remove row from table
-                    this.closest('tr').remove();
+                    row.remove();
                     showFlashMessage('Item restored successfully', 'success');
-                    
-                    // Update sidebar counts
                     updateSidebarCount(entityType, -1);
                 } else {
-                    showFlashMessage(result.error || 'Failed to restore item', 'error');
+                    await PyBirchModal.alert({
+                        type: 'danger',
+                        title: 'Error',
+                        body: `<p>${result.error || 'Failed to restore item'}</p>`
+                    });
                 }
             } catch (error) {
-                showFlashMessage('Error restoring item: ' + error.message, 'error');
+                await PyBirchModal.alert({
+                    type: 'danger',
+                    title: 'Error',
+                    body: `<p>Error restoring item: ${error.message}</p>`
+                });
             }
         });
     });
@@ -321,26 +339,50 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.addEventListener('click', async function() {
             const entityType = this.dataset.entityType;
             const entityId = this.dataset.entityId;
+            const row = this.closest('tr');
+            const itemName = row.querySelector('.item-name')?.textContent?.trim() || `#${entityId}`;
             
-            if (!confirm('PERMANENTLY DELETE this item? This cannot be undone!')) return;
-            if (!confirm('Are you absolutely sure? This action is irreversible.')) return;
+            const confirmed = await PyBirchModal.confirm({
+                type: 'danger',
+                title: 'Permanent Delete',
+                body: `
+                    <p>Are you sure you want to <strong>permanently delete</strong> "${itemName}"?</p>
+                    <div class="info-text" style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444;">
+                        ⚠️ This action cannot be undone. The item will be permanently removed from the database.
+                    </div>
+                `,
+                cancelText: 'Cancel',
+                confirmText: 'Delete Forever',
+                confirmType: 'danger'
+            });
+            
+            if (!confirmed) return;
             
             try {
                 const response = await fetch(`/api/trash/${entityType}/${entityId}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    credentials: 'same-origin'
                 });
                 
                 const result = await response.json();
                 
                 if (result.success) {
-                    this.closest('tr').remove();
+                    row.remove();
                     showFlashMessage('Item permanently deleted', 'success');
                     updateSidebarCount(entityType, -1);
                 } else {
-                    showFlashMessage(result.error || 'Failed to delete item', 'error');
+                    await PyBirchModal.alert({
+                        type: 'danger',
+                        title: 'Error',
+                        body: `<p>${result.error || 'Failed to delete item'}</p>`
+                    });
                 }
             } catch (error) {
-                showFlashMessage('Error deleting item: ' + error.message, 'error');
+                await PyBirchModal.alert({
+                    type: 'danger',
+                    title: 'Error',
+                    body: `<p>Error deleting item: ${error.message}</p>`
+                });
             }
         });
     });
@@ -349,30 +391,55 @@ document.addEventListener('DOMContentLoaded', function() {
     const cleanupBtn = document.getElementById('cleanup-expired-btn');
     if (cleanupBtn) {
         cleanupBtn.addEventListener('click', async function() {
-            if (!confirm('This will permanently delete all items that have been in trash for more than 30 days. Continue?')) return;
+            const confirmed = await PyBirchModal.confirm({
+                type: 'warning',
+                title: 'Cleanup Expired Items',
+                body: `
+                    <p>This will permanently delete all items that have been in trash for more than 30 days.</p>
+                    <div class="info-text">
+                        ⚠️ This action cannot be undone.
+                    </div>
+                `,
+                cancelText: 'Cancel',
+                confirmText: 'Clean Up',
+                confirmType: 'danger'
+            });
+            
+            if (!confirmed) return;
             
             try {
                 const response = await fetch('/api/trash/cleanup', {
-                    method: 'POST'
+                    method: 'POST',
+                    credentials: 'same-origin'
                 });
                 
                 const result = await response.json();
                 
                 if (result.success) {
-                    showFlashMessage(`Cleanup complete. ${result.deleted_count} items permanently deleted.`, 'success');
-                    // Reload page to refresh counts
-                    setTimeout(() => location.reload(), 1500);
+                    await PyBirchModal.alert({
+                        type: 'success',
+                        title: 'Cleanup Complete',
+                        body: `<p>${result.deleted_count} items permanently deleted.</p>`
+                    });
+                    setTimeout(() => location.reload(), 500);
                 } else {
-                    showFlashMessage(result.error || 'Cleanup failed', 'error');
+                    await PyBirchModal.alert({
+                        type: 'danger',
+                        title: 'Error',
+                        body: `<p>${result.error || 'Cleanup failed'}</p>`
+                    });
                 }
             } catch (error) {
-                showFlashMessage('Error during cleanup: ' + error.message, 'error');
+                await PyBirchModal.alert({
+                    type: 'danger',
+                    title: 'Error',
+                    body: `<p>Error during cleanup: ${error.message}</p>`
+                });
             }
         });
     }
     
     function updateSidebarCount(entityType, delta) {
-        // Find the sidebar item for this entity type
         const listItems = document.querySelectorAll('.trash-type-list li');
         listItems.forEach(li => {
             const link = li.querySelector('a');
@@ -382,8 +449,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     const currentCount = parseInt(badge.textContent) || 0;
                     const newCount = Math.max(0, currentCount + delta);
                     badge.textContent = newCount;
-                    
-                    // Hide if count is 0
                     if (newCount === 0) {
                         li.style.display = 'none';
                     }
@@ -391,7 +456,6 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
-        // Update "All Types" count
         const allTypesItem = document.querySelector('.trash-type-list li:first-child .badge');
         if (allTypesItem) {
             const currentTotal = parseInt(allTypesItem.textContent) || 0;
@@ -400,19 +464,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function showFlashMessage(message, type) {
-        // Create flash message element
         const flash = document.createElement('div');
         flash.className = `flash-message flash-${type}`;
         flash.textContent = message;
         
-        // Add to page
         const container = document.querySelector('.flash-messages') || createFlashContainer();
         container.appendChild(flash);
         
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-            flash.remove();
-        }, 5000);
+        setTimeout(() => flash.remove(), 5000);
     }
     
     function createFlashContainer() {

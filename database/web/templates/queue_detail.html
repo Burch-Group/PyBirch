@@ -14,6 +14,7 @@
             {% endif %}
             <span id="connection-status" class="connection-status connecting" title="Connecting..."></span>
             <a href="{{ queue.pybirch_uri }}" class="btn btn-primary">Open in PyBirch</a>
+            <button class="btn btn-danger" onclick="moveToTrash('queue', {{ queue.id }}, '{{ (queue.name or queue.queue_id) | e }}')">🗑️ Trash</button>
         </div>
     </div>
     

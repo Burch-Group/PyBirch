@@ -14,10 +14,7 @@
         <h1>{{ computer.nickname or computer.computer_name }}</h1>
         <div class="detail-actions">
             <a href="{{ url_for('main.computer_edit', computer_id=computer.id) }}" class="btn btn-secondary">Edit</a>
-            <form action="{{ url_for('main.computer_delete', computer_id=computer.id) }}" method="POST" style="display:inline;"
-                  onsubmit="return confirm('Delete this computer and all its bindings?');">
-                <button type="submit" class="btn btn-danger">Delete</button>
-            </form>
+            <button class="btn btn-danger" onclick="moveToTrash('computer', {{ computer.id }}, '{{ (computer.nickname or computer.computer_name) | e }}')">🗑️ Move to Trash</button>
         </div>
     </div>
     

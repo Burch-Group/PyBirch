@@ -18,6 +18,7 @@
             <a href="{{ url_for('main.equipment_issue_new', equipment_id=equipment.id) }}" class="btn btn-secondary">+ Report Issue</a>
             <a href="{{ url_for('main.equipment_duplicate', equipment_id=equipment.id) }}" class="btn btn-secondary">Duplicate</a>
             <a href="{{ url_for('main.equipment_edit', equipment_id=equipment.id) }}" class="btn btn-secondary">Edit</a>
+            <button class="btn btn-danger" onclick="moveToTrash('equipment', {{ equipment.id }}, '{{ equipment.name | e }}')">🗑️ Move to Trash</button>
         </div>
     </div>
     

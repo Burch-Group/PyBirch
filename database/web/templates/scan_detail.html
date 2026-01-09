@@ -344,6 +344,7 @@
             {% endif %}
             <span id="connection-status" class="connection-status connecting" title="Connecting..."></span>
             <a href="{{ scan.pybirch_uri }}" class="btn btn-primary">Open in PyBirch</a>
+            <button class="btn btn-danger" onclick="moveToTrash('scan', {{ scan.id }}, '{{ (scan.scan_name or scan.scan_id) | e }}')">🗑️ Trash</button>
         </div>
     </div>
     

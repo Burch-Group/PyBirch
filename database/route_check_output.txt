@@ -1,0 +1,34 @@
+Trash API Test (simulating browser)
+==================================================
+
+App created OK
+
+Found scan: id=1, name=IV_Sweep_001, trashed_at=None
+
+Testing WITHOUT login:
+  Status: 401
+  Content-Type: application/json
+  Response: {"error":"Authentication required. Please log in.","success":false}
+
+
+Testing WITH login (user_id=1):
+  POST /api/trash/scan/1:
+    Status: 200
+    Content-Type: application/json
+    Response: {"cascade_count":0,"deletion_date":"2026-02-08T03:07:59.383111","message":"Scan moved to trash. Will be permanently deleted on 2026-02-08.","success":true}
+
+
+  POST /api/trash/scan/1/restore:
+    Status: 200
+    Content-Type: application/json
+    Response: {"cascade_count":0,"message":"Scan restored from trash.","success":true}
+
+
+==================================================
+Registered trash API routes:
+  {'HEAD', 'GET', 'OPTIONS'} /trash -> main.trash
+  {'POST', 'OPTIONS'} /api/trash/<entity_type>/<int:entity_id> -> api.api_trash_item
+  {'POST', 'OPTIONS'} /api/trash/<entity_type>/<int:entity_id>/restore -> api.api_restore_item
+  {'DELETE', 'OPTIONS'} /api/trash/<entity_type>/<int:entity_id> -> api.api_permanent_delete
+  {'HEAD', 'GET', 'OPTIONS'} /api/trash/stats -> api.api_trash_stats
+  {'POST', 'OPTIONS'} /api/trash/cleanup -> api.api_trash_cleanup
