@@ -76,28 +76,34 @@ Items:
 - [x] add QR code option beside all search-select dropdowns that allows a QR code to be scanned, and inputs the resulting object if it is of the correct type, etc.
 - [x] Add file uploads with optional name & description. The UI should be like image uploads are currently, with drag and drop over the section & manual file selection options. These should be implemented everywhere image uploads are allowed. Acccept all standard file types, as well as scientific types like .kdf design files, gwiddeon afm files, etc. Make adding new acceptable file types easy to do (in case it is necessary for developers in the future.)
 - [x] Add issue timeline
-- [x] add recurring maintenance tasks to equipment, which open a predefined maintenance issue after a given wait, and begin the wait again after that issue is resolved. They should be editable and deletable
-add confirmation modal after loading qr code with main image (if available) name & details (optipns confirm, retry, cancel)
-- [ ] add a legend option to line & scatter visualizations. <10 datapoints it plots them & gives a legend (sorted by color (configurable) numerical or alphabetical), or as a heatbar on the side if >10 datapoints, labeled with letters or numbers. clicking on a datapoint will give the item it comes from.
+- [x] add recurring maintenance tasks to equipment, which open a predefined maintenance issue after a given wait, and begin the wait again after that issue is resolved. They should be editable and deletable add confirmation modal after loading qr code with main image (if available) name & details (optipns confirm, retry, cancel)
+- [x] add a legend option to line & scatter visualizations. <10 datapoints it plots each line/ set of points & gives a regular legend (sorted by color (same setting as heatmap color) in numerical or alphabetical order), or as a colorbar legend on the side if >10 datapoints, labeled with letters or numbers. clicking on a datapoint will give a small tooltip of the item it comes from.
+
+
 - [ ] add config or something to drivers for reference files (all in python). folder or file upload. driver file must follow a naming convention so it can be found.
+
+
 - [ ] add characterizations. connect to equipment, samples. Have type, json results, files & images
 - [ ] add analyses. take data file(s) csv. output data file csv & images. python code, with dependencies. naming convention like drivers, and autorecognition. can apply analysis to scans. can push images to scan image gallery, tells user where they came from. For data transparency
+- [ ] Add waste objects as first-class database objects. They will link to precursors, samples, and locations. 
+- [ ] maybe subscriber class, with items like slack channels or email groups. user email & slack notifications are treated as a recipient with one address (only difference is that it is edited in the profile). can be configured with standard/custom notifications upon various lab events
+
+
 - [ ] split into inventory & data sections. too large now
   add featured (not starred) tag. limit of one for images
     add permissions page to all objects. can view local lab permissions, but also options to add guests, or share between labs. At the bottom lists shared labs & shared guests for that item (editable, unless inherited), as well as if that permission is inherited from a parent and which one.
     add option to average & plot stdv error bars on line & scatterplot if there exist multiple datapoints per position
-    think about mixing chemicals. how is that supported?
+- [ ] think about mixing chemicals. how is that supported?
 - [ ] Invigilator, access to lab objects but not projects
 
-- [ ] alldow to share equipment with users or with labs. They may create issues and view the equipment & its issues, but that is all.
+- [ ] allow to share equipment with users or with labs. They may create issues and view the equipment & its issues, but that is all.
 - [ ] Allow users to make issues open to public suggestions, or publically visible, both resolved and unresolved. Add forum pages.
 - [ ] add multiple y values and legend for line plot
 - [ ] Automations -- emails, slack notifications, api calls to other databases; simple / template configurable
 - [ ] notifications for users (essentially preset automations) which can be enables in email or slack for any of: scan status change, queue status change, issue assignment, assigned issue status change, assigned equipment status change, site-wide issue status change, new creation of new issues).
 - [ ] notifications for a slack channel as well, with the same settings as if it were a user, minus the assignment specific notifications. Objects are hyperlinked as with references. Includes user who made the change, if applicable
-- [ ] maybe recipient class, with items like slack channels or email groups. user email & slack notifications are treated as a recipient with one address (only difference is that it is edited in the profile). can be configured with standard/custom notifications upon various lab events
 - [ ] references -- to be used in descriptions, etc. (popup search window?)
-- [ ] waste objects
+
 - [ ] dark mode xD
 - [ ] email notifications when members are added to labs/projects
 - [ ] Lab door access logs for security
@@ -115,8 +121,7 @@ add confirmation modal after loading qr code with main image (if available) name
 - [x] add ability to upload other files (.kdf, gwiddeon, pdf, json, etc.) with name & description
 - [ ] add a team to the member heirarchy
 - [ ] allow sharing between labs, when accepted will add the other lab as a link to the object, and give permissions to related objects (scans, samples)
-- [ ] add analyses, json import for now. includes cisualization functionality from scan data, can save images to scan. add rest api for future automations here
-- [ ] allow users to add sample/project after a scan/queue is run by editing in the db.
+- [x] allow users to add sample/project after a scan/queue is run by editing in the db.
 - [ ] Add a "number of measurements" option for measurement objects. This will be configured like movement object positions (will require similar cards to be made for the scan setup page, that are visible when the measurement is selected in the scan tree GUI).
 
 - [x] allow users to change default values in fabrication runs (if they are tuning something)
@@ -129,7 +134,7 @@ add confirmation modal after loading qr code with main image (if available) name
 - [x] Site-wide filters need to be edited -- the button is visible longer than the Ui bar that it opens (frustrating)
 - [ ] allow users to choose a lab in their profile, filters everything. allow labs to turn on/off database items they don't use -- wont show up in navlinks or index when that lab is selected for viewing in the user profile. allow labs to configure a custom color theme (three or four primary colors) that will be used when that lab is selected for viewing.
 - [ ] publications -- link to scans, samples, lab, users, etc. Allows users to censor appropriately for a publically visible object that could be linked to from an actual publication (i.e. not to show description/notes on samples).
-- [ ] User statistics (labs created, samples created, etc. issues closed, publcations featured in, images added, and some other cool ones (pages visited? idk))
+- [x] User statistics (labs created, samples created, etc. issues closed, images added, and some other cool ones (pages visited? idk))
 - [ ] Autogenerated monthly summaries (created, deleted object numbers). # of resolved issues by type, split by object type (equipment, insturment, etc.). Upcoming maintenance tasks. Open issues. Plots of failed fabrication runs, and histogram of their failure modes (if there is enough data >10?). Users can select which of these they want to receive with checkboxes.
 
 - [ ] Eventually: add automatic report generation that pulls from starred object

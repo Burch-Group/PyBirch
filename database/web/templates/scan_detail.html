@@ -737,6 +737,28 @@
                             {% endfor %}
                         </select>
                     </div>
+                    <div class="viz-control-group line-scatter-only" data-measurement="{{ loop.index }}">
+                        <label>Legend:</label>
+                        <select class="legend-select" data-chart="chart-{{ loop.index }}" data-measurement="{{ loop.index }}">
+                            <option value="">None</option>
+                            {% for col in data.columns %}
+                            {% if col != data.x_column and col != data.y_column %}
+                            <option value="{{ col }}">{{ col }}</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="viz-control-group legend-colorscale-group line-scatter-only" style="display: none;" data-measurement="{{ loop.index }}">
+                        <label>Legend Color:</label>
+                        <select class="legend-colorscale-select" data-measurement="{{ loop.index }}">
+                            <option value="Viridis">Viridis</option>
+                            <option value="Plasma">Plasma</option>
+                            <option value="Inferno">Inferno</option>
+                            <option value="Cividis">Cividis (colorblind)</option>
+                            <option value="RdBu">Red-Blue</option>
+                            <option value="Greys">Grayscale</option>
+                        </select>
+                    </div>
                 </div>
                 
                 <!-- Dimension Reduction Panel (shows when data has more dimensions than needed) -->
@@ -1143,10 +1165,14 @@
             const dimReductionPanel = section.querySelector(`.dim-reduction-panel[data-measurement="${measurementIndex}"]`);
             const reductionRows2 = section.querySelectorAll('.reduction-row-2');
             
+            // Toggle line-scatter-only controls
+            const lineScatterOnlyControls = section.querySelectorAll(`.line-scatter-only[data-measurement="${measurementIndex}"]`);
+            
             if (vizType === 'heatmap') {
                 if (chartView) chartView.style.display = 'none';
                 if (heatmapView) heatmapView.style.display = 'block';
                 heatmapOnlyControls.forEach(ctrl => ctrl.style.display = 'flex');
+                lineScatterOnlyControls.forEach(ctrl => ctrl.style.display = 'none');
                 if (dimReductionPanel) dimReductionPanel.classList.add('active');
                 // Hide second reduction row for heatmaps (only need one reduction)
                 reductionRows2.forEach(row => row.style.display = 'none');
@@ -1169,6 +1195,7 @@
                 if (chartView) chartView.style.display = 'block';
                 if (heatmapView) heatmapView.style.display = 'none';
                 heatmapOnlyControls.forEach(ctrl => ctrl.style.display = 'none');
+                lineScatterOnlyControls.forEach(ctrl => ctrl.style.display = 'flex');
                 if (dimReductionPanel) dimReductionPanel.classList.add('active');
                 // Show second reduction row for line/scatter with 4+ columns
                 reductionRows2.forEach(row => {
@@ -1180,6 +1207,17 @@
                     chartInfo.chart.config.type = vizType;
                     // Refresh with any dimension reductions applied
                     refreshVisualization(measurementIndex);
+                }
+                
+                // Update legend colorscale visibility based on legend selection
+                const legendSelect = section.querySelector(`.legend-select[data-measurement="${measurementIndex}"]`);
+                const legendColorscaleGroup = section.querySelector(`.legend-colorscale-group[data-measurement="${measurementIndex}"]`);
+                if (legendSelect && legendColorscaleGroup) {
+                    const hasLegend = legendSelect.value !== '';
+                    const state = vizState[measurementIndex] || {};
+                    const uniqueCount = state.legendUniqueCount || 0;
+                    // Show colorscale selector only when legend has 10+ unique values
+                    legendColorscaleGroup.style.display = (hasLegend && uniqueCount >= 10) ? 'flex' : 'none';
                 }
             }
             
@@ -1235,36 +1273,62 @@
             chartInfo.data.x_column = xCol;
             chartInfo.data.y_column = yCol;
             
+            // Update legend select options to exclude x and y axes
+            const legendSelect = container.querySelector(`.legend-select[data-measurement="${index}"]`);
+            if (legendSelect) {
+                const currentLegend = legendSelect.value;
+                const columns = chartInfo.data.columns || [];
+                const availableLegendCols = columns.filter(c => c !== xCol && c !== yCol);
+                
+                // Rebuild options
+                legendSelect.innerHTML = '<option value="">None</option>';
+                availableLegendCols.forEach(col => {
+                    const opt = document.createElement('option');
+                    opt.value = col;
+                    opt.textContent = col;
+                    if (col === currentLegend) opt.selected = true;
+                    legendSelect.appendChild(opt);
+                });
+                
+                // If current legend is now an axis, reset it
+                if (currentLegend === xCol || currentLegend === yCol) {
+                    legendSelect.value = '';
+                    vizState[index].legendCol = null;
+                    vizState[index].legendUniqueCount = 0;
+                    // Hide legend colorscale group
+                    const legendColorscaleGroup = container.querySelector(`.legend-colorscale-group[data-measurement="${index}"]`);
+                    if (legendColorscaleGroup) legendColorscaleGroup.style.display = 'none';
+                }
+            }
+            
+            // Update z-axis select options to exclude x and y axes
+            const zSelect = container.querySelector(`.z-axis-select[data-measurement="${index}"]`);
+            if (zSelect) {
+                const currentZ = zSelect.value;
+                const columns = chartInfo.data.columns || [];
+                const availableZCols = columns.filter(c => c !== xCol && c !== yCol);
+                
+                // Rebuild options
+                zSelect.innerHTML = '';
+                availableZCols.forEach(col => {
+                    const opt = document.createElement('option');
+                    opt.value = col;
+                    opt.textContent = col;
+                    if (col === currentZ && availableZCols.includes(currentZ)) opt.selected = true;
+                    zSelect.appendChild(opt);
+                });
+                
+                // If current Z is now an axis, reset to first available
+                if (currentZ === xCol || currentZ === yCol) {
+                    vizState[index].zCol = availableZCols[0] || null;
+                }
+            }
+            
             // Update reduction UI since plot axes changed
             updateReductionUI(index);
             
-            // Rebuild data from all_values with reductions applied
-            const reductions = getReductions(index);
-            const preserveCols = [xCol];
-            const reducedData = reductions.length > 0 
-                ? applyMultipleReductions(chartInfo.data.all_values, preserveCols, reductions)
-                : chartInfo.data.all_values;
-            
-            const newData = reducedData.map(row => ({
-                x: xCol === 'sequence_index' ? row.sequence_index : row[xCol],
-                y: row[yCol]
-            }));
-            
-            chartInfo.chart.data.datasets[0].data = newData;
-            chartInfo.chart.options.scales.x.title.text = xCol;
-            chartInfo.chart.options.scales.y.title.text = yCol + (chartInfo.data.unit ? ` (${chartInfo.data.unit})` : '');
-            chartInfo.chart.update();
-            
-            // Update ranges
-            const xValues = newData.map(p => p.x);
-            const yValues = newData.map(p => p.y);
-            updateRangeDisplays(xValues, yValues, index);
-            
-            // Update heatmap if it exists
-            const heatmapId = `heatmap-${index}`;
-            if (heatmaps[heatmapId]) {
-                createReducedHeatmap(heatmapId, chartInfo.data, index, vizState[index]?.colorscale || 'Viridis', reductions, vizState[index]?.zCol);
-            }
+            // Refresh visualization (handles both chart and heatmap, with legend support)
+            refreshVisualization(index);
         });
     });
     
@@ -1457,6 +1521,64 @@
         return state.reductions || [];
     }
     
+    // Generate colors from a colorscale for legend
+    function getColorsFromColorscale(colorscale, count) {
+        // Colorscale definitions (simplified from Plotly)
+        const scales = {
+            'Viridis': [[0, '#440154'], [0.25, '#3b528b'], [0.5, '#21918c'], [0.75, '#5ec962'], [1, '#fde725']],
+            'Plasma': [[0, '#0d0887'], [0.25, '#7e03a8'], [0.5, '#cc4778'], [0.75, '#f89540'], [1, '#f0f921']],
+            'Inferno': [[0, '#000004'], [0.25, '#57106e'], [0.5, '#bc3754'], [0.75, '#f98e09'], [1, '#fcffa4']],
+            'Cividis': [[0, '#00224e'], [0.25, '#3d4e67'], [0.5, '#7d7d7d'], [0.75, '#bea249'], [1, '#fee838']],
+            'RdBu': [[0, '#053061'], [0.25, '#4393c3'], [0.5, '#f7f7f7'], [0.75, '#d6604d'], [1, '#67001f']],
+            'Greys': [[0, '#ffffff'], [0.25, '#c0c0c0'], [0.5, '#808080'], [0.75, '#404040'], [1, '#000000']]
+        };
+        const scale = scales[colorscale] || scales['Viridis'];
+        
+        function interpolateColor(color1, color2, factor) {
+            const hex2rgb = (hex) => {
+                const r = parseInt(hex.slice(1, 3), 16);
+                const g = parseInt(hex.slice(3, 5), 16);
+                const b = parseInt(hex.slice(5, 7), 16);
+                return [r, g, b];
+            };
+            const rgb2hex = (r, g, b) => `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+            
+            const [r1, g1, b1] = hex2rgb(color1);
+            const [r2, g2, b2] = hex2rgb(color2);
+            const r = Math.round(r1 + (r2 - r1) * factor);
+            const g = Math.round(g1 + (g2 - g1) * factor);
+            const b = Math.round(b1 + (b2 - b1) * factor);
+            return rgb2hex(r, g, b);
+        }
+        
+        function getColorAtPosition(pos) {
+            for (let i = 0; i < scale.length - 1; i++) {
+                if (pos >= scale[i][0] && pos <= scale[i + 1][0]) {
+                    const factor = (pos - scale[i][0]) / (scale[i + 1][0] - scale[i][0]);
+                    return interpolateColor(scale[i][1], scale[i + 1][1], factor);
+                }
+            }
+            return scale[scale.length - 1][1];
+        }
+        
+        const colors = [];
+        for (let i = 0; i < count; i++) {
+            const pos = count > 1 ? i / (count - 1) : 0.5;
+            colors.push(getColorAtPosition(pos));
+        }
+        return colors;
+    }
+    
+    // Sort legend values - numeric or alphabetic
+    function sortLegendValues(values) {
+        // Check if all values are numeric
+        const allNumeric = values.every(v => !isNaN(parseFloat(v)) && isFinite(v));
+        if (allNumeric) {
+            return [...values].sort((a, b) => parseFloat(a) - parseFloat(b));
+        }
+        return [...values].sort((a, b) => String(a).localeCompare(String(b)));
+    }
+    
     // Refresh the current visualization with updated reductions
     function refreshVisualization(measurementIndex) {
         const chartId = `chart-${measurementIndex}`;
@@ -1481,25 +1603,188 @@
         } else {
             // Line/scatter - apply reductions and update chart
             const allValues = chartInfo.data.all_values || [];
+            const legendCol = state.legendCol;
             
             const preserveCols = [xCol];
             const reducedData = reductions.length > 0 
                 ? applyMultipleReductions(allValues, preserveCols, reductions)
                 : allValues;
             
-            const newData = reducedData.map(row => ({
-                x: xCol === 'sequence_index' ? row.sequence_index : row[xCol],
-                y: row[yCol]
-            }));
+            // Get the section element for manipulating views
+            const section = document.querySelector(`.measurement-section#measurement-${measurementIndex}`);
+            const chartView = section ? section.querySelector('.chart-view') : null;
+            const heatmapView = section ? section.querySelector('.heatmap-view') : null;
+            const heatmapContainer = document.getElementById(heatmapId);
             
-            chartInfo.chart.data.datasets[0].data = newData;
-            chartInfo.chart.data.datasets[0].label = chartInfo.name + buildReductionTitle(reductions, allValues);
-            chartInfo.chart.update();
-            
-            // Update ranges
-            const xValues = newData.map(p => p.x);
-            const yValues = newData.map(p => p.y);
-            updateRangeDisplays(xValues, yValues, measurementIndex);
+            if (legendCol) {
+                // Group data by legend column
+                const uniqueLegendValues = sortLegendValues([...new Set(reducedData.map(r => r[legendCol]))]);
+                const legendCount = uniqueLegendValues.length;
+                const legendColorscale = state.legendColorscale || 'Viridis';
+                const legendColors = getColorsFromColorscale(legendColorscale, legendCount);
+                
+                if (legendCount < 10) {
+                    // Use Chart.js with regular legend (<10 groups)
+                    if (chartView) chartView.style.display = 'block';
+                    if (heatmapView) heatmapView.style.display = 'none';
+                    
+                    // Create datasets for each legend group
+                    const datasets = uniqueLegendValues.map((legendValue, i) => {
+                        const groupData = reducedData.filter(r => r[legendCol] === legendValue);
+                        const color = legendColors[i];
+                        return {
+                            label: `${legendCol}=${legendValue}`,
+                            data: groupData.map(row => ({
+                                x: xCol === 'sequence_index' ? row.sequence_index : row[xCol],
+                                y: row[yCol],
+                                _sourceData: row  // Store source data for tooltips
+                            })),
+                            borderColor: color,
+                            backgroundColor: color + '40', // 25% opacity
+                            fill: state.type === 'line',
+                            tension: 0.1,
+                            pointRadius: state.type === 'line' ? 2 : 4,
+                            pointHoverRadius: 6,
+                            borderWidth: 2
+                        };
+                    });
+                    
+                    chartInfo.chart.data.datasets = datasets;
+                    chartInfo.chart.options.scales.x.title.text = xCol;
+                    chartInfo.chart.options.scales.y.title.text = yCol + (chartInfo.data.unit ? ` (${chartInfo.data.unit})` : '');
+                    chartInfo.chart.options.plugins.legend = {
+                        display: true,
+                        position: 'top',
+                        labels: { usePointStyle: true }
+                    };
+                    chartInfo.chart.options.plugins.tooltip = {
+                        callbacks: {
+                            label: function(context) {
+                                const data = context.raw._sourceData || {};
+                                const cols = chartInfo.data.columns || [];
+                                let label = `${xCol}: ${context.parsed.x?.toFixed(4)}, ${yCol}: ${context.parsed.y?.toFixed(4)}`;
+                                if (legendCol) label += `, ${legendCol}: ${data[legendCol]}`;
+                                return label;
+                            },
+                            afterLabel: function(context) {
+                                const data = context.raw._sourceData || {};
+                                // Show additional data columns in tooltip
+                                const cols = chartInfo.data.columns || [];
+                                const extraCols = cols.filter(c => c !== xCol && c !== yCol && c !== legendCol);
+                                if (extraCols.length > 0) {
+                                    return extraCols.map(c => `${c}: ${data[c]?.toFixed?.(4) || data[c] || 'N/A'}`).join('\n');
+                                }
+                                return '';
+                            }
+                        }
+                    };
+                    chartInfo.chart.update();
+                    
+                    // Update ranges
+                    const allDataPoints = datasets.flatMap(ds => ds.data);
+                    updateRangeDisplays(allDataPoints.map(p => p.x), allDataPoints.map(p => p.y), measurementIndex);
+                } else {
+                    // Use Plotly with colorbar legend (>=10 groups)
+                    if (chartView) chartView.style.display = 'none';
+                    if (heatmapView) heatmapView.style.display = 'block';
+                    
+                    // Create value mapping for colorscale
+                    const legendValueMap = new Map(uniqueLegendValues.map((v, i) => [v, i]));
+                    const numericValues = reducedData.map(r => legendValueMap.get(r[legendCol]));
+                    
+                    // Determine if legend values are numeric for tick labels
+                    const allNumeric = uniqueLegendValues.every(v => !isNaN(parseFloat(v)) && isFinite(v));
+                    
+                    const trace = {
+                        x: reducedData.map(r => xCol === 'sequence_index' ? r.sequence_index : r[xCol]),
+                        y: reducedData.map(r => r[yCol]),
+                        mode: state.type === 'line' ? 'lines+markers' : 'markers',
+                        type: 'scatter',
+                        marker: {
+                            color: numericValues,
+                            colorscale: legendColorscale,
+                            showscale: true,
+                            colorbar: {
+                                title: legendCol,
+                                tickvals: allNumeric ? null : uniqueLegendValues.map((v, i) => i),
+                                ticktext: allNumeric ? null : uniqueLegendValues.map(v => String(v).length > 10 ? String(v).slice(0, 10) + '...' : String(v))
+                            },
+                            size: state.type === 'line' ? 5 : 8
+                        },
+                        text: reducedData.map(r => {
+                            const cols = chartInfo.data.columns || [];
+                            const parts = cols.map(c => `${c}: ${r[c]?.toFixed?.(4) || r[c] || 'N/A'}`);
+                            return parts.join('<br>');
+                        }),
+                        hovertemplate: `${xCol}: %{x}<br>${yCol}: %{y}<br>%{text}<extra></extra>`
+                    };
+                    
+                    const layout = {
+                        title: (chartInfo.name || 'Plot') + buildReductionTitle(reductions, allValues),
+                        xaxis: { title: xCol },
+                        yaxis: { title: yCol + (chartInfo.data.unit ? ` (${chartInfo.data.unit})` : '') },
+                        margin: { t: 50, l: 60, r: 100, b: 50 }
+                    };
+                    
+                    Plotly.newPlot(heatmapContainer, [trace], layout, { responsive: true });
+                    
+                    // Update ranges
+                    updateRangeDisplays(
+                        reducedData.map(r => xCol === 'sequence_index' ? r.sequence_index : r[xCol]),
+                        reducedData.map(r => r[yCol]),
+                        measurementIndex
+                    );
+                }
+            } else {
+                // No legend - original single dataset behavior
+                if (chartView) chartView.style.display = 'block';
+                if (heatmapView) heatmapView.style.display = 'none';
+                
+                const newData = reducedData.map(row => ({
+                    x: xCol === 'sequence_index' ? row.sequence_index : row[xCol],
+                    y: row[yCol],
+                    _sourceData: row
+                }));
+                
+                // Reset to single dataset
+                chartInfo.chart.data.datasets = [{
+                    label: chartInfo.name + buildReductionTitle(reductions, allValues),
+                    data: newData,
+                    borderColor: colors[0].border,
+                    backgroundColor: colors[0].bg,
+                    fill: state.type === 'line',
+                    tension: 0.1,
+                    pointRadius: state.type === 'line' ? (reducedData.length > 500 ? 0 : 2) : 3,
+                    pointHoverRadius: 5,
+                    borderWidth: 2
+                }];
+                
+                chartInfo.chart.options.scales.x.title.text = xCol;
+                chartInfo.chart.options.scales.y.title.text = yCol + (chartInfo.data.unit ? ` (${chartInfo.data.unit})` : '');
+                chartInfo.chart.options.plugins.legend = { display: true, position: 'top' };
+                chartInfo.chart.options.plugins.tooltip = {
+                    callbacks: {
+                        label: function(context) {
+                            return `${xCol}: ${context.parsed.x?.toFixed(6)}, ${yCol}: ${context.parsed.y?.toFixed(6)}`;
+                        },
+                        afterLabel: function(context) {
+                            const data = context.raw._sourceData || {};
+                            const cols = chartInfo.data.columns || [];
+                            const extraCols = cols.filter(c => c !== xCol && c !== yCol);
+                            if (extraCols.length > 0) {
+                                return extraCols.map(c => `${c}: ${data[c]?.toFixed?.(4) || data[c] || 'N/A'}`).join('\n');
+                            }
+                            return '';
+                        }
+                    }
+                };
+                chartInfo.chart.update();
+                
+                // Update ranges
+                const xValues = newData.map(p => p.x);
+                const yValues = newData.map(p => p.y);
+                updateRangeDisplays(xValues, yValues, measurementIndex);
+            }
         }
     }
     
@@ -1515,10 +1800,14 @@
         const xCol = state.xCol || chartInfo.data.x_column;
         const yCol = state.yCol || chartInfo.data.y_column;
         const zCol = state.zCol || columns.find(c => c !== xCol && c !== yCol);
+        const legendCol = state.legendCol;
         const isHeatmap = state.type === 'heatmap';
         
-        // Exclude X and Y axes, and Z for heatmaps
-        const axisColumns = isHeatmap ? [xCol, yCol, zCol] : [xCol, yCol];
+        // Exclude X and Y axes, Z for heatmaps, and legend column for line/scatter
+        let axisColumns = isHeatmap ? [xCol, yCol, zCol] : [xCol, yCol];
+        if (!isHeatmap && legendCol) {
+            axisColumns.push(legendCol);
+        }
         return columns.filter(c => !axisColumns.includes(c));
     }
     
@@ -1936,6 +2225,50 @@
             vizState[measurementIndex].zCol = this.value;
             // Update reduction UI since Z-axis is now a protected column
             updateReductionUI(measurementIndex);
+            refreshVisualization(measurementIndex);
+        });
+    });
+    
+    // Handle legend select changes for line/scatter plots
+    document.querySelectorAll('.legend-select').forEach(select => {
+        select.addEventListener('change', function() {
+            const measurementIndex = parseInt(this.dataset.measurement);
+            const legendCol = this.value;
+            const chartId = `chart-${measurementIndex}`;
+            const chartInfo = charts[chartId];
+            
+            vizState[measurementIndex] = vizState[measurementIndex] || {};
+            vizState[measurementIndex].legendCol = legendCol || null;
+            
+            // Calculate unique count for the legend column
+            if (legendCol && chartInfo) {
+                const allValues = chartInfo.data.all_values || [];
+                const uniqueValues = [...new Set(allValues.map(r => r[legendCol]))];
+                vizState[measurementIndex].legendUniqueCount = uniqueValues.length;
+            } else {
+                vizState[measurementIndex].legendUniqueCount = 0;
+            }
+            
+            // Update colorscale visibility based on unique count
+            const section = this.closest('.measurement-section');
+            const legendColorscaleGroup = section.querySelector(`.legend-colorscale-group[data-measurement="${measurementIndex}"]`);
+            if (legendColorscaleGroup) {
+                const uniqueCount = vizState[measurementIndex].legendUniqueCount || 0;
+                legendColorscaleGroup.style.display = (legendCol && uniqueCount >= 10) ? 'flex' : 'none';
+            }
+            
+            // Update reduction UI since legend column is now protected
+            updateReductionUI(measurementIndex);
+            refreshVisualization(measurementIndex);
+        });
+    });
+    
+    // Handle legend colorscale changes for line/scatter plots
+    document.querySelectorAll('.legend-colorscale-select').forEach(select => {
+        select.addEventListener('change', function() {
+            const measurementIndex = parseInt(this.dataset.measurement);
+            vizState[measurementIndex] = vizState[measurementIndex] || {};
+            vizState[measurementIndex].legendColorscale = this.value;
             refreshVisualization(measurementIndex);
         });
     });
