@@ -69,7 +69,7 @@ Items:
 
 
 - [ ] ask members of teams
-- [x] Add the ability to individually delete all types of database objects in the UI (including images, samples, computers, scans, queues etc.). When deleted, they should be given the trash attribute (which hides them from all searches unless specifically allowed in the site-wide filtwrs). After 30 days, they should be removed entirely. Add appropriate buttons to the UI, both in the object pages and detail pages. Labs and projects should be implemented slightly differently, with a danger zone on their details page, since deleting a lab or project will permanently delete all referenced objects (again with the same 30-day buffer period). Queues should propagate the trash attribute to their scans, locations to their child locations. After the wait period, please make sure to clean up all references/links neatly and in a industry standard fashion, with appropriate messages for users when looking at deleted links.
+- [x] Add the ability to individually delete all types of database objects in the UI
 - [x] allow visualizations to be saved into the images section of the corresponding sample
 - [x] allow users to edit scans and queues to add links to samples and projects that may be missing
 - [x] For image uploads in general, remove the drag & drop box (it is too large & clutters the UI), instead allow users to drop images onto the gallery (as is standard in other well-established applications)
