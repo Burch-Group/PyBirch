@@ -155,6 +155,7 @@ class Lab(TrashableMixin, ArchivableMixin, Base):
     
     # Relationships
     members: Mapped[List["LabMember"]] = relationship("LabMember", back_populates="lab", cascade="all, delete-orphan")
+    teams: Mapped[List["Team"]] = relationship("Team", back_populates="lab", cascade="all, delete-orphan")
     projects: Mapped[List["Project"]] = relationship("Project", back_populates="lab")
     equipment: Mapped[List["Equipment"]] = relationship("Equipment", back_populates="lab")
     instruments: Mapped[List["Instrument"]] = relationship("Instrument", back_populates="lab")
@@ -188,12 +189,14 @@ class LabMember(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     left_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    access_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # When privileges expire (default 6 months after left_at)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     
     # Relationships
     lab: Mapped["Lab"] = relationship("Lab", back_populates="members")
     project_memberships: Mapped[List["ProjectMember"]] = relationship("ProjectMember", back_populates="lab_member", cascade="all, delete-orphan")
+    team_memberships: Mapped[List["TeamMember"]] = relationship("TeamMember", back_populates="lab_member", cascade="all, delete-orphan")
     
     __table_args__ = (
         UniqueConstraint('lab_id', 'email', name='uq_lab_member_email'),
@@ -315,6 +318,105 @@ class ItemGuest(Base):
     
     def __repr__(self):
         return f"<ItemGuest(id={self.id}, entity='{self.entity_type}:{self.entity_id}', guest='{self.guest_email}')>"
+
+
+# ============================================================
+# TEAMS
+# ============================================================
+
+class Team(TrashableMixin, Base):
+    """
+    Teams within a lab for grouping members.
+    Teams can be granted permissions to projects and other entities,
+    avoiding the need to add each member individually.
+    """
+    __tablename__ = "teams"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Short code like "SYNTH-TEAM"
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    color: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # For UI display, e.g., '#3b82f6'
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    # Relationships
+    lab: Mapped["Lab"] = relationship("Lab", back_populates="teams")
+    members: Mapped[List["TeamMember"]] = relationship("TeamMember", back_populates="team", cascade="all, delete-orphan")
+    access_grants: Mapped[List["TeamAccess"]] = relationship("TeamAccess", back_populates="team", cascade="all, delete-orphan")
+    
+    __table_args__ = (
+        UniqueConstraint('lab_id', 'name', name='uq_team_name'),
+        UniqueConstraint('lab_id', 'code', name='uq_team_code'),
+        Index('idx_teams_lab', 'lab_id'),
+    )
+    
+    def __repr__(self):
+        return f"<Team(id={self.id}, name='{self.name}', lab_id={self.lab_id})>"
+
+
+class TeamMember(Base):
+    """
+    Links lab members to teams with specific roles.
+    A lab member can belong to multiple teams.
+    """
+    __tablename__ = "team_members"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    team_id: Mapped[int] = mapped_column(Integer, ForeignKey('teams.id'), nullable=False)
+    lab_member_id: Mapped[int] = mapped_column(Integer, ForeignKey('lab_members.id'), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default='member')  # 'lead', 'member'
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    left_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Relationships
+    team: Mapped["Team"] = relationship("Team", back_populates="members")
+    lab_member: Mapped["LabMember"] = relationship("LabMember", back_populates="team_memberships")
+    
+    __table_args__ = (
+        UniqueConstraint('team_id', 'lab_member_id', name='uq_team_member'),
+        Index('idx_team_members_team', 'team_id'),
+        Index('idx_team_members_lab_member', 'lab_member_id'),
+    )
+    
+    def __repr__(self):
+        return f"<TeamMember(id={self.id}, team_id={self.team_id}, lab_member_id={self.lab_member_id})>"
+
+
+class TeamAccess(Base):
+    """
+    Grants a team access to an entity (project, sample, queue, etc.).
+    All active members of the team inherit this access.
+    """
+    __tablename__ = "team_access"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    team_id: Mapped[int] = mapped_column(Integer, ForeignKey('teams.id'), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'project', 'sample', 'queue', 'equipment'
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    access_level: Mapped[str] = mapped_column(String(50), default='view')  # 'view', 'edit', 'full'
+    granted_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    granted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Relationships
+    team: Mapped["Team"] = relationship("Team", back_populates="access_grants")
+    
+    __table_args__ = (
+        UniqueConstraint('team_id', 'entity_type', 'entity_id', name='uq_team_access'),
+        Index('idx_team_access_team', 'team_id'),
+        Index('idx_team_access_entity', 'entity_type', 'entity_id'),
+    )
+    
+    def __repr__(self):
+        return f"<TeamAccess(id={self.id}, team_id={self.team_id}, entity='{self.entity_type}:{self.entity_id}')>"
 
 
 # ============================================================

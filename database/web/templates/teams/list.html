@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon_view, icon_edit, icon_trash %}
+
+{% block title %}Teams - {{ lab.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="breadcrumb">
+        <a href="{{ url_for('main.labs') }}">Labs</a> / 
+        <a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}">{{ lab.name }}</a> / 
+        Teams
+    </div>
+    
+    <div class="page-header">
+        <h1>Teams in {{ lab.name }}</h1>
+        <a href="{{ url_for('main.team_create', lab_id=lab.id) }}" class="btn btn-primary">+ New Team</a>
+    </div>
+    
+    <div class="filters">
+        <label class="checkbox-label">
+            <input type="checkbox" id="include-inactive" {% if include_inactive %}checked{% endif %}
+                   onchange="toggleInactive()">
+            Show inactive teams
+        </label>
+    </div>
+    
+    {% if teams %}
+    <div class="teams-grid">
+        {% for team in teams %}
+        <div class="team-card {% if not team.is_active %}team-inactive{% endif %}" 
+             style="--team-color: {{ team.color or '#6366f1' }}">
+            <div class="team-card-header">
+                <div class="team-color-bar"></div>
+                <div class="team-info">
+                    <h3>
+                        <a href="{{ url_for('main.team_detail', lab_id=lab.id, team_id=team.id) }}">
+                            {{ team.name }}
+                        </a>
+                    </h3>
+                    {% if team.code %}
+                    <span class="badge">{{ team.code }}</span>
+                    {% endif %}
+                    {% if not team.is_active %}
+                    <span class="badge badge-inactive">Inactive</span>
+                    {% endif %}
+                </div>
+                <div class="team-member-count">
+                    <span class="count">{{ team.member_count or 0 }}</span>
+                    <span class="label">member{% if (team.member_count or 0) != 1 %}s{% endif %}</span>
+                </div>
+            </div>
+            
+            {% if team.description %}
+            <p class="team-description">{{ team.description|truncate(100) }}</p>
+            {% endif %}
+            
+            {% if team.members %}
+            <div class="team-members-preview">
+                {% for member in team.members[:5] %}
+                <div class="member-avatar" title="{{ member.lab_member_name }}">
+                    {{ member.lab_member_name[:1]|upper }}
+                </div>
+                {% endfor %}
+                {% if team.member_count > 5 %}
+                <div class="member-avatar member-more">+{{ team.member_count - 5 }}</div>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            <div class="team-card-actions">
+                <a href="{{ url_for('main.team_detail', lab_id=lab.id, team_id=team.id) }}" class="btn-icon btn-icon-view" title="View">
+                    {{ icon_view() }}
+                </a>
+                <a href="{{ url_for('main.team_edit', lab_id=lab.id, team_id=team.id) }}" class="btn-icon btn-icon-edit" title="Edit">
+                    {{ icon_edit() }}
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">👥</div>
+        <h3>No Teams Yet</h3>
+        <p>Create teams to organize your lab members and manage permissions collectively.</p>
+        <a href="{{ url_for('main.team_create', lab_id=lab.id) }}" class="btn btn-primary">Create First Team</a>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.teams-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.team-card {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    padding: 0;
+    overflow: hidden;
+    transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.team-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.team-card.team-inactive {
+    opacity: 0.6;
+}
+
+.team-card-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.team-color-bar {
+    width: 4px;
+    height: 40px;
+    background: var(--team-color);
+    border-radius: 2px;
+}
+
+.team-info {
+    flex: 1;
+}
+
+.team-info h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.team-info h3 a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.team-info h3 a:hover {
+    color: var(--primary);
+}
+
+.team-member-count {
+    text-align: center;
+    padding: 0.5rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    min-width: 60px;
+}
+
+.team-member-count .count {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--team-color);
+}
+
+.team-member-count .label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.team-description {
+    padding: 0 1rem;
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.team-members-preview {
+    display: flex;
+    gap: 0.25rem;
+    padding: 1rem;
+    flex-wrap: wrap;
+}
+
+.member-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--team-color);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.member-avatar.member-more {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.team-card-actions {
+    display: flex;
+    gap: 0.5rem;
+    padding: 1rem;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+.badge-inactive {
+    background: var(--text-muted);
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.breadcrumb {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.breadcrumb a {
+    color: var(--primary);
+}
+</style>
+
+<script>
+function toggleInactive() {
+    const checked = document.getElementById('include-inactive').checked;
+    const url = new URL(window.location.href);
+    url.searchParams.set('include_inactive', checked ? 'true' : 'false');
+    window.location.href = url.toString();
+}
+</script>
+{% endblock %}

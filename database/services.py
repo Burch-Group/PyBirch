@@ -17,6 +17,7 @@ from database.models import (
     Queue, QueueLog, Scan, ScanLog, MeasurementObject, MeasurementDataPoint,
     Tag, EntityTag, FabricationRun, FabricationRunPrecursor,
     Lab, LabMember, Project, ProjectMember, ItemGuest,
+    Team, TeamMember, TeamAccess,
     User, UserPin, Issue, IssueUpdate, EntityImage, Attachment,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
     DriverIssue, Location, ObjectLocation, MaintenanceTask, QrCodeScan, PageView
@@ -4521,13 +4522,20 @@ class DatabaseService:
     
     # ==================== Lab Members ====================
     
-    def get_lab_members(self, lab_id: int) -> List[Dict]:
-        """Get all members of a lab."""
+    def get_lab_members(self, lab_id: int, include_inactive: bool = False) -> List[Dict]:
+        """Get all members of a lab.
+        
+        Args:
+            lab_id: The lab to get members for
+            include_inactive: If True, includes members who have left or been deactivated
+        """
         with self.session_scope() as session:
-            members = session.query(LabMember).filter(
-                LabMember.lab_id == lab_id,
-                LabMember.is_active == True
-            ).order_by(LabMember.role, LabMember.name).all()
+            query = session.query(LabMember).filter(LabMember.lab_id == lab_id)
+            
+            if not include_inactive:
+                query = query.filter(LabMember.is_active == True)
+            
+            members = query.order_by(LabMember.role, LabMember.name).all()
             return [self._lab_member_to_dict(m) for m in members]
     
     def get_lab_member(self, member_id: int) -> Optional[Dict]:
@@ -4552,21 +4560,36 @@ class DatabaseService:
                 return None
             
             allowed_fields = ['name', 'email', 'role', 'title', 'orcid', 'phone',
-                            'office_location', 'is_active', 'notes']
+                            'office_location', 'is_active', 'left_at', 'access_expires_at', 'notes']
             for field in allowed_fields:
                 if field in data:
                     setattr(member, field, data[field])
+            
+            # Auto-set access_expires_at when left_at is set (default 6 months)
+            if 'left_at' in data and data['left_at'] and not data.get('access_expires_at'):
+                from dateutil.relativedelta import relativedelta
+                if isinstance(data['left_at'], str):
+                    left_date = datetime.fromisoformat(data['left_at'])
+                else:
+                    left_date = data['left_at']
+                member.access_expires_at = left_date + relativedelta(months=6)
             
             session.flush()
             return self._lab_member_to_dict(member)
     
     def remove_lab_member(self, member_id: int) -> bool:
-        """Remove a member from lab (soft delete)."""
+        """Remove a member from lab (soft delete).
+        
+        Sets is_active=False, left_at=now, and access_expires_at=6 months from now.
+        Former members retain access to existing items until access_expires_at.
+        """
         with self.session_scope() as session:
             member = session.query(LabMember).filter(LabMember.id == member_id).first()
             if member:
+                from dateutil.relativedelta import relativedelta
                 member.is_active = False
                 member.left_at = datetime.utcnow()
+                member.access_expires_at = datetime.utcnow() + relativedelta(months=6)
                 return True
             return False
     
@@ -4585,7 +4608,284 @@ class DatabaseService:
             'is_active': member.is_active,
             'joined_at': member.joined_at.isoformat() if member.joined_at else None,
             'left_at': member.left_at.isoformat() if member.left_at else None,
+            'access_expires_at': member.access_expires_at.isoformat() if member.access_expires_at else None,
             'notes': member.notes,
+        }
+    
+    # ==================== Teams ====================
+    
+    def get_teams(self, lab_id: int, include_inactive: bool = False) -> List[Dict]:
+        """Get all teams in a lab."""
+        with self.session_scope() as session:
+            query = session.query(Team).options(
+                joinedload(Team.members).joinedload(TeamMember.lab_member)
+            ).filter(Team.lab_id == lab_id)
+            
+            if not include_inactive:
+                query = query.filter(Team.is_active == True)
+            
+            teams = query.order_by(Team.name).all()
+            return [self._team_to_dict(t, include_members=True) for t in teams]
+    
+    def get_team(self, team_id: int) -> Optional[Dict]:
+        """Get a single team with its members and access grants."""
+        with self.session_scope() as session:
+            team = session.query(Team).options(
+                joinedload(Team.members).joinedload(TeamMember.lab_member),
+                joinedload(Team.access_grants)
+            ).filter(Team.id == team_id).first()
+            
+            if not team:
+                return None
+            
+            result = self._team_to_dict(team, include_members=True)
+            result['access_grants'] = [self._team_access_to_dict(a) for a in team.access_grants if a.is_active]
+            return result
+    
+    def create_team(self, lab_id: int, data: Dict[str, Any]) -> Dict:
+        """Create a new team in a lab."""
+        with self.session_scope() as session:
+            team = Team(lab_id=lab_id, **data)
+            session.add(team)
+            session.flush()
+            return self._team_to_dict(team)
+    
+    def update_team(self, team_id: int, data: Dict[str, Any]) -> Optional[Dict]:
+        """Update a team."""
+        with self.session_scope() as session:
+            team = session.query(Team).filter(Team.id == team_id).first()
+            if not team:
+                return None
+            
+            allowed_fields = ['name', 'code', 'description', 'color', 'is_active']
+            for field in allowed_fields:
+                if field in data:
+                    setattr(team, field, data[field])
+            
+            session.flush()
+            return self._team_to_dict(team)
+    
+    def delete_team(self, team_id: int) -> bool:
+        """Soft delete a team (deactivate)."""
+        with self.session_scope() as session:
+            team = session.query(Team).filter(Team.id == team_id).first()
+            if team:
+                team.is_active = False
+                return True
+            return False
+    
+    def add_team_member(self, team_id: int, lab_member_id: int, role: str = 'member') -> Optional[Dict]:
+        """Add a lab member to a team."""
+        with self.session_scope() as session:
+            # Check if already a member
+            existing = session.query(TeamMember).filter(
+                TeamMember.team_id == team_id,
+                TeamMember.lab_member_id == lab_member_id
+            ).first()
+            
+            if existing:
+                # Reactivate if inactive
+                if not existing.is_active:
+                    existing.is_active = True
+                    existing.left_at = None
+                    existing.role = role
+                    session.flush()
+                return self._team_member_to_dict(existing)
+            
+            member = TeamMember(team_id=team_id, lab_member_id=lab_member_id, role=role)
+            session.add(member)
+            session.flush()
+            return self._team_member_to_dict(member)
+    
+    def update_team_member(self, team_member_id: int, data: Dict[str, Any]) -> Optional[Dict]:
+        """Update a team member's role or status."""
+        with self.session_scope() as session:
+            member = session.query(TeamMember).filter(TeamMember.id == team_member_id).first()
+            if not member:
+                return None
+            
+            allowed_fields = ['role', 'is_active', 'notes']
+            for field in allowed_fields:
+                if field in data:
+                    setattr(member, field, data[field])
+            
+            if data.get('is_active') == False:
+                member.left_at = datetime.utcnow()
+            
+            session.flush()
+            return self._team_member_to_dict(member)
+    
+    def remove_team_member(self, team_id: int, lab_member_id: int) -> bool:
+        """Remove a member from a team (soft delete)."""
+        with self.session_scope() as session:
+            member = session.query(TeamMember).filter(
+                TeamMember.team_id == team_id,
+                TeamMember.lab_member_id == lab_member_id
+            ).first()
+            if member:
+                member.is_active = False
+                member.left_at = datetime.utcnow()
+                return True
+            return False
+    
+    def grant_team_access(self, team_id: int, entity_type: str, entity_id: int, 
+                          access_level: str = 'view', granted_by: Optional[str] = None) -> Dict:
+        """Grant a team access to an entity (project, sample, etc.)."""
+        with self.session_scope() as session:
+            # Check if access already exists
+            existing = session.query(TeamAccess).filter(
+                TeamAccess.team_id == team_id,
+                TeamAccess.entity_type == entity_type,
+                TeamAccess.entity_id == entity_id
+            ).first()
+            
+            if existing:
+                # Update existing access
+                existing.access_level = access_level
+                existing.is_active = True
+                existing.granted_by = granted_by
+                existing.granted_at = datetime.utcnow()
+                session.flush()
+                return self._team_access_to_dict(existing)
+            
+            access = TeamAccess(
+                team_id=team_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                access_level=access_level,
+                granted_by=granted_by
+            )
+            session.add(access)
+            session.flush()
+            return self._team_access_to_dict(access)
+    
+    def revoke_team_access(self, team_id: int, entity_type: str, entity_id: int) -> bool:
+        """Revoke a team's access to an entity."""
+        with self.session_scope() as session:
+            access = session.query(TeamAccess).filter(
+                TeamAccess.team_id == team_id,
+                TeamAccess.entity_type == entity_type,
+                TeamAccess.entity_id == entity_id
+            ).first()
+            if access:
+                access.is_active = False
+                return True
+            return False
+    
+    def get_entity_team_access(self, entity_type: str, entity_id: int) -> List[Dict]:
+        """Get all teams that have access to an entity."""
+        with self.session_scope() as session:
+            accesses = session.query(TeamAccess).options(
+                joinedload(TeamAccess.team)
+            ).filter(
+                TeamAccess.entity_type == entity_type,
+                TeamAccess.entity_id == entity_id,
+                TeamAccess.is_active == True
+            ).all()
+            
+            return [{
+                **self._team_access_to_dict(a),
+                'team_name': a.team.name,
+                'team_code': a.team.code,
+                'team_color': a.team.color
+            } for a in accesses]
+    
+    def get_teams_for_lab_member(self, lab_member_id: int) -> List[Dict]:
+        """Get all teams a lab member belongs to."""
+        with self.session_scope() as session:
+            memberships = session.query(TeamMember).options(
+                joinedload(TeamMember.team)
+            ).filter(
+                TeamMember.lab_member_id == lab_member_id,
+                TeamMember.is_active == True
+            ).all()
+            
+            return [{
+                'membership': self._team_member_to_dict(m),
+                'team': self._team_to_dict(m.team)
+            } for m in memberships if m.team.is_active]
+    
+    def check_team_access(self, lab_member_id: int, entity_type: str, entity_id: int) -> Optional[str]:
+        """Check if a lab member has access to an entity through any of their teams.
+        
+        Returns the highest access level found, or None if no access.
+        """
+        access_hierarchy = {'full': 3, 'edit': 2, 'view': 1}
+        
+        with self.session_scope() as session:
+            # Get all teams the member belongs to
+            team_ids = session.query(TeamMember.team_id).filter(
+                TeamMember.lab_member_id == lab_member_id,
+                TeamMember.is_active == True
+            ).subquery()
+            
+            # Get all access grants for those teams to the specific entity
+            accesses = session.query(TeamAccess).filter(
+                TeamAccess.team_id.in_(select(team_ids)),
+                TeamAccess.entity_type == entity_type,
+                TeamAccess.entity_id == entity_id,
+                TeamAccess.is_active == True
+            ).all()
+            
+            if not accesses:
+                return None
+            
+            # Return highest access level
+            highest = max(accesses, key=lambda a: access_hierarchy.get(a.access_level, 0))
+            return highest.access_level
+    
+    def _team_to_dict(self, team: Team, include_members: bool = False) -> Dict:
+        """Convert Team model to dictionary."""
+        result = {
+            'id': team.id,
+            'lab_id': team.lab_id,
+            'name': team.name,
+            'code': team.code,
+            'description': team.description,
+            'color': team.color,
+            'is_active': team.is_active,
+            'created_at': team.created_at.isoformat() if team.created_at else None,
+            'updated_at': team.updated_at.isoformat() if team.updated_at else None,
+            'created_by': team.created_by,
+        }
+        
+        if include_members:
+            result['members'] = [
+                self._team_member_to_dict(m) for m in team.members if m.is_active
+            ]
+            result['member_count'] = len(result['members'])
+        
+        return result
+    
+    def _team_member_to_dict(self, member: TeamMember) -> Dict:
+        """Convert TeamMember model to dictionary."""
+        return {
+            'id': member.id,
+            'team_id': member.team_id,
+            'lab_member_id': member.lab_member_id,
+            'lab_member_name': member.lab_member.name if member.lab_member else None,
+            'lab_member_email': member.lab_member.email if member.lab_member else None,
+            'lab_member_title': member.lab_member.title if member.lab_member else None,
+            'role': member.role,
+            'is_active': member.is_active,
+            'joined_at': member.joined_at.isoformat() if member.joined_at else None,
+            'left_at': member.left_at.isoformat() if member.left_at else None,
+            'notes': member.notes,
+        }
+    
+    def _team_access_to_dict(self, access: TeamAccess) -> Dict:
+        """Convert TeamAccess model to dictionary."""
+        return {
+            'id': access.id,
+            'team_id': access.team_id,
+            'entity_type': access.entity_type,
+            'entity_id': access.entity_id,
+            'access_level': access.access_level,
+            'granted_by': access.granted_by,
+            'granted_at': access.granted_at.isoformat() if access.granted_at else None,
+            'expires_at': access.expires_at.isoformat() if access.expires_at else None,
+            'is_active': access.is_active,
+            'notes': access.notes,
         }
     
     # ==================== Projects ====================

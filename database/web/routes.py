@@ -3578,7 +3578,8 @@ def lab_detail(lab_id):
         return redirect(url_for('main.labs'))
     images = db.get_entity_images('lab', lab_id)
     attachments = db.get_entity_attachments('lab', lab_id)
-    return render_template('lab_detail.html', lab=lab, images=images, attachments=attachments)
+    teams = db.get_teams(lab_id, include_inactive=False)
+    return render_template('lab_detail.html', lab=lab, images=images, attachments=attachments, teams=teams)
 
 
 @main_bp.route('/labs/new', methods=['GET', 'POST'])
@@ -3708,7 +3709,18 @@ def lab_member_edit(lab_id, member_id):
             'phone': request.form.get('phone'),
             'office_location': request.form.get('office_location'),
             'notes': request.form.get('notes'),
+            'is_active': 'is_active' in request.form,
         }
+        
+        # Handle date fields
+        left_at = request.form.get('left_at')
+        if left_at:
+            data['left_at'] = left_at
+        
+        access_expires_at = request.form.get('access_expires_at')
+        if access_expires_at:
+            data['access_expires_at'] = access_expires_at
+        
         try:
             updated = db.update_lab_member(member_id, data)
             flash(f'Member "{updated["name"]}" updated successfully', 'success')
@@ -3769,6 +3781,264 @@ def lab_types(lab_id):
         'location_types': lab.get('location_types', ['room', 'cabinet', 'shelf', 'drawer', 'fridge', 'freezer', 'bench', 'other']),
         'equipment_types': lab.get('equipment_types', ['glovebox', 'chamber', 'lithography', 'furnace', 'other'])
     })
+
+
+# -------------------- Teams --------------------
+
+@main_bp.route('/labs/<int:lab_id>/teams')
+def lab_teams(lab_id):
+    """List all teams in a lab."""
+    db = get_db_service()
+    lab = db.get_lab(lab_id)
+    
+    if not lab:
+        flash('Lab not found', 'error')
+        return redirect(url_for('main.labs'))
+    
+    include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+    teams = db.get_teams(lab_id, include_inactive=include_inactive)
+    
+    return render_template('teams/list.html', 
+                           lab=lab, 
+                           teams=teams,
+                           include_inactive=include_inactive)
+
+
+@main_bp.route('/labs/<int:lab_id>/teams/<int:team_id>')
+def team_detail(lab_id, team_id):
+    """View team details with members and access grants."""
+    db = get_db_service()
+    lab = db.get_lab(lab_id)
+    
+    if not lab:
+        flash('Lab not found', 'error')
+        return redirect(url_for('main.labs'))
+    
+    team = db.get_team(team_id)
+    
+    if not team or team['lab_id'] != lab_id:
+        flash('Team not found', 'error')
+        return redirect(url_for('main.lab_teams', lab_id=lab_id))
+    
+    # Get available lab members not already in team
+    lab_members = db.get_lab_members(lab_id, include_inactive=False)
+    team_member_ids = {m['lab_member_id'] for m in team.get('members', [])}
+    available_members = [m for m in lab_members if m['id'] not in team_member_ids]
+    
+    return render_template('teams/detail.html', 
+                           lab=lab, 
+                           team=team, 
+                           available_members=available_members)
+
+
+@main_bp.route('/labs/<int:lab_id>/teams/new', methods=['GET', 'POST'])
+@login_required
+def team_create(lab_id):
+    """Create a new team in a lab."""
+    db = get_db_service()
+    lab = db.get_lab(lab_id)
+    
+    if not lab:
+        flash('Lab not found', 'error')
+        return redirect(url_for('main.labs'))
+    
+    if request.method == 'POST':
+        data = {
+            'name': request.form.get('name', '').strip(),
+            'code': request.form.get('code', '').strip() or None,
+            'description': request.form.get('description', '').strip() or None,
+            'color': request.form.get('color', '#6366f1').strip(),
+            'created_by': g.current_user.get('username') if g.current_user else None,
+        }
+        
+        if not data['name']:
+            flash('Team name is required', 'error')
+            return render_template('teams/form.html', lab=lab, team=None)
+        
+        try:
+            team = db.create_team(lab_id, data)
+            flash(f'Team "{team["name"]}" created successfully', 'success')
+            return redirect(url_for('main.team_detail', lab_id=lab_id, team_id=team['id']))
+        except Exception as e:
+            error_str = str(e).lower()
+            if 'unique constraint' in error_str and 'name' in error_str:
+                flash(f'A team named "{data["name"]}" already exists in this lab', 'error')
+            else:
+                flash(f'Error creating team: {str(e)}', 'error')
+    
+    return render_template('teams/form.html', lab=lab, team=None)
+
+
+@main_bp.route('/labs/<int:lab_id>/teams/<int:team_id>/edit', methods=['GET', 'POST'])
+@login_required
+def team_edit(lab_id, team_id):
+    """Edit an existing team."""
+    db = get_db_service()
+    lab = db.get_lab(lab_id)
+    
+    if not lab:
+        flash('Lab not found', 'error')
+        return redirect(url_for('main.labs'))
+    
+    team = db.get_team(team_id)
+    
+    if not team or team['lab_id'] != lab_id:
+        flash('Team not found', 'error')
+        return redirect(url_for('main.lab_teams', lab_id=lab_id))
+    
+    if request.method == 'POST':
+        data = {
+            'name': request.form.get('name', '').strip(),
+            'code': request.form.get('code', '').strip() or None,
+            'description': request.form.get('description', '').strip() or None,
+            'color': request.form.get('color', '#6366f1').strip(),
+        }
+        
+        if not data['name']:
+            flash('Team name is required', 'error')
+            return render_template('teams/form.html', lab=lab, team=team)
+        
+        try:
+            updated = db.update_team(team_id, data)
+            flash(f'Team "{updated["name"]}" updated successfully', 'success')
+            return redirect(url_for('main.team_detail', lab_id=lab_id, team_id=team_id))
+        except Exception as e:
+            error_str = str(e).lower()
+            if 'unique constraint' in error_str and 'name' in error_str:
+                flash(f'A team named "{data["name"]}" already exists in this lab', 'error')
+            else:
+                flash(f'Error updating team: {str(e)}', 'error')
+    
+    return render_template('teams/form.html', lab=lab, team=team)
+
+
+@main_bp.route('/labs/<int:lab_id>/teams/<int:team_id>/delete', methods=['POST'])
+@login_required
+def team_delete(lab_id, team_id):
+    """Deactivate a team."""
+    db = get_db_service()
+    
+    if db.delete_team(team_id):
+        flash('Team deactivated successfully', 'success')
+    else:
+        flash('Error deactivating team', 'error')
+    
+    return redirect(url_for('main.lab_teams', lab_id=lab_id))
+
+
+@main_bp.route('/labs/<int:lab_id>/teams/<int:team_id>/members/add', methods=['POST'])
+@login_required
+def team_member_add(lab_id, team_id):
+    """Add a member to a team."""
+    db = get_db_service()
+    
+    lab_member_id = request.form.get('lab_member_id', type=int)
+    role = request.form.get('role', 'member')
+    
+    if not lab_member_id:
+        flash('Please select a member to add', 'error')
+        return redirect(url_for('main.team_detail', lab_id=lab_id, team_id=team_id))
+    
+    result = db.add_team_member(team_id, lab_member_id, role)
+    
+    if result:
+        flash('Member added to team successfully', 'success')
+    else:
+        flash('Error adding member to team', 'error')
+    
+    return redirect(url_for('main.team_detail', lab_id=lab_id, team_id=team_id))
+
+
+@main_bp.route('/labs/<int:lab_id>/teams/<int:team_id>/members/<int:member_id>/update', methods=['POST'])
+@login_required
+def team_member_update(lab_id, team_id, member_id):
+    """Update a team member's role."""
+    db = get_db_service()
+    
+    data = {
+        'role': request.form.get('role', 'member')
+    }
+    
+    result = db.update_team_member(member_id, data)
+    
+    if result:
+        flash('Member role updated successfully', 'success')
+    else:
+        flash('Error updating member role', 'error')
+    
+    return redirect(url_for('main.team_detail', lab_id=lab_id, team_id=team_id))
+
+
+@main_bp.route('/labs/<int:lab_id>/teams/<int:team_id>/members/<int:member_id>/remove', methods=['POST'])
+@login_required
+def team_member_remove(lab_id, team_id, member_id):
+    """Remove a member from a team."""
+    db = get_db_service()
+    
+    # Get the lab_member_id from the team_member_id
+    team = db.get_team(team_id)
+    if team:
+        for m in team.get('members', []):
+            if m['id'] == member_id:
+                if db.remove_team_member(team_id, m['lab_member_id']):
+                    flash('Member removed from team', 'success')
+                else:
+                    flash('Error removing member from team', 'error')
+                break
+    
+    return redirect(url_for('main.team_detail', lab_id=lab_id, team_id=team_id))
+
+
+@main_bp.route('/api/teams/<int:team_id>/access', methods=['POST'])
+@login_required
+def team_access_grant(team_id):
+    """Grant team access to an entity (JSON API)."""
+    db = get_db_service()
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    entity_type = data.get('entity_type')
+    entity_id = data.get('entity_id')
+    access_level = data.get('access_level', 'view')
+    
+    if not entity_type or not entity_id:
+        return jsonify({'error': 'entity_type and entity_id are required'}), 400
+    
+    granted_by = g.current_user.get('username') if g.current_user else None
+    
+    result = db.grant_team_access(team_id, entity_type, entity_id, access_level, granted_by)
+    return jsonify(result)
+
+
+@main_bp.route('/api/teams/<int:team_id>/access', methods=['DELETE'])
+@login_required
+def team_access_revoke(team_id):
+    """Revoke team access to an entity (JSON API)."""
+    db = get_db_service()
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    entity_type = data.get('entity_type')
+    entity_id = data.get('entity_id')
+    
+    if not entity_type or not entity_id:
+        return jsonify({'error': 'entity_type and entity_id are required'}), 400
+    
+    if db.revoke_team_access(team_id, entity_type, entity_id):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Access not found'}), 404
+
+
+@main_bp.route('/api/entity/<entity_type>/<int:entity_id>/teams')
+def entity_team_access(entity_type, entity_id):
+    """Get all teams with access to an entity (JSON API)."""
+    db = get_db_service()
+    teams = db.get_entity_team_access(entity_type, entity_id)
+    return jsonify(teams)
 
 
 # -------------------- Projects --------------------

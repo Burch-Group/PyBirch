@@ -1,0 +1,453 @@
+{% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons, icon_view, icon_edit, icon_trash %}
+
+{% block title %}{{ team.name }} - {{ lab.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.labs') }}">Labs</a> / 
+            <a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}">{{ lab.name }}</a> / 
+            <a href="{{ url_for('main.lab_teams', lab_id=lab.id) }}">Teams</a> / 
+            {{ team.name }}
+        </div>
+    </div>
+    
+    <div class="detail-header" style="--team-color: {{ team.color or '#6366f1' }}">
+        <div class="team-header-content">
+            <div class="team-color-indicator"></div>
+            <div>
+                <h1>{{ team.name }}</h1>
+                {% if team.code %}
+                <span class="badge badge-lg">{{ team.code }}</span>
+                {% endif %}
+                {% if not team.is_active %}
+                <span class="badge badge-lg badge-inactive">Inactive</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="detail-actions">
+            <a href="{{ url_for('main.team_edit', lab_id=lab.id, team_id=team.id) }}" class="btn btn-secondary">✏️ Edit</a>
+            <form action="{{ url_for('main.team_delete', lab_id=lab.id, team_id=team.id) }}" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-danger" onclick="return confirm('Deactivate this team?')">
+                    🗑️ Deactivate
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    {% if team.description %}
+    <div class="detail-section">
+        <p>{{ team.description }}</p>
+    </div>
+    {% endif %}
+    
+    <div class="detail-grid">
+        <!-- Team Members Section -->
+        <div class="detail-section">
+            <h2>Team Members ({{ team.members|length }})</h2>
+            
+            <!-- Add Member Form -->
+            {% if available_members %}
+            <div class="add-member-form">
+                <form action="{{ url_for('main.team_member_add', lab_id=lab.id, team_id=team.id) }}" method="POST" class="inline-form">
+                    <select name="lab_member_id" required class="form-control">
+                        <option value="">Select a lab member...</option>
+                        {% for member in available_members %}
+                        <option value="{{ member.id }}">{{ member.name }}{% if member.title %} ({{ member.title }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                    <select name="role" class="form-control">
+                        <option value="member">Member</option>
+                        <option value="lead">Lead</option>
+                    </select>
+                    <button type="submit" class="btn btn-primary btn-sm">+ Add</button>
+                </form>
+            </div>
+            {% else %}
+            <p class="info-message">All lab members are already in this team.</p>
+            {% endif %}
+            
+            {% if team.members %}
+            <div class="member-list">
+                {% for member in team.members %}
+                <div class="member-card">
+                    <div class="member-avatar-lg" style="background: {{ team.color or '#6366f1' }}">
+                        {{ member.lab_member_name[:1]|upper if member.lab_member_name else '?' }}
+                    </div>
+                    <div class="member-info">
+                        <strong>{{ member.lab_member_name }}</strong>
+                        <span class="role-badge role-{{ member.role }}">{{ member.role|title }}</span>
+                        {% if member.lab_member_title %}
+                        <span class="member-title">{{ member.lab_member_title }}</span>
+                        {% endif %}
+                        {% if member.lab_member_email %}
+                        <a href="mailto:{{ member.lab_member_email }}" class="member-email">{{ member.lab_member_email }}</a>
+                        {% endif %}
+                    </div>
+                    <div class="member-actions">
+                        <form action="{{ url_for('main.team_member_update', lab_id=lab.id, team_id=team.id, member_id=member.id) }}" 
+                              method="POST" class="inline-form">
+                            <select name="role" onchange="this.form.submit()" class="form-control form-control-sm">
+                                <option value="member" {% if member.role == 'member' %}selected{% endif %}>Member</option>
+                                <option value="lead" {% if member.role == 'lead' %}selected{% endif %}>Lead</option>
+                            </select>
+                        </form>
+                        <form action="{{ url_for('main.team_member_remove', lab_id=lab.id, team_id=team.id, member_id=member.id) }}" 
+                              method="POST" style="display: inline;">
+                            <button type="submit" class="btn-icon btn-icon-trash" title="Remove from team" 
+                                    onclick="return confirm('Remove {{ member.lab_member_name }} from this team?')">
+                                {{ icon_trash() }}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-message">No members in this team yet.</p>
+            {% endif %}
+        </div>
+        
+        <!-- Team Access Section -->
+        <div class="detail-section">
+            <h2>Team Access Grants</h2>
+            <p class="section-description">
+                Grant this team access to projects, samples, or other entities. 
+                All team members will inherit these permissions.
+            </p>
+            
+            <!-- Add Access Grant Form -->
+            <div class="add-access-form">
+                <form id="grant-access-form" class="inline-form">
+                    <select name="entity_type" id="entity-type" class="form-control" required>
+                        <option value="">Select type...</option>
+                        <option value="project">Project</option>
+                        <option value="sample">Sample</option>
+                        <option value="queue">Queue</option>
+                        <option value="equipment">Equipment</option>
+                    </select>
+                    <input type="number" name="entity_id" id="entity-id" placeholder="Entity ID" 
+                           class="form-control" style="width: 100px;" required>
+                    <select name="access_level" id="access-level" class="form-control">
+                        <option value="view">View</option>
+                        <option value="edit">Edit</option>
+                        <option value="full">Full</option>
+                    </select>
+                    <button type="submit" class="btn btn-primary btn-sm">+ Grant Access</button>
+                </form>
+            </div>
+            
+            {% if team.access_grants %}
+            <div class="access-list">
+                {% for access in team.access_grants %}
+                <div class="access-card">
+                    <div class="access-info">
+                        <span class="access-type badge">{{ access.entity_type }}</span>
+                        <span class="access-id">#{{ access.entity_id }}</span>
+                        <span class="access-level badge badge-{{ access.access_level }}">{{ access.access_level }}</span>
+                    </div>
+                    <div class="access-meta">
+                        {% if access.granted_by %}
+                        <span>Granted by {{ access.granted_by }}</span>
+                        {% endif %}
+                        {% if access.expires_at %}
+                        <span class="expires">Expires: {{ access.expires_at[:10] }}</span>
+                        {% endif %}
+                    </div>
+                    <button class="btn-icon btn-icon-trash" 
+                            onclick="revokeAccess('{{ access.entity_type }}', {{ access.entity_id }})"
+                            title="Revoke access">
+                        {{ icon_trash() }}
+                    </button>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-message">No access grants yet.</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Team Info Section -->
+    <div class="detail-section">
+        <h3>Team Information</h3>
+        <dl class="detail-list inline-list">
+            <dt>Created</dt>
+            <dd>{{ team.created_at[:10] if team.created_at else '-' }}</dd>
+            
+            <dt>Created By</dt>
+            <dd>{{ team.created_by or '-' }}</dd>
+            
+            <dt>Last Updated</dt>
+            <dd>{{ team.updated_at[:10] if team.updated_at else '-' }}</dd>
+        </dl>
+    </div>
+</div>
+
+<style>
+.team-header-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.team-color-indicator {
+    width: 8px;
+    height: 48px;
+    background: var(--team-color);
+    border-radius: 4px;
+}
+
+.add-member-form,
+.add-access-form {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+}
+
+.inline-form {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.inline-form .form-control {
+    flex: 1;
+    min-width: 120px;
+}
+
+.member-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.member-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+}
+
+.member-avatar-lg {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.25rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.member-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.member-info strong {
+    font-size: 1rem;
+}
+
+.member-title {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.member-email {
+    font-size: 0.85rem;
+    color: var(--primary);
+}
+
+.member-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.member-actions .form-control-sm {
+    width: auto;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85rem;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+}
+
+.role-lead {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.role-member {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+.section-description {
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+.access-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.access-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+}
+
+.access-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.access-type {
+    text-transform: capitalize;
+}
+
+.access-id {
+    font-family: monospace;
+    color: var(--text-secondary);
+}
+
+.access-level {
+    text-transform: uppercase;
+    font-size: 0.7rem;
+}
+
+.badge-view {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.badge-edit {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.badge-full {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.access-meta {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.expires {
+    color: var(--warning);
+}
+
+.info-message {
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-bottom: 1rem;
+}
+
+.inline-list {
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+}
+
+.inline-list dt {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.inline-list dd {
+    margin: 0;
+}
+
+.badge-inactive {
+    background: var(--text-muted);
+    color: white;
+}
+</style>
+
+<script>
+document.getElementById('grant-access-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const entityType = document.getElementById('entity-type').value;
+    const entityId = document.getElementById('entity-id').value;
+    const accessLevel = document.getElementById('access-level').value;
+    
+    try {
+        const response = await fetch('/api/teams/{{ team.id }}/access', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                entity_type: entityType,
+                entity_id: parseInt(entityId),
+                access_level: accessLevel
+            })
+        });
+        
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            const data = await response.json();
+            alert('Error: ' + (data.error || 'Failed to grant access'));
+        }
+    } catch (err) {
+        alert('Error granting access: ' + err.message);
+    }
+});
+
+async function revokeAccess(entityType, entityId) {
+    if (!confirm('Revoke this access grant?')) return;
+    
+    try {
+        const response = await fetch('/api/teams/{{ team.id }}/access', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                entity_type: entityType,
+                entity_id: entityId
+            })
+        });
+        
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            const data = await response.json();
+            alert('Error: ' + (data.error || 'Failed to revoke access'));
+        }
+    } catch (err) {
+        alert('Error revoking access: ' + err.message);
+    }
+}
+</script>
+{% endblock %}

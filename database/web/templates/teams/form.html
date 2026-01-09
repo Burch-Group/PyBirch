@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+
+{% block title %}{% if team %}Edit {{ team.name }}{% else %}New Team{% endif %} - {{ lab.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.labs') }}">Labs</a> / 
+            <a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}">{{ lab.name }}</a> / 
+            <a href="{{ url_for('main.lab_teams', lab_id=lab.id) }}">Teams</a> / 
+            {% if team %}Edit{% else %}New{% endif %}
+        </div>
+    </div>
+    
+    <h1>{% if team %}Edit Team{% else %}Create New Team{% endif %}</h1>
+    
+    <form method="POST" class="detail-form">
+        <div class="form-section">
+            <div class="form-row">
+                <div class="form-group form-group-lg">
+                    <label for="name">Team Name <span class="required">*</span></label>
+                    <input type="text" id="name" name="name" 
+                           value="{{ team.name if team else '' }}" 
+                           required maxlength="100"
+                           placeholder="e.g., Sample Preparation Team">
+                </div>
+                
+                <div class="form-group">
+                    <label for="code">Code</label>
+                    <input type="text" id="code" name="code" 
+                           value="{{ team.code if team else '' }}" 
+                           maxlength="20"
+                           placeholder="e.g., SPT">
+                    <span class="form-hint">Short identifier for the team</span>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" name="description" rows="3"
+                          placeholder="Describe the team's purpose and responsibilities">{{ team.description if team else '' }}</textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="color">Team Color</label>
+                <div class="color-picker-container">
+                    <input type="color" id="color" name="color" 
+                           value="{{ team.color if team else '#6366f1' }}"
+                           class="color-picker">
+                    <div class="color-preview" id="color-preview" 
+                         style="background: {{ team.color if team else '#6366f1' }}">
+                        <span>Preview</span>
+                    </div>
+                    <div class="color-presets">
+                        <button type="button" class="color-preset" data-color="#6366f1" style="background: #6366f1" title="Indigo"></button>
+                        <button type="button" class="color-preset" data-color="#8b5cf6" style="background: #8b5cf6" title="Purple"></button>
+                        <button type="button" class="color-preset" data-color="#ec4899" style="background: #ec4899" title="Pink"></button>
+                        <button type="button" class="color-preset" data-color="#ef4444" style="background: #ef4444" title="Red"></button>
+                        <button type="button" class="color-preset" data-color="#f97316" style="background: #f97316" title="Orange"></button>
+                        <button type="button" class="color-preset" data-color="#eab308" style="background: #eab308" title="Yellow"></button>
+                        <button type="button" class="color-preset" data-color="#22c55e" style="background: #22c55e" title="Green"></button>
+                        <button type="button" class="color-preset" data-color="#14b8a6" style="background: #14b8a6" title="Teal"></button>
+                        <button type="button" class="color-preset" data-color="#0ea5e9" style="background: #0ea5e9" title="Sky"></button>
+                        <button type="button" class="color-preset" data-color="#3b82f6" style="background: #3b82f6" title="Blue"></button>
+                    </div>
+                </div>
+                <span class="form-hint">Used for visual identification in lists and badges</span>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.lab_teams', lab_id=lab.id) }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">
+                {% if team %}Save Changes{% else %}Create Team{% endif %}
+            </button>
+        </div>
+    </form>
+</div>
+
+<style>
+.form-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1rem;
+}
+
+@media (max-width: 768px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.color-picker-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.color-picker {
+    width: 60px;
+    height: 40px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.color-preview {
+    width: 80px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.color-presets {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.color-preset {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.1s, border-color 0.1s;
+}
+
+.color-preset:hover {
+    transform: scale(1.1);
+}
+
+.color-preset.active {
+    border-color: var(--text);
+    box-shadow: 0 0 0 2px var(--bg);
+}
+
+.form-section {
+    background: var(--bg-secondary);
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.form-group input[type="text"],
+.form-group textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1rem;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.form-hint {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.required {
+    color: var(--danger);
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+}
+</style>
+
+<script>
+const colorPicker = document.getElementById('color');
+const colorPreview = document.getElementById('color-preview');
+const colorPresets = document.querySelectorAll('.color-preset');
+
+colorPicker.addEventListener('input', function() {
+    updateColor(this.value);
+});
+
+colorPresets.forEach(preset => {
+    preset.addEventListener('click', function() {
+        const color = this.dataset.color;
+        colorPicker.value = color;
+        updateColor(color);
+    });
+});
+
+function updateColor(color) {
+    colorPreview.style.background = color;
+    
+    // Update active state on presets
+    colorPresets.forEach(p => {
+        p.classList.toggle('active', p.dataset.color.toLowerCase() === color.toLowerCase());
+    });
+}
+
+// Initialize active state
+updateColor(colorPicker.value);
+</script>
+{% endblock %}

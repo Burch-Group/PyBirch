@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import detail_action_buttons, icon_view, icon_edit, icon_trash %}
+{% from "macros.html" import detail_action_buttons, icon_view, icon_edit, icon_trash, icon_plus %}
 
 {% block title %}{{ lab.name }} - PyBirch Database{% endblock %}
 
@@ -69,14 +69,16 @@
         </div>
         
         <div class="detail-section">
-            <h2>Members ({{ lab.members|length }})</h2>
+            {% set active_members = lab.members|selectattr('is_active', 'true')|list %}
+            {% set inactive_members = lab.members|selectattr('is_active', 'false')|list %}
+            <h2>Members ({{ active_members|length }})</h2>
             <div class="section-actions">
                 <a href="{{ url_for('main.lab_member_add', lab_id=lab.id) }}" class="btn btn-sm btn-primary">+ Add Member</a>
             </div>
             
-            {% if lab.members %}
+            {% if active_members %}
             <div class="member-list">
-                {% for member in lab.members %}
+                {% for member in active_members %}
                 <div class="member-card">
                     <div class="member-info">
                         <strong>{{ member.name }}</strong>
@@ -106,16 +108,100 @@
                 {% endfor %}
             </div>
             {% else %}
-            <p class="empty-message">No members yet.</p>
+            <p class="empty-message">No active members yet.</p>
+            {% endif %}
+            
+            {% if inactive_members %}
+            <div class="former-members-section">
+                <button class="toggle-former-members" onclick="toggleFormerMembers()">
+                    <span class="toggle-icon">▶</span> Former Members ({{ inactive_members|length }})
+                </button>
+                <div class="former-members-list" style="display: none;">
+                    {% for member in inactive_members %}
+                    <div class="member-card member-inactive">
+                        <div class="member-info">
+                            <strong>{{ member.name }}</strong>
+                            <span class="badge badge-inactive">Former</span>
+                            {% if member.title %}
+                            <span class="member-title">{{ member.title }}</span>
+                            {% endif %}
+                            {% if member.left_at %}
+                            <span class="member-left-date">Left: {{ member.left_at[:10] }}</span>
+                            {% endif %}
+                            {% if member.access_expires_at %}
+                            <span class="member-access-expires">Access expires: {{ member.access_expires_at[:10] }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="member-actions">
+                            <a href="{{ url_for('main.lab_member_edit', lab_id=lab.id, member_id=member.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
             {% endif %}
         </div>
     </div>
     
+    <!-- Teams Section -->
     <div class="detail-section full-width">
-        <h2>Projects ({{ lab.projects|length }})</h2>
-        <div class="section-actions">
-            <a href="{{ url_for('main.project_new') }}?lab_id={{ lab.id }}" class="btn btn-sm btn-primary">+ New Project</a>
-            <a href="{{ url_for('main.projects') }}?lab_id={{ lab.id }}" class="btn btn-sm btn-secondary">View All</a>
+        <div class="section-header">
+            <h2>Teams ({{ teams|length }})</h2>
+            <div class="section-header-actions">
+                <a href="{{ url_for('main.lab_teams', lab_id=lab.id) }}" class="btn-icon btn-icon-view" title="View All Teams">
+                    {{ icon_view() }}
+                </a>
+            </div>
+        </div>
+        
+        {% if teams %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Code</th>
+                    <th>Members</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for team in teams[:5] %}
+                <tr>
+                    <td>
+                        <div class="team-name-cell">
+                            <span class="team-color-dot" style="background: {{ team.color or '#6366f1' }}"></span>
+                            <a href="{{ url_for('main.team_detail', lab_id=lab.id, team_id=team.id) }}">{{ team.name }}</a>
+                        </div>
+                    </td>
+                    <td>{{ team.code or '-' }}</td>
+                    <td>{{ team.member_count or 0 }}</td>
+                    <td>
+                        <div class="action-buttons">
+                            <a href="{{ url_for('main.team_detail', lab_id=lab.id, team_id=team.id) }}" class="btn-icon btn-icon-view" title="View">
+                                {{ icon_view() }}
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% if teams|length > 5 %}
+        <p class="view-more-link"><a href="{{ url_for('main.lab_teams', lab_id=lab.id) }}">View all {{ teams|length }} teams →</a></p>
+        {% endif %}
+        {% else %}
+        <p class="empty-message">No teams yet. Create teams to organize members and manage permissions.</p>
+        {% endif %}
+    </div>
+    
+    <div class="detail-section full-width">
+        <div class="section-header">
+            <h2>Projects ({{ lab.projects|length }})</h2>
+            <div class="section-header-actions">
+                <a href="{{ url_for('main.projects') }}?lab_id={{ lab.id }}" class="btn-icon btn-icon-view" title="View All Projects">
+                    {{ icon_view() }}
+                </a>
+            </div>
         </div>
         
         {% if lab.projects %}
@@ -225,9 +311,128 @@
     padding: 12px 24px;
     font-size: 1rem;
 }
+
+/* Section Header */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.section-header h2 {
+    margin: 0;
+}
+
+.section-header-actions {
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+}
+
+/* Teams Table Styles */
+.team-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.team-color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.view-more-link {
+    margin-top: 0.75rem;
+    text-align: right;
+    font-size: 0.9rem;
+}
+
+.view-more-link a {
+    color: var(--primary);
+}
+
+/* Former Members Section */
+.former-members-section {
+    margin-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+    padding-top: 1rem;
+}
+
+.toggle-former-members {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 0.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.toggle-former-members:hover {
+    color: var(--text);
+}
+
+.toggle-icon {
+    transition: transform 0.2s;
+}
+
+.toggle-icon.open {
+    transform: rotate(90deg);
+}
+
+.former-members-list {
+    margin-top: 0.75rem;
+}
+
+.member-inactive {
+    opacity: 0.7;
+    background: var(--bg-tertiary);
+}
+
+.member-left-date,
+.member-access-expires {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    display: block;
+    margin-top: 0.25rem;
+}
+
+.member-access-expires {
+    color: var(--warning);
+}
+
+.badge-inactive {
+    background: var(--text-muted);
+    color: white;
+    font-size: 0.7rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+}
+
+.detail-section.full-width {
+    margin-top: 1.5rem;
+}
 </style>
 
 <script>
+function toggleFormerMembers() {
+    const list = document.querySelector('.former-members-list');
+    const icon = document.querySelector('.toggle-icon');
+    
+    if (list.style.display === 'none') {
+        list.style.display = 'block';
+        icon.classList.add('open');
+    } else {
+        list.style.display = 'none';
+        icon.classList.remove('open');
+    }
+}
+
 async function deleteLabWithWarning(labId, labName, projectCount, memberCount) {
     const confirmed = await PyBirchModal.confirm({
         type: 'danger',

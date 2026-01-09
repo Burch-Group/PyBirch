@@ -58,10 +58,95 @@
                       placeholder="Additional notes about this member">{{ member.notes if member else '' }}</textarea>
         </div>
         
+        {% if member %}
+        <!-- Status Section (only shown when editing) -->
+        <div class="form-section">
+            <h3>Membership Status</h3>
+            
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="is_active">
+                        <input type="checkbox" id="is_active" name="is_active" 
+                               {% if member.is_active %}checked{% endif %}>
+                        Active Member
+                    </label>
+                    <small>Uncheck to mark as former member</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="joined_at">Joined Date</label>
+                    <input type="date" id="joined_at" name="joined_at"
+                           value="{{ member.joined_at[:10] if member.joined_at else '' }}" disabled>
+                    <small>When they joined the lab</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="left_at">Left Date</label>
+                    <input type="date" id="left_at" name="left_at"
+                           value="{{ member.left_at[:10] if member.left_at else '' }}">
+                    <small>When they left (or will leave) the lab</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="access_expires_at">Access Expires</label>
+                    <input type="date" id="access_expires_at" name="access_expires_at"
+                           value="{{ member.access_expires_at[:10] if member.access_expires_at else '' }}">
+                    <small>When their access to existing items will be revoked (default: 6 months after leaving)</small>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
         <div class="form-actions">
             <a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}" class="btn btn-link">Cancel</a>
             <button type="submit" class="btn btn-primary">{{ action }} Member</button>
         </div>
     </form>
 </div>
+
+<style>
+.form-section {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.form-section h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.form-group input[type="checkbox"] {
+    margin-right: 0.5rem;
+}
+</style>
+
+<script>
+// Auto-calculate access expiry when left date changes
+document.getElementById('left_at')?.addEventListener('change', function() {
+    const leftDate = this.value;
+    const expiresInput = document.getElementById('access_expires_at');
+    
+    if (leftDate && !expiresInput.value) {
+        const left = new Date(leftDate);
+        left.setMonth(left.getMonth() + 6);
+        expiresInput.value = left.toISOString().split('T')[0];
+    }
+});
+
+// Auto-set left date when unchecking active
+document.getElementById('is_active')?.addEventListener('change', function() {
+    const leftInput = document.getElementById('left_at');
+    if (!this.checked && !leftInput.value) {
+        leftInput.value = new Date().toISOString().split('T')[0];
+        leftInput.dispatchEvent(new Event('change'));
+    }
+});
+</script>
 {% endblock %}
