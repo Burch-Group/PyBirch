@@ -6,35 +6,32 @@
     <div class="section-header">
         <h2>Images</h2>
         <span class="image-count">({{ images|length if images else 0 }})</span>
+        {% if images %}
+        <!-- Upload button shown when images exist -->
+        <label class="btn btn-secondary btn-small upload-btn-header" for="image-file-input">
+            + Add Images
+        </label>
+        {% endif %}
     </div>
     
-    <!-- Drag and Drop Zone -->
-    <div class="image-upload-zone" id="image-drop-zone">
-        <div class="drop-zone-content">
-            <div class="drop-icon"></div>
-            <p>Drag & drop images here</p>
-            <p class="drop-hint">or</p>
-            <label class="btn btn-secondary btn-small upload-btn" for="image-file-input">
-                Choose Files
-            </label>
-            <input type="file" id="image-file-input" accept="image/*" multiple class="visually-hidden">
-            <p class="file-types">PNG, JPG, GIF, WEBP, BMP (max 10MB)</p>
+    <!-- Hidden file input (used by both drop zone and header button) -->
+    <input type="file" id="image-file-input" accept="image/*" multiple class="visually-hidden">
+    
+    <!-- Upload progress (shown during upload) -->
+    <div class="upload-progress" id="upload-progress" style="display: none;">
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
         </div>
-        <div class="upload-progress" id="upload-progress" style="display: none;">
-            <div class="progress-bar">
-                <div class="progress-fill" id="progress-fill"></div>
-            </div>
-            <p class="progress-text" id="progress-text">Uploading...</p>
-        </div>
-        <div class="upload-error" id="upload-error" style="display: none;">
-            <span class="error-icon">⚠️</span>
-            <span class="error-message" id="upload-error-message"></span>
-            <button type="button" class="error-dismiss" onclick="hideUploadError()">&times;</button>
-        </div>
+        <p class="progress-text" id="progress-text">Uploading...</p>
+    </div>
+    <div class="upload-error" id="upload-error" style="display: none;">
+        <span class="error-icon">⚠️</span>
+        <span class="error-message" id="upload-error-message"></span>
+        <button type="button" class="error-dismiss" onclick="hideUploadError()">&times;</button>
     </div>
     
-    <!-- Image Gallery Grid -->
-    <div class="image-gallery" id="image-gallery">
+    <!-- Image Gallery Grid (also serves as drop zone when populated) -->
+    <div class="image-gallery {% if not images %}image-gallery-empty{% endif %}" id="image-gallery">
         {% if images %}
             {% for image in images %}
             <div class="image-card" data-image-id="{{ image.id }}">
@@ -71,9 +68,25 @@
                 </div>
             </div>
             {% endfor %}
+            <!-- Drop overlay shown when dragging over gallery -->
+            <div class="gallery-drop-overlay" id="gallery-drop-overlay">
+                <div class="drop-overlay-content">
+                    <span class="drop-overlay-icon">📷</span>
+                    <span>Drop images here</span>
+                </div>
+            </div>
         {% else %}
-            <div class="no-images" id="no-images-message">
-                <p>No images yet. Upload some!</p>
+            <!-- Empty state: show drop zone box -->
+            <div class="empty-drop-zone" id="empty-drop-zone">
+                <div class="drop-zone-content">
+                    <div class="drop-icon">📷</div>
+                    <p>Drag & drop images here</p>
+                    <p class="drop-hint">or</p>
+                    <label class="btn btn-secondary btn-small upload-btn" for="image-file-input">
+                        Choose Files
+                    </label>
+                    <p class="file-types">PNG, JPG, GIF, WEBP, BMP (max 10MB)</p>
+                </div>
             </div>
         {% endif %}
     </div>
@@ -140,20 +153,49 @@
     font-size: 0.9rem;
 }
 
-/* Drop Zone */
-.image-upload-zone {
-    border: 2px dashed var(--border-color, #ddd);
-    border-radius: 8px;
-    padding: 2rem;
-    text-align: center;
-    margin-bottom: 1.5rem;
-    transition: all 0.2s ease;
-    background: var(--bg-light, #f9f9f9);
+/* Upload button in header (when images exist) */
+.upload-btn-header {
+    margin-left: auto;
 }
 
-.image-upload-zone.drag-over {
+/* Visually hidden but still accessible for file input */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Empty state drop zone (shown when no images) */
+.empty-drop-zone {
+    grid-column: 1 / -1;
+    border: 2px dashed var(--border-color, #ddd);
+    border-radius: 8px;
+    padding: 3rem 2rem;
+    text-align: center;
+    transition: all 0.2s ease;
+    background: var(--bg-light, #f9f9f9);
+    cursor: pointer;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.empty-drop-zone:hover {
     border-color: var(--primary-color, #2563eb);
-    background: rgba(37, 99, 235, 0.05);
+    background: rgba(37, 99, 235, 0.02);
+}
+
+.empty-drop-zone.drag-over {
+    border-color: var(--primary-color, #2563eb);
+    background: rgba(37, 99, 235, 0.08);
+    border-style: solid;
 }
 
 .drop-zone-content {
@@ -180,22 +222,41 @@
     margin-top: 0.5rem;
 }
 
-/* Visually hidden but still accessible for file input */
-.visually-hidden {
+/* Gallery drop overlay (shown when dragging over populated gallery) */
+.gallery-drop-overlay {
+    display: none;
     position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(37, 99, 235, 0.15);
+    border: 3px dashed var(--primary-color, #2563eb);
+    border-radius: 8px;
+    z-index: 10;
+    pointer-events: none;
 }
 
-/* Make drop zone clickable */
-.image-upload-zone {
-    cursor: pointer;
+.gallery-drop-overlay.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.drop-overlay-content {
+    background: white;
+    padding: 1rem 2rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-weight: 500;
+    color: var(--primary-color, #2563eb);
+}
+
+.drop-overlay-icon {
+    font-size: 1.5rem;
 }
 
 .upload-progress {
@@ -263,6 +324,13 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 1rem;
+    position: relative;
+    min-height: 100px;
+}
+
+/* Empty gallery needs to span full width for drop zone */
+.image-gallery-empty {
+    display: block;
 }
 
 .image-card {
@@ -492,10 +560,14 @@ console.error('Image gallery: entity_type and entity_id not detected. Image uplo
 {% endif %}
 
 document.addEventListener('DOMContentLoaded', function() {
-    const dropZone = document.getElementById('image-drop-zone');
+    const gallery = document.getElementById('image-gallery');
+    const emptyDropZone = document.getElementById('empty-drop-zone');
+    const dropOverlay = document.getElementById('gallery-drop-overlay');
     const fileInput = document.getElementById('image-file-input');
     
-    if (!dropZone || !fileInput) return;
+    if (!gallery || !fileInput) return;
+    
+    let dragCounter = 0;
     
     // Only prevent defaults for drag events (not clicks)
     function preventDragDefaults(e) {
@@ -503,31 +575,60 @@ document.addEventListener('DOMContentLoaded', function() {
         e.stopPropagation();
     }
     
-    // Drag and drop handlers - only for drag events
+    // Prevent default drag behavior on body to allow dropping on gallery
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, preventDragDefaults, false);
         document.body.addEventListener(eventName, preventDragDefaults, false);
     });
     
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-over'), false);
-    });
+    // Gallery drag and drop (when images exist)
+    gallery.addEventListener('dragenter', function(e) {
+        preventDragDefaults(e);
+        dragCounter++;
+        if (dropOverlay) {
+            dropOverlay.classList.add('active');
+        }
+    }, false);
     
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-over'), false);
-    });
+    gallery.addEventListener('dragover', function(e) {
+        preventDragDefaults(e);
+    }, false);
     
-    dropZone.addEventListener('drop', handleDrop, false);
+    gallery.addEventListener('dragleave', function(e) {
+        preventDragDefaults(e);
+        dragCounter--;
+        if (dragCounter === 0 && dropOverlay) {
+            dropOverlay.classList.remove('active');
+        }
+    }, false);
+    
+    gallery.addEventListener('drop', function(e) {
+        preventDragDefaults(e);
+        dragCounter = 0;
+        if (dropOverlay) {
+            dropOverlay.classList.remove('active');
+        }
+        handleDrop(e);
+    }, false);
+    
+    // Empty drop zone specific handlers
+    if (emptyDropZone) {
+        ['dragenter', 'dragover'].forEach(eventName => {
+            emptyDropZone.addEventListener(eventName, () => emptyDropZone.classList.add('drag-over'), false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            emptyDropZone.addEventListener(eventName, () => emptyDropZone.classList.remove('drag-over'), false);
+        });
+        
+        // Allow clicking on empty drop zone to open file picker
+        emptyDropZone.addEventListener('click', function(e) {
+            if (e.target.tagName === 'INPUT') return;
+            if (e.target.tagName === 'LABEL' || e.target.closest('label')) return;
+            fileInput.click();
+        });
+    }
+    
     fileInput.addEventListener('change', handleFileSelect, false);
-    
-    // Allow clicking anywhere in drop zone to open file picker
-    dropZone.addEventListener('click', function(e) {
-        // Don't trigger if clicking on the label (it handles its own click via 'for' attribute)
-        // or if clicking the input itself
-        if (e.target.tagName === 'INPUT') return;
-        if (e.target.tagName === 'LABEL' || e.target.closest('label')) return;
-        fileInput.click();
-    });
 });
 
 function handleDrop(e) {
@@ -550,11 +651,14 @@ function uploadFile(file) {
     formData.append('name', file.name);
     
     const progressDiv = document.getElementById('upload-progress');
-    const dropContent = document.querySelector('.drop-zone-content');
+    const emptyDropZone = document.getElementById('empty-drop-zone');
     const progressFill = document.getElementById('progress-fill');
     const progressText = document.getElementById('progress-text');
     
-    dropContent.style.display = 'none';
+    // Hide empty drop zone if present, show progress
+    if (emptyDropZone) {
+        emptyDropZone.style.display = 'none';
+    }
     progressDiv.style.display = 'block';
     progressText.textContent = `Uploading ${file.name}...`;
     
@@ -570,7 +674,6 @@ function uploadFile(file) {
     
     xhr.addEventListener('load', () => {
         progressDiv.style.display = 'none';
-        dropContent.style.display = 'flex';
         progressFill.style.width = '0%';
         
         if (xhr.status === 200) {
@@ -579,9 +682,13 @@ function uploadFile(file) {
                 hideUploadError();
                 addImageToGallery(response.image, response.url);
             } else {
+                // Show empty drop zone again on error
+                if (emptyDropZone) emptyDropZone.style.display = 'flex';
                 showUploadError('Upload failed: ' + response.error);
             }
         } else {
+            // Show empty drop zone again on error
+            if (emptyDropZone) emptyDropZone.style.display = 'flex';
             // Try to parse error message from JSON response
             let errorMsg = 'Upload failed';
             try {
@@ -607,7 +714,8 @@ function uploadFile(file) {
     
     xhr.addEventListener('error', () => {
         progressDiv.style.display = 'none';
-        dropContent.style.display = 'flex';
+        // Show empty drop zone again on error
+        if (emptyDropZone) emptyDropZone.style.display = 'flex';
         showUploadError('Upload failed - network error');
     });
     
@@ -634,10 +742,35 @@ function hideUploadError() {
 
 function addImageToGallery(image, url) {
     const gallery = document.getElementById('image-gallery');
-    const noImagesMsg = document.getElementById('no-images-message');
+    const emptyDropZone = document.getElementById('empty-drop-zone');
+    const header = document.querySelector('.images-section .section-header');
+    const fileInput = document.getElementById('image-file-input');
     
-    if (noImagesMsg) {
-        noImagesMsg.remove();
+    // Remove empty drop zone if this is the first image
+    if (emptyDropZone) {
+        emptyDropZone.remove();
+        gallery.classList.remove('image-gallery-empty');
+        
+        // Add drop overlay for future drops
+        const overlay = document.createElement('div');
+        overlay.className = 'gallery-drop-overlay';
+        overlay.id = 'gallery-drop-overlay';
+        overlay.innerHTML = `
+            <div class="drop-overlay-content">
+                <span class="drop-overlay-icon">📷</span>
+                <span>Drop images here</span>
+            </div>
+        `;
+        gallery.appendChild(overlay);
+        
+        // Add upload button to header if not present
+        if (header && !header.querySelector('.upload-btn-header')) {
+            const uploadBtn = document.createElement('label');
+            uploadBtn.className = 'btn btn-secondary btn-small upload-btn-header';
+            uploadBtn.setAttribute('for', 'image-file-input');
+            uploadBtn.textContent = '+ Add Images';
+            header.appendChild(uploadBtn);
+        }
     }
     
     const card = document.createElement('div');
@@ -667,7 +800,13 @@ function addImageToGallery(image, url) {
         </div>
     `;
     
-    gallery.insertBefore(card, gallery.firstChild);
+    // Insert before the overlay if it exists, otherwise at the beginning
+    const overlay = document.getElementById('gallery-drop-overlay');
+    if (overlay) {
+        gallery.insertBefore(card, overlay);
+    } else {
+        gallery.insertBefore(card, gallery.firstChild);
+    }
     
     // Update count
     const countSpan = document.querySelector('.image-count');
