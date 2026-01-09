@@ -38,20 +38,17 @@
         </a>
     </div>
     
-    {% if equipment.description %}
-    <div class="description-section">
-        <p>{{ equipment.description }}</p>
-    </div>
-    {% endif %}
-    
     <div class="detail-grid">
         <div class="detail-section">
             <h2>Basic Information</h2>
             <dl class="detail-list">
+                <dt>Description</dt>
+                <dd>{{ equipment.description or '-' }}</dd>
+                
                 <dt>Type</dt>
                 <dd>{{ equipment.equipment_type or '-' }}</dd>
                 
-                <dt>Owner</dt>
+                <dt>Custodian</dt>
                 <dd>{{ equipment.owner_name or 'Not assigned' }}</dd>
                 
                 <dt>Manufacturer</dt>
@@ -83,7 +80,7 @@
         </div>
         
         <div class="detail-section">
-            <h2>Maintenance & Warranty</h2>
+            <h2>Purchase & Warranty</h2>
             <dl class="detail-list">
                 <dt>Purchase Date</dt>
                 <dd>{{ equipment.purchase_date or '-' }}</dd>
@@ -99,15 +96,6 @@
                     {% endif %}
                 </dd>
                 
-                <dt>Last Maintenance</dt>
-                <dd>{{ equipment.last_maintenance_date or '-' }}</dd>
-                
-                <dt>Next Maintenance</dt>
-                <dd>{{ equipment.next_maintenance_date or '-' }}</dd>
-                
-                <dt>Maintenance Interval</dt>
-                <dd>{% if equipment.maintenance_interval_days %}{{ equipment.maintenance_interval_days }} days{% else %}-{% endif %}</dd>
-                
                 <dt>Added</dt>
                 <dd>{{ equipment.created_at[:10] if equipment.created_at else '-' }}</dd>
             </dl>
@@ -115,10 +103,13 @@
     </div>
     
     <!-- Child Instruments Section -->
-    {% if child_instruments %}
     <div class="detail-section full-width">
-        <h2>Instruments</h2>
+        <div class="section-header">
+            <h2>Instruments</h2>
+            <a href="{{ url_for('main.instrument_new', equipment_id=equipment.id) }}" class="btn btn-link btn-sm">Add Instrument →</a>
+        </div>
         <p class="section-description">PyBirch-compatible instruments that are part of this equipment.</p>
+        {% if child_instruments %}
         <table class="data-table">
             <thead>
                 <tr>
@@ -139,8 +130,46 @@
                 {% endfor %}
             </tbody>
         </table>
+        {% else %}
+        <p class="empty-text">No instruments linked to this equipment.</p>
+        {% endif %}
     </div>
-    {% endif %}
+    
+    <!-- Maintenance Tasks Section -->
+    <div class="detail-section full-width">
+        <div class="section-header">
+            <h2>Scheduled Maintenance</h2>
+            <a href="{{ url_for('main.equipment_maintenance_tasks', equipment_id=equipment.id) }}" class="btn btn-link btn-sm">Manage Tasks →</a>
+        </div>
+        {% if maintenance_tasks %}
+        <div class="maintenance-tasks-preview">
+            {% for task in maintenance_tasks[:3] %}
+            <div class="task-preview-item task-status-{{ task.status }}">
+                <div class="task-preview-info">
+                    <span class="task-preview-name">{{ task.name }}</span>
+                    <span class="task-preview-interval">Every {{ task.interval_days }} days</span>
+                </div>
+                <div class="task-preview-status">
+                    {% if not task.is_active %}
+                    <span class="status-badge status-inactive">Paused</span>
+                    {% elif task.status == 'overdue' %}
+                    <span class="status-badge status-overdue">Overdue</span>
+                    {% elif task.status == 'issue_open' %}
+                    <a href="{{ url_for('main.equipment_issue_detail', equipment_id=equipment.id, issue_id=task.current_issue_id) }}" class="status-badge status-in_progress">Issue #{{ task.current_issue_id }}</a>
+                    {% else %}
+                    <span class="status-badge status-scheduled">Due {{ task.next_due_date }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+            {% if maintenance_tasks|length > 3 %}
+            <p class="more-tasks">+ {{ maintenance_tasks|length - 3 }} more tasks</p>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="empty-text">No scheduled maintenance tasks. <a href="{{ url_for('main.equipment_maintenance_task_new', equipment_id=equipment.id) }}">Create one</a></p>
+        {% endif %}
+    </div>
     
     <!-- Recent Issues Section -->
     {% if recent_issues %}
@@ -216,24 +245,16 @@
 </div>
 
 <style>
-.description-section {
-    background: var(--card-bg);
-    padding: 1rem 1.5rem;
-    border-radius: 8px;
-    margin-bottom: 1.5rem;
-}
-.description-section p {
-    margin: 0;
-    color: var(--text-secondary);
-}
 .section-description {
     margin-top: -0.5rem;
     margin-bottom: 1rem;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     font-size: 0.9rem;
 }
 .detail-section.full-width {
     grid-column: 1 / -1;
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
 }
 .priority-badge {
     padding: 0.25rem 0.5rem;
@@ -284,6 +305,69 @@
 .empty-text {
     color: var(--text-secondary);
     font-style: italic;
+}
+
+/* Maintenance Tasks Preview */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+.section-header h2 {
+    margin: 0;
+}
+.maintenance-tasks-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.task-preview-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--bg-light, #f8f9fa);
+    border-radius: 6px;
+    border-left: 3px solid var(--border-color, #e0e0e0);
+}
+.task-preview-item.task-status-overdue {
+    border-left-color: var(--danger-color, #dc3545);
+    background: #fef2f2;
+}
+.task-preview-item.task-status-issue_open {
+    border-left-color: var(--warning-color, #f59e0b);
+    background: #fffbeb;
+}
+.task-preview-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.task-preview-name {
+    font-weight: 500;
+}
+.task-preview-interval {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+.status-badge.status-overdue {
+    background: #fee2e2;
+    color: #991b1b;
+}
+.status-badge.status-scheduled {
+    background: #dcfce7;
+    color: #166534;
+}
+.status-badge.status-inactive {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+.more-tasks {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0.5rem 0 0 0;
 }
 </style>
 

@@ -804,6 +804,7 @@ class Equipment(TrashableMixin, ArchivableMixin, Base):
     images: Mapped[List["EquipmentImage"]] = relationship("EquipmentImage", back_populates="equipment", cascade="all, delete-orphan")
     issues: Mapped[List["EquipmentIssue"]] = relationship("EquipmentIssue", back_populates="equipment", cascade="all, delete-orphan")
     fabrication_runs: Mapped[List["FabricationRunEquipment"]] = relationship("FabricationRunEquipment", back_populates="equipment")
+    maintenance_tasks: Mapped[List["MaintenanceTask"]] = relationship("MaintenanceTask", back_populates="equipment", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('idx_equipment_lab', 'lab_id'),
@@ -877,6 +878,53 @@ class EquipmentIssue(TrashableMixin, ArchivableMixin, Base):
     
     def __repr__(self):
         return f"<EquipmentIssue(id={self.id}, equipment_id={self.equipment_id}, title='{self.title}')>"
+
+
+class MaintenanceTask(TrashableMixin, Base):
+    """
+    Recurring maintenance tasks for equipment.
+    When a task is due, it automatically creates an EquipmentIssue.
+    Once that issue is resolved, the wait period begins again.
+    """
+    __tablename__ = "maintenance_tasks"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    equipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment.id'), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    interval_days: Mapped[int] = mapped_column(Integer, nullable=False)  # Days between maintenance
+    
+    # Issue template fields - used when creating the maintenance issue
+    issue_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    issue_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    issue_category: Mapped[str] = mapped_column(String(50), default='maintenance')
+    issue_priority: Mapped[str] = mapped_column(String(50), default='medium')
+    default_assignee_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    
+    # Tracking fields
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    next_due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    current_issue_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('equipment_issues.id'), nullable=True)
+    
+    created_by_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    equipment: Mapped["Equipment"] = relationship("Equipment", back_populates="maintenance_tasks")
+    default_assignee: Mapped[Optional["User"]] = relationship("User", foreign_keys=[default_assignee_id])
+    current_issue: Mapped[Optional["EquipmentIssue"]] = relationship("EquipmentIssue", foreign_keys=[current_issue_id])
+    created_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_id])
+    
+    __table_args__ = (
+        Index('idx_maintenance_tasks_equipment', 'equipment_id'),
+        Index('idx_maintenance_tasks_active', 'is_active'),
+        Index('idx_maintenance_tasks_next_due', 'next_due_date'),
+    )
+    
+    def __repr__(self):
+        return f"<MaintenanceTask(id={self.id}, equipment_id={self.equipment_id}, name='{self.name}')>"
 
 
 # ============================================================

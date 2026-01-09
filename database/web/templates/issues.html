@@ -71,7 +71,7 @@
                 <span class="issue-reporter">by {{ issue.reporter_name }}</span>
                 {% endif %}
                 {% if issue.assignee_name %}
-                <span class="issue-assignee">→ {{ issue.assignee_name }}</span>
+                <span class="issue-owner">Owner: {{ issue.assignee_name }}</span>
                 {% endif %}
             </div>
             {% if issue.description %}

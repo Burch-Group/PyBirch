@@ -67,9 +67,9 @@
                 {% endif %}
                 
                 <div class="form-group">
-                    <label for="assignee_id">Assignee</label>
+                    <label for="assignee_id">Owner</label>
                     <select id="assignee_id" name="assignee_id" class="searchable-select" data-entity-type="user">
-                        <option value="">Unassigned</option>
+                        <option value="">No owner</option>
                         {% for user in users %}
                         <option value="{{ user.id }}" 
                             {% if issue and issue.assignee_id == user.id %}selected
@@ -79,7 +79,7 @@
                         </option>
                         {% endfor %}
                     </select>
-                    <small class="form-hint">Defaults to equipment owner if not specified</small>
+                    <small class="form-hint">Defaults to equipment custodian if not specified</small>
                 </div>
             </div>
         </div>

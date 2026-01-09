@@ -506,31 +506,14 @@
             filterToggleBtn.classList.remove('filter-open');
         });
         
-        // Hide filter button on scroll down, show on scroll up
-        let lastScrollY = window.scrollY;
-        let ticking = false;
-        
-        function updateFilterButtonVisibility() {
-            const currentScrollY = window.scrollY;
-            
-            if (currentScrollY > lastScrollY && currentScrollY > 100) {
-                // Scrolling down - hide button and collapse filter row
-                filterToggleBtn.classList.add('hidden');
+        // Click outside filter row to close it
+        document.addEventListener('click', function(e) {
+            // If filter bar is open and click is outside both filter bar and toggle button
+            if (!filterRow.classList.contains('collapsed') && 
+                !filterRow.contains(e.target) && 
+                !filterToggleBtn.contains(e.target)) {
                 filterRow.classList.add('collapsed');
                 filterToggleBtn.classList.remove('filter-open');
-            } else {
-                // Scrolling up or at top - show button
-                filterToggleBtn.classList.remove('hidden');
-            }
-            
-            lastScrollY = currentScrollY;
-            ticking = false;
-        }
-        
-        window.addEventListener('scroll', function() {
-            if (!ticking) {
-                requestAnimationFrame(updateFilterButtonVisibility);
-                ticking = true;
             }
         });
     });

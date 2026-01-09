@@ -90,8 +90,8 @@
                     <dd>{{ issue.resolved_at[:16]|replace('T', ' ') }}</dd>
                     {% endif %}
                     
-                    <dt>Assigned to</dt>
-                    <dd>{{ issue.assignee_name or 'Unassigned' }}</dd>
+                    <dt>Owner</dt>
+                    <dd>{{ issue.assignee_name or 'No owner' }}</dd>
                     
                     {% if issue.related_url %}
                     <dt>Related URL</dt>

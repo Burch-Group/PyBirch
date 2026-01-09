@@ -19,7 +19,7 @@ from database.models import (
     Lab, LabMember, Project, ProjectMember, ItemGuest,
     User, UserPin, Issue, IssueUpdate, EntityImage, Attachment,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
-    DriverIssue, Location, ObjectLocation
+    DriverIssue, Location, ObjectLocation, MaintenanceTask
 )
 from database.session import get_session, init_db
 
@@ -1561,6 +1561,7 @@ class DatabaseService:
         instrument_type: Optional[str] = None,
         status: Optional[str] = None,
         lab_id: Optional[int] = None,
+        equipment_id: Optional[int] = None,
         page: int = 1,
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
@@ -1591,6 +1592,9 @@ class DatabaseService:
             
             if lab_id:
                 query = query.filter(Instrument.lab_id == lab_id)
+            
+            if equipment_id:
+                query = query.filter(Instrument.equipment_id == equipment_id)
             
             total = query.count()
             offset = (page - 1) * per_page
@@ -3081,6 +3085,8 @@ class DatabaseService:
             if not issue:
                 return None
             
+            old_status = issue.status
+            
             for field in ['title', 'description', 'category', 'priority', 'status',
                           'assignee_id', 'error_message', 'steps_to_reproduce',
                           'resolution', 'cost', 'downtime_hours', 'resolved_at']:
@@ -3088,6 +3094,19 @@ class DatabaseService:
                     setattr(issue, field, data[field])
             
             session.flush()
+            
+            # If status changed to resolved/closed, check for linked maintenance task
+            new_status = data.get('status', old_status)
+            if old_status not in ('resolved', 'closed') and new_status in ('resolved', 'closed'):
+                # Reset maintenance task timer if this issue is linked to one
+                task = session.query(MaintenanceTask).filter(
+                    MaintenanceTask.current_issue_id == issue_id
+                ).first()
+                if task:
+                    from datetime import date
+                    task.next_due_date = date.today() + timedelta(days=task.interval_days)
+                    task.current_issue_id = None
+            
             return self._equipment_issue_to_dict(issue)
     
     def _equipment_issue_to_dict(self, issue: EquipmentIssue) -> Dict:
@@ -3122,6 +3141,181 @@ class DatabaseService:
             'resolved_at': issue.resolved_at.isoformat() if issue.resolved_at else None,
             'created_at': issue.created_at.isoformat() if issue.created_at else None,
             'updated_at': issue.updated_at.isoformat() if issue.updated_at else None,
+        }
+
+    # ==================== Maintenance Tasks ====================
+    
+    def get_maintenance_tasks(self, equipment_id: int) -> List[Dict]:
+        """Get all maintenance tasks for an equipment."""
+        with self.session_scope() as session:
+            tasks = session.query(MaintenanceTask).filter(
+                MaintenanceTask.equipment_id == equipment_id,
+                MaintenanceTask.trashed_at.is_(None)
+            ).order_by(MaintenanceTask.next_due_date.asc()).all()
+            return [self._maintenance_task_to_dict(t) for t in tasks]
+    
+    def get_maintenance_task(self, task_id: int) -> Optional[Dict]:
+        """Get a single maintenance task by ID."""
+        with self.session_scope() as session:
+            task = session.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
+            return self._maintenance_task_to_dict(task) if task else None
+    
+    def create_maintenance_task(self, data: Dict[str, Any]) -> Dict:
+        """Create a new maintenance task."""
+        from datetime import date
+        with self.session_scope() as session:
+            # Calculate next due date from today
+            interval_days = data.get('interval_days', 30)
+            next_due = date.today() + timedelta(days=interval_days)
+            
+            task = MaintenanceTask(
+                equipment_id=data['equipment_id'],
+                name=data['name'],
+                description=data.get('description'),
+                interval_days=interval_days,
+                issue_title=data.get('issue_title', data['name']),
+                issue_description=data.get('issue_description'),
+                issue_category=data.get('issue_category', 'maintenance'),
+                issue_priority=data.get('issue_priority', 'medium'),
+                default_assignee_id=data.get('default_assignee_id'),
+                is_active=data.get('is_active', True),
+                next_due_date=next_due,
+                created_by_id=data.get('created_by_id'),
+            )
+            session.add(task)
+            session.flush()
+            return self._maintenance_task_to_dict(task)
+    
+    def update_maintenance_task(self, task_id: int, data: Dict[str, Any]) -> Optional[Dict]:
+        """Update a maintenance task."""
+        with self.session_scope() as session:
+            task = session.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
+            if not task:
+                return None
+            
+            for field in ['name', 'description', 'interval_days', 'issue_title',
+                          'issue_description', 'issue_category', 'issue_priority',
+                          'default_assignee_id', 'is_active', 'next_due_date']:
+                if field in data:
+                    setattr(task, field, data[field])
+            
+            session.flush()
+            return self._maintenance_task_to_dict(task)
+    
+    def delete_maintenance_task(self, task_id: int) -> bool:
+        """Delete a maintenance task."""
+        with self.session_scope() as session:
+            task = session.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
+            if not task:
+                return False
+            session.delete(task)
+            return True
+    
+    def check_and_trigger_maintenance_tasks(self) -> List[Dict]:
+        """
+        Check for due maintenance tasks and create issues for them.
+        Returns list of newly created issues.
+        """
+        from datetime import date
+        created_issues = []
+        
+        with self.session_scope() as session:
+            # Find active tasks that are due and don't have an open issue
+            today = date.today()
+            due_tasks = session.query(MaintenanceTask).filter(
+                MaintenanceTask.is_active == True,
+                MaintenanceTask.trashed_at.is_(None),
+                MaintenanceTask.next_due_date <= today,
+                MaintenanceTask.current_issue_id.is_(None)
+            ).all()
+            
+            for task in due_tasks:
+                # Determine assignee: use default_assignee_id, or fall back to equipment owner
+                assignee_id = task.default_assignee_id
+                if assignee_id is None and task.equipment:
+                    assignee_id = task.equipment.owner_id
+                
+                # Create the maintenance issue
+                issue = EquipmentIssue(
+                    equipment_id=task.equipment_id,
+                    title=task.issue_title,
+                    description=task.issue_description,
+                    category=task.issue_category,
+                    priority=task.issue_priority,
+                    assignee_id=assignee_id,
+                    status='open'
+                )
+                session.add(issue)
+                session.flush()
+                
+                # Link the issue to the task
+                task.current_issue_id = issue.id
+                task.last_triggered_at = datetime.utcnow()
+                
+                created_issues.append(self._equipment_issue_to_dict(issue))
+        
+        return created_issues
+    
+    def resolve_maintenance_task_issue(self, issue_id: int) -> Optional[Dict]:
+        """
+        Called when a maintenance issue is resolved.
+        Resets the task timer and clears the current issue link.
+        """
+        from datetime import date
+        with self.session_scope() as session:
+            # Find the task linked to this issue
+            task = session.query(MaintenanceTask).filter(
+                MaintenanceTask.current_issue_id == issue_id
+            ).first()
+            
+            if task:
+                # Reset the timer
+                task.next_due_date = date.today() + timedelta(days=task.interval_days)
+                task.current_issue_id = None
+                session.flush()
+                return self._maintenance_task_to_dict(task)
+        return None
+    
+    def _maintenance_task_to_dict(self, task: MaintenanceTask) -> Dict:
+        """Convert MaintenanceTask model to dictionary."""
+        equipment_name = task.equipment.name if task.equipment else None
+        assignee_name = None
+        if task.default_assignee:
+            assignee_name = task.default_assignee.name or task.default_assignee.username
+        created_by_name = None
+        if task.created_by:
+            created_by_name = task.created_by.name or task.created_by.username
+        
+        # Calculate status
+        from datetime import date
+        status = 'scheduled'
+        if task.current_issue_id:
+            status = 'issue_open'
+        elif task.next_due_date and task.next_due_date <= date.today():
+            status = 'overdue'
+        
+        return {
+            'id': task.id,
+            'equipment_id': task.equipment_id,
+            'equipment_name': equipment_name,
+            'name': task.name,
+            'description': task.description,
+            'interval_days': task.interval_days,
+            'issue_title': task.issue_title,
+            'issue_description': task.issue_description,
+            'issue_category': task.issue_category,
+            'issue_priority': task.issue_priority,
+            'default_assignee_id': task.default_assignee_id,
+            'default_assignee_name': assignee_name,
+            'is_active': task.is_active,
+            'last_triggered_at': task.last_triggered_at.isoformat() if task.last_triggered_at else None,
+            'next_due_date': task.next_due_date.isoformat() if task.next_due_date else None,
+            'current_issue_id': task.current_issue_id,
+            'status': status,
+            'created_by_id': task.created_by_id,
+            'created_by_name': created_by_name,
+            'created_at': task.created_at.isoformat() if task.created_at else None,
+            'updated_at': task.updated_at.isoformat() if task.updated_at else None,
         }
 
     # ==================== Driver Issues ====================

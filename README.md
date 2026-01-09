@@ -74,11 +74,13 @@ Items:
 - [x] allow users to edit scans and queues to add links to samples and projects that may be missing
 - [x] For image uploads in general, remove the drag & drop box (it is too large & clutters the UI), instead allow users to drop images onto the gallery (as is standard in other well-established applications)
 - [x] add QR code option beside all search-select dropdowns that allows a QR code to be scanned, and inputs the resulting object if it is of the correct type, etc.
-- [ ] Add file uploads with optional name & description. The UI should be like image uploads are currently, with drag and drop over the section & manual file selection options. These should be implemented everywhere image uploads are allowed. Acccept all standard file types, as well as scientific types like .kdf design files, gwiddeon afm files, etc. Make adding new acceptable file types easy to do (in case it is necessary for developers in the future.)
-- [ ] add recurring maintenance tasks to equipment, which open a maintenance issue after a given wait, and begin the wait again after that issue is resolved
+- [x] Add file uploads with optional name & description. The UI should be like image uploads are currently, with drag and drop over the section & manual file selection options. These should be implemented everywhere image uploads are allowed. Acccept all standard file types, as well as scientific types like .kdf design files, gwiddeon afm files, etc. Make adding new acceptable file types easy to do (in case it is necessary for developers in the future.)
+- [x] Add issue timeline
+- [x] add recurring maintenance tasks to equipment, which open a predefined maintenance issue after a given wait, and begin the wait again after that issue is resolved. They should be editable and deletable
+- [ ] Invigilator, access to lab objects but not projects
 
-- [ ] allow to share equipment with users or with labs. They may create issues and view the equipment & its issues, but that is all.
-- [ ] ability to pin image
+- [ ] alldow to share equipment with users or with labs. They may create issues and view the equipment & its issues, but that is all.
+- [ ] Allow users to make issues open to public suggestions, or publically visible, both resolved and unresolved. Add forum pages.
 - [ ] add multiple y values and legend for line plot
 - [ ] Automations -- emails, slack notifications, api calls to other databases; simple / template configurable
 - [ ] notifications for users (essentially preset automations) which can be enables in email or slack for any of: scan status change, queue status change, issue assignment, assigned issue status change, assigned equipment status change, site-wide issue status change, new creation of new issues).
@@ -99,8 +101,8 @@ Items:
 - [ ] add settings change object to scans
 
 - [ ] separate axis names and units, these should be added to the downloadable csv file in the form name (units). Fix automatic visualization titles & axes appropriately.
-- [ ] add description field to images
-- [ ] add ability to upload other files (.kdf, gwiddeon, pdf, json, etc.) with name & description
+- [] add description field to images
+- [x] add ability to upload other files (.kdf, gwiddeon, pdf, json, etc.) with name & description
 - [ ] add a team to the member heirarchy
 - [ ] allow sharing between labs, when accepted will add the other lab as a link to the object, and give permissions to related objects (scans, samples)
 - [ ] add analyses, json import for now. includes cisualization functionality from scan data, can save images to scan. add rest api for future automations here
@@ -114,7 +116,7 @@ Items:
 - [ ] Add images to labs (so i can add the cute group photo)
 - [ ] Troubleshooting (draft name) page for fabrication runs. Able to plot statistics by parameter, histograms or lineplots if numerical. statistics by user (instances of the error, in sorted error). statistics by substrate & sample material, by precursor id, plots by time of day and by time in general. plots by weather
 
-- [ ] Site-wide filters need to be edited -- the button is visible longer than the Ui bar that it opens (frustrating)
+- [x] Site-wide filters need to be edited -- the button is visible longer than the Ui bar that it opens (frustrating)
 - [ ] allow users to choose a lab in their profile, filters everything. allow labs to turn on/off database items they don't use -- wont show up in navlinks or index when that lab is selected for viewing in the user profile. allow labs to configure a custom color theme (three or four primary colors) that will be used when that lab is selected for viewing.
 - [ ] publications -- link to scans, samples, lab, users, etc. Allows users to censor appropriately for a publically visible object that could be linked to from an actual publication (i.e. not to show description/notes on samples).
 - [ ] User statistics (labs created, samples created, etc. issues closed, publcations featured in, images added, and some other cool ones (pages visited? idk))

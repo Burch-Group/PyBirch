@@ -1398,13 +1398,33 @@ def equipment_detail(equipment_id):
     if not item:
         flash('Equipment not found', 'error')
         return redirect(url_for('main.equipment'))
-    return render_template('equipment_detail.html', equipment=item)
+    
+    # Check and trigger any due maintenance tasks
+    db.check_and_trigger_maintenance_tasks()
+    
+    # Get maintenance tasks for this equipment
+    maintenance_tasks = db.get_maintenance_tasks(equipment_id)
+    
+    # Get child instruments (instruments that belong to this equipment)
+    child_instruments, _ = db.get_instruments_list(equipment_id=equipment_id, per_page=100)
+    
+    # Get recent issues for this equipment
+    recent_issues, _ = db.get_equipment_issues(equipment_id=equipment_id, per_page=5)
+    
+    return render_template('equipment_detail.html', 
+        equipment=item,
+        maintenance_tasks=maintenance_tasks,
+        child_instruments=child_instruments,
+        recent_issues=recent_issues
+    )
 
 
 @main_bp.route('/equipment/new', methods=['GET', 'POST'])
 def equipment_new():
     """Create new equipment page."""
     db = get_db_service()
+    
+    return_url = request.args.get('return_url') or request.referrer
     
     # Check if a template_id was provided (e.g., from QR code scan)
     template_id = request.args.get('template_id', type=int)
@@ -1430,9 +1450,12 @@ def equipment_new():
         lab_id = request.form.get('lab_id')
         db_location_id = request.form.get('db_location_id')
         location_notes = request.form.get('location_notes')
+        owner_id = request.form.get('owner_id')
+        maintenance_interval = request.form.get('maintenance_interval_days')
         
         data = {
             'name': request.form.get('name'),
+            'description': request.form.get('description'),
             'equipment_type': request.form.get('equipment_type'),
             'pybirch_class': request.form.get('pybirch_class'),
             'manufacturer': request.form.get('manufacturer'),
@@ -1440,6 +1463,13 @@ def equipment_new():
             'serial_number': request.form.get('serial_number'),
             'status': request.form.get('status', 'available'),
             'lab_id': int(lab_id) if lab_id else None,
+            'owner_id': int(owner_id) if owner_id else None,
+            'purchase_date': request.form.get('purchase_date') or None,
+            'warranty_expiration': request.form.get('warranty_expiration') or None,
+            'last_maintenance_date': request.form.get('last_maintenance_date') or None,
+            'next_maintenance_date': request.form.get('next_maintenance_date') or None,
+            'maintenance_interval_days': int(maintenance_interval) if maintenance_interval else None,
+            'documentation_url': request.form.get('documentation_url') or None,
         }
         try:
             item = db.create_equipment(data)
@@ -1474,7 +1504,7 @@ def equipment_new():
         user_prefs = db.get_user_preferences(g.current_user['id'])
         default_lab_id = user_prefs.get('default_lab_id')
     
-    return render_template('equipment_form.html', equipment=prefilled, action='Create', template=template, labs=labs, locations=locations, users=users, default_lab_id=default_lab_id)
+    return render_template('equipment_form.html', equipment=prefilled, action='Create', template=template, labs=labs, locations=locations, users=users, default_lab_id=default_lab_id, return_url=return_url)
 
 
 @main_bp.route('/equipment/<int:equipment_id>/edit', methods=['GET', 'POST'])
@@ -1487,13 +1517,18 @@ def equipment_edit(equipment_id):
         flash('Equipment not found', 'error')
         return redirect(url_for('main.equipment'))
     
+    return_url = request.args.get('return_url') or request.referrer
+    
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
         db_location_id = request.form.get('db_location_id')
         location_notes = request.form.get('location_notes')
+        owner_id = request.form.get('owner_id')
+        maintenance_interval = request.form.get('maintenance_interval_days')
         
         data = {
             'name': request.form.get('name'),
+            'description': request.form.get('description'),
             'equipment_type': request.form.get('equipment_type'),
             'pybirch_class': request.form.get('pybirch_class'),
             'manufacturer': request.form.get('manufacturer'),
@@ -1501,6 +1536,13 @@ def equipment_edit(equipment_id):
             'serial_number': request.form.get('serial_number'),
             'status': request.form.get('status', 'available'),
             'lab_id': int(lab_id) if lab_id else None,
+            'owner_id': int(owner_id) if owner_id else None,
+            'purchase_date': request.form.get('purchase_date') or None,
+            'warranty_expiration': request.form.get('warranty_expiration') or None,
+            'last_maintenance_date': request.form.get('last_maintenance_date') or None,
+            'next_maintenance_date': request.form.get('next_maintenance_date') or None,
+            'maintenance_interval_days': int(maintenance_interval) if maintenance_interval else None,
+            'documentation_url': request.form.get('documentation_url') or None,
         }
         try:
             updated = db.update_equipment(equipment_id, data)
@@ -1538,7 +1580,7 @@ def equipment_edit(equipment_id):
         equipment['current_location_id'] = current_location['location_id']
         equipment['current_location_notes'] = current_location.get('notes', '')
     
-    return render_template('equipment_form.html', equipment=equipment, action='Edit', labs=labs, locations=locations, users=users)
+    return render_template('equipment_form.html', equipment=equipment, action='Edit', labs=labs, locations=locations, users=users, return_url=return_url)
 
 
 @main_bp.route('/equipment/<int:equipment_id>/duplicate', methods=['GET', 'POST'])
@@ -1976,6 +2018,162 @@ def all_equipment_issues():
         priority=priority,
         category=category,
     )
+
+
+# -------------------- Maintenance Tasks --------------------
+
+@main_bp.route('/equipment/<int:equipment_id>/maintenance')
+def equipment_maintenance_tasks(equipment_id):
+    """List maintenance tasks for equipment."""
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    # Check and trigger any due maintenance tasks
+    db.check_and_trigger_maintenance_tasks()
+    
+    tasks = db.get_maintenance_tasks(equipment_id)
+    users, _ = db.get_users()
+    
+    return render_template('equipment_maintenance_tasks.html',
+        equipment=equipment,
+        tasks=tasks,
+        users=users,
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/maintenance/new', methods=['GET', 'POST'])
+@login_required
+def equipment_maintenance_task_new(equipment_id):
+    """Create a new maintenance task."""
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    if request.method == 'POST':
+        data = {
+            'equipment_id': equipment_id,
+            'name': request.form.get('name'),
+            'description': request.form.get('description'),
+            'interval_days': int(request.form.get('interval_days', 30)),
+            'issue_title': request.form.get('issue_title') or request.form.get('name'),
+            'issue_description': request.form.get('issue_description'),
+            'issue_category': request.form.get('issue_category', 'maintenance'),
+            'issue_priority': request.form.get('issue_priority', 'medium'),
+            'default_assignee_id': request.form.get('default_assignee_id') or None,
+            'is_active': request.form.get('is_active') == 'on',
+            'created_by_id': g.current_user.get('id') if g.current_user else None,
+        }
+        
+        if data['default_assignee_id']:
+            data['default_assignee_id'] = int(data['default_assignee_id'])
+        
+        try:
+            db.create_maintenance_task(data)
+            flash('Maintenance task created', 'success')
+            return redirect(url_for('main.equipment_maintenance_tasks', equipment_id=equipment_id))
+        except Exception as e:
+            flash(f'Error creating task: {str(e)}', 'error')
+    
+    users, _ = db.get_users()
+    return render_template('equipment_maintenance_task_form.html',
+        equipment=equipment,
+        task=None,
+        users=users,
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/maintenance/<int:task_id>/edit', methods=['GET', 'POST'])
+@login_required
+def equipment_maintenance_task_edit(equipment_id, task_id):
+    """Edit a maintenance task."""
+    db = get_db_service()
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    task = db.get_maintenance_task(task_id)
+    if not task:
+        flash('Maintenance task not found', 'error')
+        return redirect(url_for('main.equipment_maintenance_tasks', equipment_id=equipment_id))
+    
+    if request.method == 'POST':
+        data = {
+            'name': request.form.get('name'),
+            'description': request.form.get('description'),
+            'interval_days': int(request.form.get('interval_days', 30)),
+            'issue_title': request.form.get('issue_title'),
+            'issue_description': request.form.get('issue_description'),
+            'issue_category': request.form.get('issue_category', 'maintenance'),
+            'issue_priority': request.form.get('issue_priority', 'medium'),
+            'default_assignee_id': request.form.get('default_assignee_id') or None,
+            'is_active': request.form.get('is_active') == 'on',
+        }
+        
+        if data['default_assignee_id']:
+            data['default_assignee_id'] = int(data['default_assignee_id'])
+        
+        try:
+            db.update_maintenance_task(task_id, data)
+            flash('Maintenance task updated', 'success')
+            return redirect(url_for('main.equipment_maintenance_tasks', equipment_id=equipment_id))
+        except Exception as e:
+            flash(f'Error updating task: {str(e)}', 'error')
+    
+    users, _ = db.get_users()
+    return render_template('equipment_maintenance_task_form.html',
+        equipment=equipment,
+        task=task,
+        users=users,
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/maintenance/<int:task_id>/delete', methods=['POST'])
+@login_required
+def equipment_maintenance_task_delete(equipment_id, task_id):
+    """Delete a maintenance task."""
+    db = get_db_service()
+    
+    try:
+        db.delete_maintenance_task(task_id)
+        flash('Maintenance task deleted', 'success')
+    except Exception as e:
+        flash(f'Error deleting task: {str(e)}', 'error')
+    
+    return redirect(url_for('main.equipment_maintenance_tasks', equipment_id=equipment_id))
+
+
+@main_bp.route('/equipment/<int:equipment_id>/maintenance/<int:task_id>/trigger', methods=['POST'])
+@login_required
+def equipment_maintenance_task_trigger(equipment_id, task_id):
+    """Manually trigger a maintenance task to create its issue now."""
+    db = get_db_service()
+    
+    task = db.get_maintenance_task(task_id)
+    if not task:
+        flash('Maintenance task not found', 'error')
+        return redirect(url_for('main.equipment_maintenance_tasks', equipment_id=equipment_id))
+    
+    if task['current_issue_id']:
+        flash('This task already has an open issue', 'warning')
+        return redirect(url_for('main.equipment_maintenance_tasks', equipment_id=equipment_id))
+    
+    # Force the next_due_date to today to trigger it
+    from datetime import date
+    db.update_maintenance_task(task_id, {'next_due_date': date.today()})
+    created = db.check_and_trigger_maintenance_tasks()
+    
+    if created:
+        flash('Maintenance issue created', 'success')
+    else:
+        flash('Could not create maintenance issue', 'error')
+    
+    return redirect(url_for('main.equipment_maintenance_tasks', equipment_id=equipment_id))
 
 
 # -------------------- Locations --------------------
@@ -6064,6 +6262,10 @@ def instrument_new():
     """Create new instrument page."""
     db = get_db_service()
     
+    # Get equipment_id from query params for pre-selection
+    pre_equipment_id = request.args.get('equipment_id', type=int)
+    return_url = request.args.get('return_url') or request.referrer
+    
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
         lab_id = int(lab_id) if lab_id else None
@@ -6107,6 +6309,8 @@ def instrument_new():
         drivers=drivers,
         equipment_list=equipment_list,
         default_lab_id=default_lab_id,
+        pre_equipment_id=pre_equipment_id,
+        return_url=return_url,
     )
 
 
@@ -6120,6 +6324,8 @@ def instrument_edit(instrument_id):
     if not instrument:
         flash('Instrument not found', 'error')
         return redirect(url_for('main.instruments'))
+    
+    return_url = request.args.get('return_url') or request.referrer
     
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
@@ -6159,6 +6365,7 @@ def instrument_edit(instrument_id):
         drivers=drivers,
         equipment_list=equipment_list,
         default_lab_id=None,
+        return_url=return_url,
     )
 
 

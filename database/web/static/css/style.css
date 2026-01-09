@@ -375,12 +375,6 @@ code {
     background-color: var(--color-bg-tertiary);
 }
 
-.filter-toggle-btn.hidden {
-    opacity: 0;
-    transform: translateY(-10px);
-    pointer-events: none;
-}
-
 .filter-toggle-btn.filter-open {
     opacity: 0;
     pointer-events: none;
