@@ -273,6 +273,12 @@
                 <img src="{{ url_for('static', filename='images/issues.svg') }}" class="nav-icon" alt="">
                 <span>Issues</span>
             </a>
+            {% if current_user %}
+            <a href="{{ url_for('main.trash') }}" class="nav-drawer-link {% if request.endpoint == 'main.trash' %}active{% endif %}">
+                <span class="nav-icon nav-icon-emoji">🗑️</span>
+                <span>Trash</span>
+            </a>
+            {% endif %}
             {% if current_user and current_user.role == 'admin' %}
             <a href="{{ url_for('main.permissions') }}" class="nav-drawer-link nav-drawer-link-admin {% if request.endpoint and 'permission' in request.endpoint %}active{% endif %}">
                 <img src="{{ url_for('static', filename='images/permissions.svg') }}" class="nav-icon" alt="">

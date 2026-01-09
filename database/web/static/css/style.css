@@ -215,6 +215,16 @@ code {
     filter: brightness(0) invert(1);
 }
 
+.nav-icon-emoji {
+    font-size: 1.25rem;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    filter: none !important;
+}
+
 .nav-drawer-link-admin {
     border-top: 1px solid var(--color-border);
     margin-top: 0.5rem;

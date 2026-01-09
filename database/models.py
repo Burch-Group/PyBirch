@@ -23,11 +23,50 @@ class Base(DeclarativeBase):
     pass
 
 
+class TrashableMixin:
+    """
+    Mixin for soft-delete (trash) functionality.
+    
+    When trashed_at is set, the item is considered "in trash" and should be:
+    - Hidden from normal queries (unless show_trashed filter is enabled)
+    - Permanently deleted after 30 days
+    
+    For labs/projects, trashing cascades to all referenced objects.
+    For queues, trashing propagates to scans.
+    For locations, trashing propagates to child locations.
+    """
+    trashed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None, index=True)
+    trashed_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    @property
+    def is_trashed(self) -> bool:
+        """Check if this item is in the trash."""
+        return self.trashed_at is not None
+    
+    @property
+    def days_until_permanent_deletion(self) -> Optional[int]:
+        """Days remaining before permanent deletion (30 day retention)."""
+        if not self.trashed_at:
+            return None
+        from datetime import timedelta
+        deletion_date = self.trashed_at + timedelta(days=30)
+        remaining = (deletion_date - datetime.utcnow()).days
+        return max(0, remaining)
+    
+    @property
+    def scheduled_deletion_date(self) -> Optional[datetime]:
+        """The date when this item will be permanently deleted."""
+        if not self.trashed_at:
+            return None
+        from datetime import timedelta
+        return self.trashed_at + timedelta(days=30)
+
+
 # ============================================================
 # TEMPLATES - Generic template system for any entity type
 # ============================================================
 
-class Template(Base):
+class Template(TrashableMixin, Base):
     """
     Generic template for any entity type.
     Allows users to create presets for samples, procedures, equipment, etc.
@@ -65,10 +104,13 @@ class Template(Base):
 # LABS & PROJECTS - Organizational structure
 # ============================================================
 
-class Lab(Base):
+class Lab(TrashableMixin, Base):
     """
     Research laboratory with members, equipment, and projects.
     Provides organizational hierarchy for managing research groups.
+    
+    WARNING: Trashing a lab will cascade to all related objects (projects,
+    samples, equipment, etc.) after the 30-day retention period.
     """
     __tablename__ = "labs"
     
@@ -143,10 +185,13 @@ class LabMember(Base):
         return f"<LabMember(id={self.id}, name='{self.name}', role='{self.role}')>"
 
 
-class Project(Base):
+class Project(TrashableMixin, Base):
     """
     Research project within a lab.
     Groups related samples, scans, and procedures together.
+    
+    WARNING: Trashing a project will cascade to all related objects
+    (samples, scans, queues, etc.) after the 30-day retention period.
     """
     __tablename__ = "projects"
     
@@ -327,7 +372,7 @@ class UserPin(Base):
 # ISSUE TRACKING
 # ============================================================
 
-class Issue(Base):
+class Issue(TrashableMixin, Base):
     """
     Issue reports for tracking bugs, feature requests, and problems.
     """
@@ -369,7 +414,7 @@ class Issue(Base):
 # INSTRUMENTS (formerly Equipment) - PyBirch-compatible devices
 # ============================================================
 
-class Instrument(Base):
+class Instrument(TrashableMixin, Base):
     """
     Laboratory instruments that interface with PyBirch.
     Maps to PyBirch's Movement and Measurement instruments.
@@ -438,7 +483,7 @@ class InstrumentStatus(Base):
 # DRIVERS - Stored instrument code
 # ============================================================
 
-class Driver(Base):
+class Driver(TrashableMixin, Base):
     """
     Stores executable Python code for PyBirch instruments.
     This is the driver code - reusable across multiple physical instruments.
@@ -538,7 +583,7 @@ class DriverVersion(Base):
         return f"<DriverVersion(id={self.id}, driver_id={self.driver_id}, version={self.version})>"
 
 
-class DriverIssue(Base):
+class DriverIssue(TrashableMixin, Base):
     """
     Issue tracking for driver problems, bugs, feature requests, etc.
     Helps track issues with specific instrument code/drivers.
@@ -582,7 +627,7 @@ class DriverIssue(Base):
         return f"<DriverIssue(id={self.id}, driver_id={self.driver_id}, title='{self.title}')>"
 
 
-class Computer(Base):
+class Computer(TrashableMixin, Base):
     """
     Represents a physical computer that can have instruments bound to it.
     Stores computer identification info and a user-friendly nickname.
@@ -665,7 +710,7 @@ class ComputerBinding(Base):
 # EQUIPMENT - Large lab equipment (gloveboxes, chambers, etc.)
 # ============================================================
 
-class Equipment(Base):
+class Equipment(TrashableMixin, Base):
     """
     Large laboratory equipment like gloveboxes, deposition chambers, photolithography machines.
     These are not PyBirch-controlled instruments but contain or support instruments.
@@ -736,7 +781,7 @@ class EquipmentImage(Base):
     )
 
 
-class EquipmentIssue(Base):
+class EquipmentIssue(TrashableMixin, Base):
     """
     Issue tracking for equipment problems, maintenance requests, etc.
     """
@@ -780,7 +825,7 @@ class EquipmentIssue(Base):
 # PRECURSORS & MATERIALS
 # ============================================================
 
-class Precursor(Base):
+class Precursor(TrashableMixin, Base):
     """
     Chemical precursors and materials used in sample fabrication.
     """
@@ -850,7 +895,7 @@ class PrecursorInventory(Base):
 # PROCEDURES
 # ============================================================
 
-class Procedure(Base):
+class Procedure(TrashableMixin, Base):
     """
     Fabrication procedures for sample preparation.
     """
@@ -935,7 +980,7 @@ class ProcedurePrecursor(Base):
 # SAMPLES
 # ============================================================
 
-class Sample(Base):
+class Sample(TrashableMixin, Base):
     """
     Physical samples on which scans are run.
     Extends the PyBirch Sample class concept with full database support.
@@ -1030,7 +1075,7 @@ class SamplePrecursor(Base):
 # SAMPLE FABRICATION HISTORY
 # ============================================================
 
-class FabricationRun(Base):
+class FabricationRun(TrashableMixin, Base):
     """Records of procedure executions for sample fabrication."""
     __tablename__ = "fabrication_runs"
     
@@ -1110,7 +1155,7 @@ class FabricationRunPrecursor(Base):
 # SCAN & QUEUE TEMPLATES
 # ============================================================
 
-class ScanTemplate(Base):
+class ScanTemplate(TrashableMixin, Base):
     """
     Templates for scan configurations.
     Stores instrument config, parameters, and measurement objects.
@@ -1146,7 +1191,7 @@ class ScanTemplate(Base):
         return f"<ScanTemplate(id={self.id}, name='{self.name}', type='{self.scan_type}')>"
 
 
-class QueueTemplate(Base):
+class QueueTemplate(TrashableMixin, Base):
     """
     Templates for queue configurations.
     Defines a sequence of scan templates to be executed.
@@ -1203,10 +1248,12 @@ class QueueTemplateItem(Base):
 # EXECUTED QUEUES & SCANS
 # ============================================================
 
-class Queue(Base):
+class Queue(TrashableMixin, Base):
     """
     Executed queue records.
     Maps to PyBirch Queue class with database persistence.
+    
+    Note: Trashing a queue will propagate to all associated scans.
     """
     __tablename__ = "queues"
     
@@ -1310,7 +1357,7 @@ class ScanLog(Base):
         return f"<ScanLog(id={self.id}, scan_id={self.scan_id}, level='{self.level}')>"
 
 
-class Scan(Base):
+class Scan(TrashableMixin, Base):
     """
     Executed scan records.
     Maps to PyBirch Scan class with database persistence.
@@ -1513,7 +1560,7 @@ class AnalysisMethod(Base):
         return f"<AnalysisMethod(id={self.id}, name='{self.name}')>"
 
 
-class Analysis(Base):
+class Analysis(TrashableMixin, Base):
     """
     Executed analysis records.
     """
@@ -1635,7 +1682,7 @@ class EntityTag(Base):
 # ATTACHMENTS & FILES
 # ============================================================
 
-class EntityImage(Base):
+class EntityImage(TrashableMixin, Base):
     """Images attached to any entity (samples, precursors, equipment, procedures)."""
     __tablename__ = "entity_images"
     
@@ -1662,7 +1709,7 @@ class EntityImage(Base):
         return f"<EntityImage(id={self.id}, entity='{self.entity_type}:{self.entity_id}', name='{self.name}')>"
 
 
-class Attachment(Base):
+class Attachment(TrashableMixin, Base):
     """File attachments for any entity."""
     __tablename__ = "attachments"
     
@@ -1689,10 +1736,12 @@ class Attachment(Base):
 # LOCATIONS - Physical locations in the lab
 # ============================================================
 
-class Location(Base):
+class Location(TrashableMixin, Base):
     """
     Physical locations in the lab (rooms, cabinets, shelves, drawers, etc.).
     Supports hierarchical organization via parent_location_id.
+    
+    Note: Trashing a location will propagate to all child locations.
     """
     __tablename__ = "locations"
     
