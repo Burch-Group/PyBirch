@@ -5357,11 +5357,15 @@ def instrument_duplicate(instrument_id):
     instrument['serial_number'] = ''  # Clear serial number for duplicate
     
     labs = db.get_labs_simple_list()
+    drivers = db.get_drivers()
+    equipment_list = db.get_equipment_simple_list() if hasattr(db, 'get_equipment_simple_list') else []
     
     return render_template('instrument_form.html',
         instrument=instrument,
         action='Duplicate',
         labs=labs,
+        drivers=drivers,
+        equipment_list=equipment_list,
         default_lab_id=None,
     )
 
@@ -5411,7 +5415,7 @@ def driver_detail(driver_id):
     instruments = db.get_instruments_by_driver(driver_id, include_bindings=True)
     
     return render_template('driver_detail.html', 
-        driver=driver, 
+        driver=driver,
         versions=versions,
         instruments=instruments,
     )

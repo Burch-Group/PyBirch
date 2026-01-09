@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import action_buttons %}
 
 {% block title %}Queues - PyBirch Database{% endblock %}
 
@@ -61,8 +62,12 @@
                     <td>{{ queue.completed_scans or 0 }} / {{ queue.total_scans or 0 }}</td>
                     <td>{{ queue.created_at[:10] if queue.created_at else '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ queue.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+                        {{ action_buttons(
+                            view_url=url_for('main.queue_detail', queue_id=queue.id),
+                            open_url=queue.pybirch_uri,
+                            entity_type='queue',
+                            entity_id=queue.id
+                        ) }}
                     </td>
                 </tr>
                 {% endfor %}
@@ -80,8 +85,12 @@
                     <td>{{ queue.completed_scans or 0 }} / {{ queue.total_scans or 0 }}</td>
                     <td>{{ queue.created_at[:10] if queue.created_at else '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.queue_detail', queue_id=queue.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ queue.pybirch_uri }}" class="btn btn-sm btn-secondary" title="Open in PyBirch">Open</a>
+                        {{ action_buttons(
+                            view_url=url_for('main.queue_detail', queue_id=queue.id),
+                            open_url=queue.pybirch_uri,
+                            entity_type='queue',
+                            entity_id=queue.id
+                        ) }}
                     </td>
                 </tr>
                 {% endfor %}

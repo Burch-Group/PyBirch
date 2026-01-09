@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import action_buttons %}
 
 {% block title %}Computers - PyBirch Database{% endblock %}
 
@@ -51,8 +52,12 @@
                     <span class="badge">{{ computer.binding_count }} instrument(s)</span>
                 </td>
                 <td>
-                    <a href="{{ url_for('main.computer_detail', computer_id=computer.id) }}" class="btn btn-sm">View</a>
-                    <a href="{{ url_for('main.computer_edit', computer_id=computer.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                    {{ action_buttons(
+                        view_url=url_for('main.computer_detail', computer_id=computer.id),
+                        edit_url=url_for('main.computer_edit', computer_id=computer.id),
+                        entity_type='computer',
+                        entity_id=computer.id
+                    ) }}
                 </td>
             </tr>
             {% endfor %}

@@ -111,6 +111,19 @@
         background: rgba(245, 158, 11, 0.1);
         color: #d97706;
     }
+    .readonly-field {
+        background: #f3f4f6;
+        color: #6b7280;
+        cursor: not-allowed;
+    }
+    .readonly-field:focus {
+        border-color: #d1d5db;
+        box-shadow: none;
+    }
+    .detected-value {
+        font-weight: 600;
+        color: #059669;
+    }
 </style>
 {% endblock %}
 
@@ -122,47 +135,69 @@
     
     <h1>{{ form_title }}</h1>
     
-    <form method="POST" action="{{ form_action }}" id="definition-form">
+    <form method="POST" action="{{ form_action }}" id="driver-form">
         <div class="form-grid">
-            <!-- Basic Info -->
-            <div class="form-section">
-                <h3>Basic Information</h3>
+            <!-- Source Code Editor - First! -->
+            <div class="form-section code-editor-section">
+                <h3>Source Code <span class="required">*</span></h3>
+                <p class="help-text" style="margin-top: 0; margin-bottom: 12px;">Paste your Python driver class below. Class name, base class, and type will be auto-detected.</p>
                 
-                {% if not definition.id %}
-                <div class="form-group">
-                    <label>Class Name <span class="required">*</span></label>
-                    <input type="text" name="name" value="{{ definition.name or '' }}" 
-                           pattern="[A-Za-z_][A-Za-z0-9_]*" required
-                           placeholder="e.g., MyLockInAmplifier">
-                    <div class="help-text">Python class name (letters, numbers, underscore, must start with letter)</div>
+                <div id="validation-status" class="validation-status pending">
+                    <span>⏳</span> Paste code to auto-detect class info
                 </div>
-                {% endif %}
+                
+                <div class="code-editor-container">
+                    <textarea name="source_code" id="source-code">{{ driver.source_code or '' }}</textarea>
+                </div>
+                
+                <div style="margin-top: 12px;">
+                    <button type="button" class="btn btn-secondary" onclick="validateCode()">Validate Syntax</button>
+                </div>
+            </div>
+            
+            <!-- Auto-detected Info (read-only) -->
+            <div class="form-section">
+                <h3>Detected from Code</h3>
+                
+                <div class="form-group">
+                    <label>Class Name</label>
+                    <input type="text" name="name" id="detected-class-name" value="{{ driver.name or '' }}" 
+                           readonly class="readonly-field"
+                           placeholder="(auto-detected from code)">
+                    <div class="help-text">Extracted from class definition</div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Base Class</label>
+                    <input type="text" name="base_class" id="detected-base-class" value="{{ driver.base_class or '' }}" 
+                           readonly class="readonly-field"
+                           placeholder="(auto-detected from code)">
+                    <div class="help-text">Parent class this driver extends</div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Instrument Type</label>
+                    <input type="text" name="instrument_type" id="detected-instrument-type" value="{{ driver.instrument_type or '' }}" 
+                           readonly class="readonly-field"
+                           placeholder="(auto-detected from base class)">
+                    <div class="help-text">Determined from base class inheritance</div>
+                </div>
+            </div>
+            
+            <!-- User-provided Info -->
+            <div class="form-section">
+                <h3>Additional Information</h3>
                 
                 <div class="form-group">
                     <label>Display Name <span class="required">*</span></label>
-                    <input type="text" name="display_name" value="{{ definition.display_name or '' }}" required
+                    <input type="text" name="display_name" id="display-name" value="{{ driver.display_name or '' }}" required
                            placeholder="e.g., My Lock-In Amplifier">
+                    <div class="help-text">Human-readable name (auto-suggested from class name)</div>
                 </div>
                 
                 <div class="form-group">
                     <label>Description</label>
-                    <textarea name="description" rows="3" placeholder="Brief description of this instrument...">{{ definition.description or '' }}</textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label>Instrument Type <span class="required">*</span></label>
-                    <select name="instrument_type" required>
-                        <option value="">Select type...</option>
-                        <option value="measurement" {% if definition.instrument_type == 'measurement' %}selected{% endif %}>Measurement</option>
-                        <option value="movement" {% if definition.instrument_type == 'movement' %}selected{% endif %}>Movement</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label>Base Class <span class="required">*</span></label>
-                    <input type="text" name="base_class" value="{{ definition.base_class or '' }}" required
-                           placeholder="e.g., Measurement or Movement">
-                    <div class="help-text">The parent class this instrument extends</div>
+                    <textarea name="description" rows="3" placeholder="Brief description of this instrument...">{{ driver.description or '' }}</textarea>
                 </div>
             </div>
             
@@ -172,66 +207,49 @@
                 
                 <div class="form-group">
                     <label>Category</label>
-                    <input type="text" name="category" value="{{ definition.category or '' }}"
+                    <input type="text" name="category" value="{{ driver.category or '' }}"
                            placeholder="e.g., Lock-In Amplifier, Spectrometer, Stage">
                 </div>
                 
                 <div class="form-group">
                     <label>Manufacturer</label>
-                    <input type="text" name="manufacturer" value="{{ definition.manufacturer or '' }}"
+                    <input type="text" name="manufacturer" value="{{ driver.manufacturer or '' }}"
                            placeholder="e.g., Stanford Research, Thorlabs">
                 </div>
                 
                 <div class="form-group">
                     <label>Dependencies</label>
-                    <textarea name="dependencies" rows="2" placeholder="Comma-separated list of required packages">{{ definition.dependencies or '' }}</textarea>
+                    <textarea name="dependencies" rows="2" placeholder="Comma-separated list of required packages">{{ driver.dependencies or '' }}</textarea>
                     <div class="help-text">e.g., pyvisa, numpy, scipy</div>
                 </div>
                 
                 <div class="form-group">
                     <label>Status</label>
                     <select name="status">
-                        <option value="operational" {% if definition.status == 'operational' or not definition.status %}selected{% endif %}>Operational</option>
-                        <option value="development" {% if definition.status == 'development' %}selected{% endif %}>Development</option>
-                        <option value="testing" {% if definition.status == 'testing' %}selected{% endif %}>Testing</option>
-                        <option value="experimental" {% if definition.status == 'experimental' %}selected{% endif %}>Experimental</option>
-                        <option value="deprecated" {% if definition.status == 'deprecated' %}selected{% endif %}>Deprecated</option>
+                        <option value="operational" {% if driver.status == 'operational' or not driver.status %}selected{% endif %}>Operational</option>
+                        <option value="development" {% if driver.status == 'development' %}selected{% endif %}>Development</option>
+                        <option value="testing" {% if driver.status == 'testing' %}selected{% endif %}>Testing</option>
+                        <option value="experimental" {% if driver.status == 'experimental' %}selected{% endif %}>Experimental</option>
+                        <option value="deprecated" {% if driver.status == 'deprecated' %}selected{% endif %}>Deprecated</option>
                     </select>
                     <div class="help-text">Current development/deployment status</div>
                 </div>
                 
                 <div class="form-group">
                     <div class="checkbox-group">
-                        <input type="checkbox" name="is_public" id="is_public" {% if definition.is_public %}checked{% endif %}>
+                        <input type="checkbox" name="is_public" id="is_public" {% if driver.is_public %}checked{% endif %}>
                         <label for="is_public">Make publicly available</label>
                     </div>
                     <div class="help-text">Allow other labs to use this driver</div>
                 </div>
                 
-                {% if definition.id %}
+                {% if driver.id %}
                 <div class="form-group">
                     <label>Change Summary</label>
                     <input type="text" name="change_summary" placeholder="Brief description of changes...">
                     <div class="help-text">This will be recorded in the version history</div>
                 </div>
                 {% endif %}
-            </div>
-            
-            <!-- Source Code Editor -->
-            <div class="form-section code-editor-section">
-                <h3>Source Code <span class="required">*</span></h3>
-                
-                <div id="validation-status" class="validation-status pending">
-                    <span>⏳</span> Click "Validate" to check syntax
-                </div>
-                
-                <div class="code-editor-container">
-                    <textarea name="source_code" id="source-code">{{ definition.source_code or '' }}</textarea>
-                </div>
-                
-                <div style="margin-top: 12px;">
-                    <button type="button" class="btn btn-secondary" onclick="validateCode()">Validate Syntax</button>
-                </div>
             </div>
         </div>
         
@@ -243,6 +261,15 @@
 </div>
 
 <script>
+    // Known base classes that map to instrument types
+    const BASE_CLASS_TYPES = {
+        'Measurement': 'measurement',
+        'Movement': 'movement',
+        'MeasurementInstrument': 'measurement',
+        'MovementInstrument': 'movement',
+        'Instrument': 'measurement',  // default
+    };
+    
     // Initialize CodeMirror
     const editor = CodeMirror.fromTextArea(document.getElementById('source-code'), {
         mode: 'python',
@@ -256,11 +283,113 @@
         autoCloseBrackets: true,
     });
     
-    // Update hidden textarea when editor changes
+    // Extract class info from Python source code
+    function extractClassInfo(code) {
+        // Match class definition: class ClassName(BaseClass):  or  class ClassName(module.BaseClass):
+        const classPattern = /^class\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*([^)]+)\s*\)\s*:/m;
+        const match = code.match(classPattern);
+        
+        if (match) {
+            const className = match[1];
+            let baseClass = match[2].trim();
+            
+            // Handle multiple inheritance - take first base
+            if (baseClass.includes(',')) {
+                baseClass = baseClass.split(',')[0].trim();
+            }
+            
+            // Handle module-qualified names like pybirch.Measurement
+            if (baseClass.includes('.')) {
+                baseClass = baseClass.split('.').pop();
+            }
+            
+            // Determine instrument type from base class
+            let instrumentType = BASE_CLASS_TYPES[baseClass] || '';
+            
+            // If not directly found, check if any known base class is a substring
+            if (!instrumentType) {
+                for (const [known, type] of Object.entries(BASE_CLASS_TYPES)) {
+                    if (baseClass.toLowerCase().includes(known.toLowerCase())) {
+                        instrumentType = type;
+                        break;
+                    }
+                }
+            }
+            
+            return { className, baseClass, instrumentType };
+        }
+        return null;
+    }
+    
+    // Convert CamelCase to human-readable
+    function camelToDisplay(str) {
+        return str
+            .replace(/([A-Z])/g, ' $1')  // Add space before capitals
+            .replace(/^./, s => s.toUpperCase())  // Capitalize first
+            .trim();
+    }
+    
+    // Update detected fields from code
+    function updateDetectedFields() {
+        const code = editor.getValue();
+        const info = extractClassInfo(code);
+        
+        const classField = document.getElementById('detected-class-name');
+        const baseField = document.getElementById('detected-base-class');
+        const typeField = document.getElementById('detected-instrument-type');
+        const displayField = document.getElementById('display-name');
+        
+        if (info) {
+            classField.value = info.className;
+            classField.classList.add('detected-value');
+            
+            baseField.value = info.baseClass;
+            baseField.classList.add('detected-value');
+            
+            typeField.value = info.instrumentType;
+            typeField.classList.add('detected-value');
+            
+            // Auto-suggest display name if empty
+            if (!displayField.value) {
+                displayField.value = camelToDisplay(info.className);
+            }
+            
+            updateValidationStatus('valid', '✓', 
+                `Detected: ${info.className} extends ${info.baseClass} (${info.instrumentType || 'unknown type'})`);
+        } else {
+            // Clear fields if no class found
+            if (!classField.dataset.original) {
+                classField.value = '';
+                classField.classList.remove('detected-value');
+            }
+            if (!baseField.dataset.original) {
+                baseField.value = '';
+                baseField.classList.remove('detected-value');
+            }
+            if (!typeField.dataset.original) {
+                typeField.value = '';
+                typeField.classList.remove('detected-value');
+            }
+            
+            if (code.trim()) {
+                updateValidationStatus('pending', '⚠️', 'No class definition found. Expected: class ClassName(BaseClass):');
+            } else {
+                updateValidationStatus('pending', '⏳', 'Paste code to auto-detect class info');
+            }
+        }
+    }
+    
+    // Debounce function to avoid too frequent updates
+    let debounceTimer;
+    function debounce(func, delay) {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(func, delay);
+    }
+    
+    // Update hidden textarea and detect class info when editor changes
     editor.on('change', function() {
         document.getElementById('source-code').value = editor.getValue();
-        // Reset validation status on change
-        updateValidationStatus('pending', '⏳', 'Click "Validate" to check syntax');
+        debounce(updateDetectedFields, 300);
     });
     
     function updateValidationStatus(status, icon, message) {
@@ -281,7 +410,7 @@
                 },
                 body: JSON.stringify({
                     source_code: code,
-                    base_class: document.querySelector('input[name="base_class"]').value
+                    base_class: document.getElementById('detected-base-class').value
                 })
             });
             
@@ -316,9 +445,24 @@
     }
     
     // Validate on form submit
-    document.getElementById('definition-form').addEventListener('submit', function(e) {
+    document.getElementById('driver-form').addEventListener('submit', function(e) {
         // Update textarea before submit
         document.getElementById('source-code').value = editor.getValue();
+        
+        // Ensure detected fields are populated
+        const className = document.getElementById('detected-class-name').value;
+        const baseClass = document.getElementById('detected-base-class').value;
+        
+        if (!className || !baseClass) {
+            e.preventDefault();
+            alert('Please paste valid Python driver code with a class definition.');
+            return false;
+        }
     });
+    
+    // Initial detection if editing existing driver
+    {% if driver.source_code %}
+    setTimeout(updateDetectedFields, 100);
+    {% endif %}
 </script>
 {% endblock %}

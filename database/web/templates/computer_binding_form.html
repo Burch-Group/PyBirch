@@ -116,9 +116,9 @@
     <div class="breadcrumb">
         {% if return_url %}
         <a href="{{ return_url }}">← Back</a>
-        {% elif definition_id %}
+        {% elif driver_id %}
         <a href="{{ url_for('main.drivers') }}">Drivers</a> / 
-        <a href="{{ url_for('main.driver_detail', definition_id=definition_id) }}">Back</a> / 
+        <a href="{{ url_for('main.driver_detail', driver_id=driver_id) }}">Back</a> / 
         {% else %}
         <a href="{{ url_for('main.instruments') }}">Instruments</a> / 
         {% endif %}
@@ -213,8 +213,8 @@
         <div class="form-actions">
             {% if return_url %}
             <a href="{{ return_url }}" class="btn btn-secondary">Cancel</a>
-            {% elif definition_id %}
-            <a href="{{ url_for('main.driver_detail', definition_id=definition_id) }}" class="btn btn-secondary">Cancel</a>
+            {% elif driver_id %}
+            <a href="{{ url_for('main.driver_detail', driver_id=driver_id) }}" class="btn btn-secondary">Cancel</a>
             {% else %}
             <a href="{{ url_for('main.instruments') }}" class="btn btn-secondary">Cancel</a>
             {% endif %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import action_buttons %}
 
 {% block title %}Locations - PyBirch Database{% endblock %}
 
@@ -81,7 +82,12 @@
                     </td>
                     <td>{{ item.object_count or 0 }}</td>
                     <td>
-                        <a href="{{ url_for('main.location_detail', location_id=item.id) }}" class="btn btn-sm">View</a>
+                        {{ action_buttons(
+                            view_url=url_for('main.location_detail', location_id=item.id),
+                            edit_url=url_for('main.location_edit', location_id=item.id),
+                            entity_type='location',
+                            entity_id=item.id
+                        ) }}
                     </td>
                 </tr>
                 {% endfor %}
@@ -112,7 +118,12 @@
                     </td>
                     <td>{{ item.object_count or 0 }}</td>
                     <td>
-                        <a href="{{ url_for('main.location_detail', location_id=item.id) }}" class="btn btn-sm">View</a>
+                        {{ action_buttons(
+                            view_url=url_for('main.location_detail', location_id=item.id),
+                            edit_url=url_for('main.location_edit', location_id=item.id),
+                            entity_type='location',
+                            entity_id=item.id
+                        ) }}
                     </td>
                 </tr>
                 {% endfor %}

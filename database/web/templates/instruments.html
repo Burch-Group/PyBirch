@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import action_buttons %}
 
 {% block title %}Instruments - PyBirch Database{% endblock %}
 
@@ -89,8 +90,12 @@
                     <td>{{ item.model or '-' }}</td>
                     <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
                     <td>
-                        <a href="{{ url_for('main.instrument_detail', instrument_id=item.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ url_for('main.instrument_edit', instrument_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                        {{ action_buttons(
+                            view_url=url_for('main.instrument_detail', instrument_id=item.id),
+                            edit_url=url_for('main.instrument_edit', instrument_id=item.id),
+                            entity_type='instrument',
+                            entity_id=item.id
+                        ) }}
                     </td>
                 </tr>
                 {% endfor %}
@@ -109,8 +114,12 @@
                     <td>{{ item.model or '-' }}</td>
                     <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
                     <td>
-                        <a href="{{ url_for('main.instrument_detail', instrument_id=item.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ url_for('main.instrument_edit', instrument_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                        {{ action_buttons(
+                            view_url=url_for('main.instrument_detail', instrument_id=item.id),
+                            edit_url=url_for('main.instrument_edit', instrument_id=item.id),
+                            entity_type='instrument',
+                            entity_id=item.id
+                        ) }}
                     </td>
                 </tr>
                 {% endfor %}

@@ -77,7 +77,7 @@
             <thead>
                 <tr>
                     <th>Instrument</th>
-                    <th>Definition</th>
+                    <th>Driver</th>
                     <th>Adapter</th>
                     <th>Type</th>
                     <th>Primary</th>
@@ -97,8 +97,8 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if binding.definition_name %}
-                        {{ binding.definition_name }}
+                        {% if binding.driver_name %}
+                        {{ binding.driver_name }}
                         {% if binding.pybirch_class %}
                         <br><code class="small">{{ binding.pybirch_class }}</code>
                         {% endif %}

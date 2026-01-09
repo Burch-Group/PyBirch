@@ -57,15 +57,15 @@
             <tbody>
                 {% for issue in issues %}
                 <tr>
-                    <td><a href="{{ url_for('main.driver_detail', definition_id=issue.definition_id) }}">{{ issue.definition_name }}</a></td>
-                    <td><a href="{{ url_for('main.driver_issue_detail', definition_id=issue.definition_id, issue_id=issue.id) }}">{{ issue.title }}</a></td>
+                    <td><a href="{{ url_for('main.driver_detail', driver_id=issue.driver_id) }}">{{ issue.driver_name }}</a></td>
+                    <td><a href="{{ url_for('main.driver_issue_detail', driver_id=issue.driver_id, issue_id=issue.id) }}">{{ issue.title }}</a></td>
                     <td>{{ issue.category }}</td>
                     <td><span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span></td>
                     <td><span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span></td>
                     <td>{{ issue.assignee_name or '-' }}</td>
                     <td>{{ issue.created_at[:10] if issue.created_at else '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.driver_issue_detail', definition_id=issue.definition_id, issue_id=issue.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.driver_issue_detail', driver_id=issue.driver_id, issue_id=issue.id) }}" class="btn btn-sm">View</a>
                     </td>
                 </tr>
                 {% endfor %}

@@ -1,28 +1,28 @@
 {% extends "base.html" %}
 
-{% block title %}{{ definition.display_name }} - Driver - PyBirch Database{% endblock %}
+{% block title %}{{ driver.display_name }} - Driver - PyBirch Database{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
 <style>
-    .definition-header {
+    .driver-header {
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
         margin-bottom: 24px;
     }
-    .definition-title {
+    .driver-title {
         margin: 0;
     }
-    .definition-class-name {
+    .driver-class-name {
         font-family: 'Courier New', monospace;
         color: #64748b;
         font-size: 0.9rem;
         margin-top: 4px;
     }
-    .definition-meta {
+    .driver-meta {
         display: flex;
         gap: 16px;
         flex-wrap: wrap;
@@ -41,7 +41,7 @@
     .meta-value {
         font-weight: 500;
     }
-    .definition-type {
+    .driver-type {
         display: inline-block;
         padding: 4px 12px;
         border-radius: 4px;
@@ -49,11 +49,11 @@
         font-weight: 500;
         text-transform: uppercase;
     }
-    .definition-type.measurement {
+    .driver-type.measurement {
         background: rgba(59, 130, 246, 0.1);
         color: #3b82f6;
     }
-    .definition-type.movement {
+    .driver-type.movement {
         background: rgba(16, 185, 129, 0.1);
         color: #10b981;
     }
@@ -225,81 +225,81 @@
         border: 1px dashed #e2e8f0;
         border-radius: 8px;
     }
-    /* Definition status badge */
-    .definition-status {
+    /* Driver status badge */
+    .driver-status {
         display: inline-block;
         padding: 4px 12px;
         border-radius: 4px;
         font-size: 0.85rem;
         font-weight: 500;
     }
-    .definition-status.operational { background: rgba(16, 185, 129, 0.1); color: #10b981; }
-    .definition-status.development { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
-    .definition-status.testing { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
-    .definition-status.deprecated { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
-    .definition-status.experimental { background: rgba(168, 85, 247, 0.1); color: #a855f7; }
+    .driver-status.operational { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+    .driver-status.development { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+    .driver-status.testing { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+    .driver-status.deprecated { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+    .driver-status.experimental { background: rgba(168, 85, 247, 0.1); color: #a855f7; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="detail-page">
     <div class="breadcrumb">
-        <a href="{{ url_for('main.drivers') }}">Drivers</a> / {{ definition.display_name }}
+        <a href="{{ url_for('main.drivers') }}">Drivers</a> / {{ driver.display_name }}
     </div>
     
-    <div class="definition-header">
+    <div class="driver-header">
         <div>
-            <h1 class="definition-title">{{ definition.display_name }}</h1>
-            <div class="definition-class-name">Class: <code>{{ definition.name }}</code></div>
+            <h1 class="driver-title">{{ driver.display_name }}</h1>
+            <div class="driver-class-name">Class: <code>{{ driver.name }}</code></div>
         </div>
         <div class="action-buttons">
-            <a href="{{ url_for('main.driver_issues', definition_id=definition.id) }}" class="btn btn-secondary">Issues</a>
-            <a href="{{ url_for('main.driver_edit', definition_id=definition.id) }}" class="btn btn-primary">Edit</a>
-            <a href="{{ url_for('main.driver_duplicate', definition_id=definition.id) }}" class="btn btn-secondary">Duplicate</a>
-            <button class="btn btn-warning" onclick="archiveItem('driver', {{ definition.id }}, '{{ definition.display_name | e }}')">📦 Archive</button>
-            <button class="btn btn-danger" onclick="moveToTrash('driver', {{ definition.id }}, '{{ definition.display_name | e }}')">🗑️ Move to Trash</button>
+            <a href="{{ url_for('main.driver_issues', driver_id=driver.id) }}" class="btn btn-secondary">Issues</a>
+            <a href="{{ url_for('main.driver_edit', driver_id=driver.id) }}" class="btn btn-primary">Edit</a>
+            <a href="{{ url_for('main.driver_duplicate', driver_id=driver.id) }}" class="btn btn-secondary">Duplicate</a>
+            <button class="btn btn-warning" onclick="archiveItem('driver', {{ driver.id }}, '{{ driver.display_name | e }}')">📦 Archive</button>
+            <button class="btn btn-danger" onclick="moveToTrash('driver', {{ driver.id }}, '{{ driver.display_name | e }}')">🗑️ Move to Trash</button>
         </div>
     </div>
     
-    <div class="definition-meta">
+    <div class="driver-meta">
         <div class="meta-item">
             <span class="meta-label">Status</span>
-            <span class="definition-status {{ definition.status or 'operational' }}">{{ definition.status or 'operational' }}</span>
+            <span class="driver-status {{ driver.status or 'operational' }}">{{ driver.status or 'operational' }}</span>
         </div>
         <div class="meta-item">
             <span class="meta-label">Type</span>
-            <span class="definition-type {{ definition.instrument_type }}">{{ definition.instrument_type }}</span>
+            <span class="driver-type {{ driver.instrument_type }}">{{ driver.instrument_type }}</span>
         </div>
         <div class="meta-item">
             <span class="meta-label">Base Class</span>
-            <span class="base-class-badge">{{ definition.base_class }}</span>
+            <span class="base-class-badge">{{ driver.base_class }}</span>
         </div>
         <div class="meta-item">
             <span class="meta-label">Version</span>
-            <span class="meta-value">v{{ definition.version }}</span>
+            <span class="meta-value">v{{ driver.version }}</span>
         </div>
-        {% if definition.category %}
+        {% if driver.category %}
         <div class="meta-item">
             <span class="meta-label">Category</span>
-            <span class="meta-value">{{ definition.category }}</span>
+            <span class="meta-value">{{ driver.category }}</span>
         </div>
         {% endif %}
-        {% if definition.manufacturer %}
+        {% if driver.manufacturer %}
         <div class="meta-item">
             <span class="meta-label">Manufacturer</span>
-            <span class="meta-value">{{ definition.manufacturer }}</span>
+            <span class="meta-value">{{ driver.manufacturer }}</span>
         </div>
         {% endif %}
         <div class="meta-item">
             <span class="meta-label">Public</span>
-            <span class="meta-value">{{ '✓ Yes' if definition.is_public else '✗ No' }}</span>
+            <span class="meta-value">{{ '✓ Yes' if driver.is_public else '✗ No' }}</span>
         </div>
     </div>
     
-    {% if definition.description %}
+    {% if driver.description %}
     <div class="description">
         <h3>Description</h3>
-        <p>{{ definition.description }}</p>
+        <p>{{ driver.description }}</p>
     </div>
     {% endif %}
     
@@ -309,7 +309,7 @@
             <button class="btn btn-sm btn-secondary" onclick="copySourceCode()">Copy Code</button>
         </div>
         <div class="source-code">
-            <pre><code class="language-python" id="source-code">{{ definition.source_code }}</code></pre>
+            <pre><code class="language-python" id="source-code">{{ driver.source_code }}</code></pre>
         </div>
     </div>
     
@@ -318,11 +318,11 @@
         <h3>Version History</h3>
         <div class="version-list">
             {% for v in versions %}
-            <div class="version-item {% if v.version == definition.version %}current{% endif %}">
+            <div class="version-item {% if v.version == driver.version %}current{% endif %}">
                 <div class="version-info">
                     <span class="version-number">
                         Version {{ v.version }}
-                        {% if v.version == definition.version %}
+                        {% if v.version == driver.version %}
                         <span class="badge">Current</span>
                         {% endif %}
                     </span>
@@ -334,7 +334,7 @@
                         {% if v.created_by %} by {{ v.created_by }}{% endif %}
                     </span>
                 </div>
-                <a href="{{ url_for('main.driver_version', definition_id=definition.id, version=v.version) }}" class="btn btn-sm">View</a>
+                <a href="{{ url_for('main.driver_version', driver_id=driver.id, version=v.version) }}" class="btn btn-sm">View</a>
             </div>
             {% endfor %}
         </div>
@@ -347,8 +347,8 @@
             <h3>Instrument Instances ({{ instruments|length if instruments else 0 }})</h3>
             {% if current_user %}
             <div class="btn-group">
-                <a href="{{ url_for('main.driver_new_instance', definition_id=definition.id) }}" class="btn btn-primary">+ Create New</a>
-                <a href="{{ url_for('main.driver_link_instrument', definition_id=definition.id) }}" class="btn btn-secondary">Link Existing</a>
+                <a href="{{ url_for('main.driver_new_instance', driver_id=driver.id) }}" class="btn btn-primary">+ Create New</a>
+                <a href="{{ url_for('main.driver_link_instrument', driver_id=driver.id) }}" class="btn btn-secondary">Link Existing</a>
             </div>
             {% endif %}
         </div>
@@ -368,10 +368,10 @@
                     <div class="action-buttons">
                         {% if current_user %}
                         <a href="{{ url_for('main.instrument_binding_new', instrument_id=inst.id) }}" class="btn btn-sm btn-secondary">+ Add Binding</a>
-                        <form method="POST" action="{{ url_for('main.driver_unlink_instrument', definition_id=definition.id, instrument_id=inst.id) }}" style="display: inline;" onsubmit="return confirm('Unlink this instrument from the driver? The instrument will not be deleted.');">
+                        <form method="POST" action="{{ url_for('main.driver_unlink_instrument', driver_id=driver.id, instrument_id=inst.id) }}" style="display: inline;" onsubmit="return confirm('Unlink this instrument from the driver? The instrument will not be deleted.');">
                             <button type="submit" class="btn btn-sm btn-outline-warning">Unlink</button>
                         </form>
-                        <form method="POST" action="{{ url_for('main.driver_delete_instance', definition_id=definition.id, instrument_id=inst.id) }}" style="display: inline;" onsubmit="return confirm('Delete this instrument instance?');">
+                        <form method="POST" action="{{ url_for('main.driver_delete_instance', driver_id=driver.id, instrument_id=inst.id) }}" style="display: inline;" onsubmit="return confirm('Delete this instrument instance?');">
                             <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                         </form>
                         {% endif %}
@@ -436,8 +436,8 @@
             <p>No instrument instances yet.</p>
             <p>Create an instance to represent a physical device using this driver, or link an existing instrument.</p>
             {% if current_user %}
-            <a href="{{ url_for('main.driver_new_instance', definition_id=definition.id) }}" class="btn btn-primary">Create New Instance</a>
-            <a href="{{ url_for('main.driver_link_instrument', definition_id=definition.id) }}" class="btn btn-secondary">Link Existing Instrument</a>
+            <a href="{{ url_for('main.driver_new_instance', driver_id=driver.id) }}" class="btn btn-primary">Create New Instance</a>
+            <a href="{{ url_for('main.driver_link_instrument', driver_id=driver.id) }}" class="btn btn-secondary">Link Existing Instrument</a>
             {% endif %}
         </div>
         {% endif %}
@@ -447,7 +447,7 @@
     <div class="danger-zone">
         <h3>Danger Zone</h3>
         <p>Deleting this driver will also delete all version history. This action cannot be undone.</p>
-        <form method="POST" action="{{ url_for('main.driver_delete', definition_id=definition.id) }}" onsubmit="return confirm('Are you sure you want to delete this driver? This cannot be undone.');">
+        <form method="POST" action="{{ url_for('main.driver_delete', driver_id=driver.id) }}" onsubmit="return confirm('Are you sure you want to delete this driver? This cannot be undone.');">
             <button type="submit" class="btn btn-danger">Delete Driver</button>
         </form>
     </div>

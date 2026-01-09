@@ -1,19 +1,19 @@
 {% extends "base.html" %}
 
-{% block title %}{{ action }} Issue - {{ definition.display_name }} - PyBirch Database{% endblock %}
+{% block title %}{{ action }} Issue - {{ driver.display_name }} - PyBirch Database{% endblock %}
 
 {% block content %}
 <div class="form-page">
     <div class="page-header">
         <div class="breadcrumb">
             <a href="{{ url_for('main.drivers') }}">Drivers</a> / 
-            <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
-            <a href="{{ url_for('main.driver_issues', definition_id=definition.id) }}">Issues</a> /
+            <a href="{{ url_for('main.driver_detail', driver_id=driver.id) }}">{{ driver.display_name }}</a> / 
+            <a href="{{ url_for('main.driver_issues', driver_id=driver.id) }}">Issues</a> /
             {{ action }}
         </div>
     </div>
     
-    <h1>{{ action }} Issue for {{ definition.display_name }}</h1>
+    <h1>{{ action }} Issue for {{ driver.display_name }}</h1>
     
     <form method="POST" class="entity-form">
         <div class="form-section">
@@ -91,9 +91,9 @@
                             v{{ version.version }} ({{ version.created_at[:10] if version.created_at else '' }})
                         </option>
                         {% endfor %}
-                        <option value="{{ definition.version }}" 
-                            {% if (issue and issue.affected_version == definition.version) or (not issue and versions|length == 0) %}selected{% endif %}>
-                            v{{ definition.version }} (current)
+                        <option value="{{ driver.version }}" 
+                            {% if (issue and issue.affected_version == driver.version) or (not issue and versions|length == 0) %}selected{% endif %}>
+                            v{{ driver.version }} (current)
                         </option>
                     </select>
                 </div>
@@ -149,9 +149,9 @@
                             v{{ version.version }}
                         </option>
                         {% endfor %}
-                        <option value="{{ definition.version }}" 
-                            {% if issue and issue.fixed_in_version == definition.version %}selected{% endif %}>
-                            v{{ definition.version }} (current)
+                        <option value="{{ driver.version }}" 
+                            {% if issue and issue.fixed_in_version == driver.version %}selected{% endif %}>
+                            v{{ driver.version }} (current)
                         </option>
                     </select>
                 </div>
@@ -160,7 +160,7 @@
         {% endif %}
         
         <div class="form-actions">
-            <a href="{{ url_for('main.driver_issues', definition_id=definition.id) }}" class="btn btn-link">Cancel</a>
+            <a href="{{ url_for('main.driver_issues', driver_id=driver.id) }}" class="btn btn-link">Cancel</a>
             <button type="submit" class="btn btn-primary">{{ action }} Issue</button>
         </div>
     </form>

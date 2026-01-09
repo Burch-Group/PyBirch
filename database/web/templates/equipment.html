@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import action_buttons %}
 
 {% block title %}Equipment - PyBirch Database{% endblock %}
 
@@ -72,8 +73,12 @@
                     <td>{{ item.location or '-' }}{% if item.room %} ({{ item.room }}){% endif %}</td>
                     <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
                     <td>
-                        <a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ url_for('main.equipment_issues', equipment_id=item.id) }}" class="btn btn-sm btn-secondary">Issues</a>
+                        {{ action_buttons(
+                            view_url=url_for('main.equipment_detail', equipment_id=item.id),
+                            issues_url=url_for('main.equipment_issues', equipment_id=item.id),
+                            entity_type='equipment',
+                            entity_id=item.id
+                        ) }}
                     </td>
                 </tr>
                 {% endfor %}
@@ -91,8 +96,12 @@
                     <td>{{ item.location or '-' }}{% if item.room %} ({{ item.room }}){% endif %}</td>
                     <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
                     <td>
-                        <a href="{{ url_for('main.equipment_detail', equipment_id=item.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ url_for('main.equipment_issues', equipment_id=item.id) }}" class="btn btn-sm btn-secondary">Issues</a>
+                        {{ action_buttons(
+                            view_url=url_for('main.equipment_detail', equipment_id=item.id),
+                            issues_url=url_for('main.equipment_issues', equipment_id=item.id),
+                            entity_type='equipment',
+                            entity_id=item.id
+                        ) }}
                     </td>
                 </tr>
                 {% endfor %}

@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 
-{% block title %}{{ issue.title }} - {{ definition.display_name }} - PyBirch Database{% endblock %}
+{% block title %}{{ issue.title }} - {{ driver.display_name }} - PyBirch Database{% endblock %}
 
 {% block content %}
 <div class="detail-page">
     <div class="page-header">
         <div class="breadcrumb">
             <a href="{{ url_for('main.drivers') }}">Drivers</a> / 
-            <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
-            <a href="{{ url_for('main.driver_issues', definition_id=definition.id) }}">Issues</a> /
+            <a href="{{ url_for('main.driver_detail', driver_id=driver.id) }}">{{ driver.display_name }}</a> / 
+            <a href="{{ url_for('main.driver_issues', driver_id=driver.id) }}">Issues</a> /
             #{{ issue.id }}
         </div>
     </div>
@@ -20,7 +20,7 @@
         </div>
         <div class="detail-actions">
             <span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span>
-            <a href="{{ url_for('main.driver_issue_edit', definition_id=definition.id, issue_id=issue.id) }}" class="btn btn-secondary">Edit</a>
+            <a href="{{ url_for('main.driver_issue_edit', driver_id=driver.id, issue_id=issue.id) }}" class="btn btn-secondary">Edit</a>
         </div>
     </div>
     
@@ -42,7 +42,7 @@
                 <dd>{{ issue.category }}</dd>
                 
                 <dt>Driver</dt>
-                <dd><a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a></dd>
+                <dd><a href="{{ url_for('main.driver_detail', driver_id=driver.id) }}">{{ driver.display_name }}</a></dd>
                 
                 <dt>Status</dt>
                 <dd><span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span></dd>

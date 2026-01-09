@@ -1,0 +1,98 @@
+{# Reusable UI component macros #}
+
+{# Action button icons - inline SVGs for icon buttons #}
+{% macro icon_view() %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/>
+  <circle cx="8" cy="8" r="2"/>
+</svg>
+{% endmacro %}
+
+{% macro icon_edit() %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M11.5 2.5l2 2-8 8H3.5v-2z"/>
+  <path d="M10 4l2 2"/>
+  <path d="M2 14h12"/>
+</svg>
+{% endmacro %}
+
+{% macro icon_open() %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 8.5v5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5H8"/>
+  <path d="M10 2h4v4"/>
+  <path d="M14 2L7 9"/>
+</svg>
+{% endmacro %}
+
+{% macro icon_archive() %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="2" y="2" width="12" height="4" rx="1"/>
+  <path d="M3 6v7a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6"/>
+  <path d="M6.5 9h3"/>
+</svg>
+{% endmacro %}
+
+{% macro icon_trash() %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M2 4h12"/>
+  <path d="M5 4V2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V4"/>
+  <path d="M12.5 4v9.5a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V4"/>
+  <path d="M6.5 7v5M9.5 7v5"/>
+</svg>
+{% endmacro %}
+
+{% macro icon_issues() %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="8" cy="8" r="6"/>
+  <path d="M8 5v3"/>
+  <circle cx="8" cy="10.5" r="0.5" fill="currentColor"/>
+</svg>
+{% endmacro %}
+
+{% macro icon_duplicate() %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="5" y="5" width="9" height="9" rx="1"/>
+  <path d="M11 5V3.5a.5.5 0 0 0-.5-.5h-8a.5.5 0 0 0-.5.5v8a.5.5 0 0 0 .5.5H5"/>
+</svg>
+{% endmacro %}
+
+{# Complete action button set for list rows #}
+{% macro action_buttons(view_url=None, edit_url=None, open_url=None, issues_url=None, duplicate_url=None, entity_type=None, entity_id=None, show_archive=true, show_trash=true) %}
+<div class="action-buttons">
+    {% if view_url %}
+    <a href="{{ view_url }}" class="btn-icon btn-icon-view" title="View">
+        {{ icon_view() }}
+    </a>
+    {% endif %}
+    {% if edit_url %}
+    <a href="{{ edit_url }}" class="btn-icon btn-icon-edit" title="Edit">
+        {{ icon_edit() }}
+    </a>
+    {% endif %}
+    {% if open_url %}
+    <a href="{{ open_url }}" class="btn-icon btn-icon-open" title="Open in PyBirch">
+        {{ icon_open() }}
+    </a>
+    {% endif %}
+    {% if issues_url %}
+    <a href="{{ issues_url }}" class="btn-icon btn-icon-issues" title="Issues">
+        {{ icon_issues() }}
+    </a>
+    {% endif %}
+    {% if duplicate_url %}
+    <a href="{{ duplicate_url }}" class="btn-icon btn-icon-duplicate" title="Duplicate">
+        {{ icon_duplicate() }}
+    </a>
+    {% endif %}
+    {% if show_archive and entity_type and entity_id %}
+    <button type="button" class="btn-icon btn-icon-archive" title="Archive" onclick="archiveItem('{{ entity_type }}', {{ entity_id }})">
+        {{ icon_archive() }}
+    </button>
+    {% endif %}
+    {% if show_trash and entity_type and entity_id %}
+    <button type="button" class="btn-icon btn-icon-trash" title="Move to Trash" onclick="trashItem('{{ entity_type }}', {{ entity_id }})">
+        {{ icon_trash() }}
+    </button>
+    {% endif %}
+</div>
+{% endmacro %}

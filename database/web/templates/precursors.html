@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import action_buttons %}
 
 {% block title %}Precursors - PyBirch Database{% endblock %}
 
@@ -56,8 +57,12 @@
                     <td>{{ (item.purity | string) + '%' if item.purity else '-' }}</td>
                     <td>{{ item.state or '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.precursor_detail', precursor_id=item.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ url_for('main.precursor_edit', precursor_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                        {{ action_buttons(
+                            view_url=url_for('main.precursor_detail', precursor_id=item.id),
+                            edit_url=url_for('main.precursor_edit', precursor_id=item.id),
+                            entity_type='precursor',
+                            entity_id=item.id
+                        ) }}
                     </td>
                 </tr>
                 {% endfor %}
@@ -76,8 +81,12 @@
                     <td>{{ (item.purity | string) + '%' if item.purity else '-' }}</td>
                     <td>{{ item.state or '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.precursor_detail', precursor_id=item.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ url_for('main.precursor_edit', precursor_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                        {{ action_buttons(
+                            view_url=url_for('main.precursor_detail', precursor_id=item.id),
+                            edit_url=url_for('main.precursor_edit', precursor_id=item.id),
+                            entity_type='precursor',
+                            entity_id=item.id
+                        ) }}
                     </td>
                 </tr>
                 {% endfor %}

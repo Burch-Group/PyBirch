@@ -58,12 +58,12 @@
             </div>
             
             <div class="form-group">
-                <label for="definition_id">Instrument Definition</label>
-                <select id="definition_id" name="definition_id" class="searchable-select">
-                    <option value="">-- No Definition --</option>
-                    {% for definition in definitions %}
-                    <option value="{{ definition.id }}" {% if instrument and instrument.definition_id == definition.id %}selected{% endif %}>
-                        {{ definition.display_name or definition.name }} ({{ definition.instrument_type }})
+                <label for="driver_id">Instrument Driver</label>
+                <select id="driver_id" name="driver_id" class="searchable-select">
+                    <option value="">-- No Driver --</option>
+                    {% for driver in drivers %}
+                    <option value="{{ driver.id }}" {% if instrument and instrument.driver_id == driver.id %}selected{% endif %}>
+                        {{ driver.display_name or driver.name }} ({{ driver.instrument_type }})
                     </option>
                     {% endfor %}
                 </select>

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Link Instrument - {{ definition.display_name }}{% endblock %}
+{% block title %}Link Instrument - {{ driver.display_name }}{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -8,14 +8,14 @@
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="{{ url_for('main.index') }}">Dashboard</a></li>
             <li class="breadcrumb-item"><a href="{{ url_for('main.drivers') }}">Drivers</a></li>
-            <li class="breadcrumb-item"><a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('main.driver_detail', driver_id=driver.id) }}">{{ driver.display_name }}</a></li>
             <li class="breadcrumb-item active">Link Instrument</li>
         </ol>
     </nav>
 
     <div class="page-header">
         <h1>Link Existing Instrument</h1>
-        <p class="text-muted">Link an existing instrument to the <strong>{{ definition.display_name }}</strong> driver.</p>
+        <p class="text-muted">Link an existing instrument to the <strong>{{ driver.display_name }}</strong> driver.</p>
     </div>
 
     {% if instruments %}
@@ -23,7 +23,7 @@
         <div class="card">
             <div class="card-header">
                 <h5>Available Instruments</h5>
-                <p class="text-muted mb-0">These instruments don't have a definition linked yet.</p>
+                <p class="text-muted mb-0">These instruments don't have a driver linked yet.</p>
             </div>
             <div class="card-body">
                 <div class="instrument-list">
@@ -51,7 +51,7 @@
             </div>
             <div class="card-footer">
                 <button type="submit" class="btn btn-primary">Link Selected Instrument</button>
-                <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}" class="btn btn-secondary">Cancel</a>
+                <a href="{{ url_for('main.driver_detail', driver_id=driver.id) }}" class="btn btn-secondary">Cancel</a>
             </div>
         </div>
     </form>
@@ -59,8 +59,8 @@
     <div class="empty-state card">
         <div class="card-body text-center">
             <p class="mb-3">No instruments available to link. All instruments already have a driver assigned.</p>
-            <a href="{{ url_for('main.driver_new_instance', definition_id=definition.id) }}" class="btn btn-primary">Create New Instance</a>
-            <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}" class="btn btn-secondary">Go Back</a>
+            <a href="{{ url_for('main.driver_new_instance', driver_id=driver.id) }}" class="btn btn-primary">Create New Instance</a>
+            <a href="{{ url_for('main.driver_detail', driver_id=driver.id) }}" class="btn btn-secondary">Go Back</a>
         </div>
     </div>
     {% endif %}

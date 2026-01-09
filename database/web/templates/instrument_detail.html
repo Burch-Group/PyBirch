@@ -143,9 +143,9 @@
                 
                 <dt>Driver</dt>
                 <dd>
-                    {% if instrument.definition_id %}
-                    <a href="{{ url_for('main.driver_detail', definition_id=instrument.definition_id) }}">
-                        {{ instrument.definition_display_name or instrument.definition_name or ('Driver #' ~ instrument.definition_id) }}
+                    {% if instrument.driver_id %}
+                    <a href="{{ url_for('main.driver_detail', driver_id=instrument.driver_id) }}">
+                        {{ instrument.driver_display_name or instrument.driver_name or ('Driver #' ~ instrument.driver_id) }}
                     </a>
                     {% else %}
                     <span class="text-muted">No driver linked</span>
