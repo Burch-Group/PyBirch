@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import action_buttons, detail_action_buttons, icon_trash %}
+{% from "macros.html" import action_buttons, detail_action_buttons, icon_trash, icon_edit %}
 
 {% block title %}{{ location.name }} - PyBirch Database{% endblock %}
 
@@ -45,16 +45,13 @@
         </a>
     </div>
     
-    {% if location.description %}
-    <div class="description-section">
-        <p>{{ location.description }}</p>
-    </div>
-    {% endif %}
-    
     <div class="detail-grid">
         <div class="detail-section">
             <h2>Location Information</h2>
             <dl class="detail-list">
+                <dt>Description</dt>
+                <dd>{{ location.description or '-' }}</dd>
+                
                 <dt>Type</dt>
                 <dd>{{ location.location_type or '-' }}</dd>
                 
@@ -164,10 +161,22 @@
                 <tr>
                     <td><span class="type-badge">Equipment</span></td>
                     <td><a href="{{ url_for('main.equipment_detail', equipment_id=obj.object_id) }}">{{ obj.name }}</a></td>
-                    <td>{{ obj.notes or '-' }}</td>
+                    <td>
+                        <span class="notes-display" data-type="equipment" data-id="{{ obj.object_id }}">{{ obj.notes or '-' }}</span>
+                        <form method="POST" action="{{ url_for('main.location_update_object_notes', location_id=location.id) }}" class="notes-edit-form" style="display: none;" data-type="equipment" data-id="{{ obj.object_id }}">
+                            <input type="hidden" name="object_type" value="equipment">
+                            <input type="hidden" name="object_id" value="{{ obj.object_id }}">
+                            <input type="text" name="notes" value="{{ obj.notes or '' }}" class="filter-input" style="width: 200px;">
+                            <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                            <button type="button" class="btn btn-sm btn-link cancel-edit">Cancel</button>
+                        </form>
+                    </td>
                     <td>{{ obj.placed_at[:10] if obj.placed_at else '-' }}{% if obj.placed_by %} by {{ obj.placed_by }}{% endif %}</td>
                     <td>
                         <div class="action-buttons">
+                            <button type="button" class="btn-icon btn-icon-edit edit-notes-btn" data-type="equipment" data-id="{{ obj.object_id }}" title="Edit notes">
+                                {{ icon_edit() }}
+                            </button>
                             <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
                                 <input type="hidden" name="object_type" value="equipment">
                                 <input type="hidden" name="object_id" value="{{ obj.object_id }}">
@@ -183,10 +192,22 @@
                 <tr>
                     <td><span class="type-badge">Instrument</span></td>
                     <td><a href="{{ url_for('main.instrument_detail', instrument_id=obj.object_id) }}">{{ obj.name }}</a></td>
-                    <td>{{ obj.notes or '-' }}</td>
+                    <td>
+                        <span class="notes-display" data-type="instrument" data-id="{{ obj.object_id }}">{{ obj.notes or '-' }}</span>
+                        <form method="POST" action="{{ url_for('main.location_update_object_notes', location_id=location.id) }}" class="notes-edit-form" style="display: none;" data-type="instrument" data-id="{{ obj.object_id }}">
+                            <input type="hidden" name="object_type" value="instrument">
+                            <input type="hidden" name="object_id" value="{{ obj.object_id }}">
+                            <input type="text" name="notes" value="{{ obj.notes or '' }}" class="filter-input" style="width: 200px;">
+                            <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                            <button type="button" class="btn btn-sm btn-link cancel-edit">Cancel</button>
+                        </form>
+                    </td>
                     <td>{{ obj.placed_at[:10] if obj.placed_at else '-' }}{% if obj.placed_by %} by {{ obj.placed_by }}{% endif %}</td>
                     <td>
                         <div class="action-buttons">
+                            <button type="button" class="btn-icon btn-icon-edit edit-notes-btn" data-type="instrument" data-id="{{ obj.object_id }}" title="Edit notes">
+                                {{ icon_edit() }}
+                            </button>
                             <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
                                 <input type="hidden" name="object_type" value="instrument">
                                 <input type="hidden" name="object_id" value="{{ obj.object_id }}">
@@ -202,10 +223,22 @@
                 <tr>
                     <td><span class="type-badge">Sample</span></td>
                     <td><a href="{{ url_for('main.sample_detail', sample_id=obj.object_id) }}">{{ obj.name }}</a></td>
-                    <td>{{ obj.notes or '-' }}</td>
+                    <td>
+                        <span class="notes-display" data-type="sample" data-id="{{ obj.object_id }}">{{ obj.notes or '-' }}</span>
+                        <form method="POST" action="{{ url_for('main.location_update_object_notes', location_id=location.id) }}" class="notes-edit-form" style="display: none;" data-type="sample" data-id="{{ obj.object_id }}">
+                            <input type="hidden" name="object_type" value="sample">
+                            <input type="hidden" name="object_id" value="{{ obj.object_id }}">
+                            <input type="text" name="notes" value="{{ obj.notes or '' }}" class="filter-input" style="width: 200px;">
+                            <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                            <button type="button" class="btn btn-sm btn-link cancel-edit">Cancel</button>
+                        </form>
+                    </td>
                     <td>{{ obj.placed_at[:10] if obj.placed_at else '-' }}{% if obj.placed_by %} by {{ obj.placed_by }}{% endif %}</td>
                     <td>
                         <div class="action-buttons">
+                            <button type="button" class="btn-icon btn-icon-edit edit-notes-btn" data-type="sample" data-id="{{ obj.object_id }}" title="Edit notes">
+                                {{ icon_edit() }}
+                            </button>
                             <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
                                 <input type="hidden" name="object_type" value="sample">
                                 <input type="hidden" name="object_id" value="{{ obj.object_id }}">
@@ -221,10 +254,22 @@
                 <tr>
                     <td><span class="type-badge">Precursor</span></td>
                     <td><a href="{{ url_for('main.precursor_detail', precursor_id=obj.object_id) }}">{{ obj.name }}</a></td>
-                    <td>{{ obj.notes or '-' }}</td>
+                    <td>
+                        <span class="notes-display" data-type="precursor" data-id="{{ obj.object_id }}">{{ obj.notes or '-' }}</span>
+                        <form method="POST" action="{{ url_for('main.location_update_object_notes', location_id=location.id) }}" class="notes-edit-form" style="display: none;" data-type="precursor" data-id="{{ obj.object_id }}">
+                            <input type="hidden" name="object_type" value="precursor">
+                            <input type="hidden" name="object_id" value="{{ obj.object_id }}">
+                            <input type="text" name="notes" value="{{ obj.notes or '' }}" class="filter-input" style="width: 200px;">
+                            <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                            <button type="button" class="btn btn-sm btn-link cancel-edit">Cancel</button>
+                        </form>
+                    </td>
                     <td>{{ obj.placed_at[:10] if obj.placed_at else '-' }}{% if obj.placed_by %} by {{ obj.placed_by }}{% endif %}</td>
                     <td>
                         <div class="action-buttons">
+                            <button type="button" class="btn-icon btn-icon-edit edit-notes-btn" data-type="precursor" data-id="{{ obj.object_id }}" title="Edit notes">
+                                {{ icon_edit() }}
+                            </button>
                             <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
                                 <input type="hidden" name="object_type" value="precursor">
                                 <input type="hidden" name="object_id" value="{{ obj.object_id }}">
@@ -240,10 +285,22 @@
                 <tr>
                     <td><span class="type-badge">Computer</span></td>
                     <td><a href="{{ url_for('main.computer_detail', computer_id=obj.object_id) }}">{{ obj.name }}</a></td>
-                    <td>{{ obj.notes or '-' }}</td>
+                    <td>
+                        <span class="notes-display" data-type="computer" data-id="{{ obj.object_id }}">{{ obj.notes or '-' }}</span>
+                        <form method="POST" action="{{ url_for('main.location_update_object_notes', location_id=location.id) }}" class="notes-edit-form" style="display: none;" data-type="computer" data-id="{{ obj.object_id }}">
+                            <input type="hidden" name="object_type" value="computer">
+                            <input type="hidden" name="object_id" value="{{ obj.object_id }}">
+                            <input type="text" name="notes" value="{{ obj.notes or '' }}" class="filter-input" style="width: 200px;">
+                            <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                            <button type="button" class="btn btn-sm btn-link cancel-edit">Cancel</button>
+                        </form>
+                    </td>
                     <td>{{ obj.placed_at[:10] if obj.placed_at else '-' }}{% if obj.placed_by %} by {{ obj.placed_by }}{% endif %}</td>
                     <td>
                         <div class="action-buttons">
+                            <button type="button" class="btn-icon btn-icon-edit edit-notes-btn" data-type="computer" data-id="{{ obj.object_id }}" title="Edit notes">
+                                {{ icon_edit() }}
+                            </button>
                             <form method="POST" action="{{ url_for('main.location_remove_object', location_id=location.id) }}" style="display: inline;">
                                 <input type="hidden" name="object_type" value="computer">
                                 <input type="hidden" name="object_id" value="{{ obj.object_id }}">
@@ -269,7 +326,7 @@
                 <div class="form-grid" style="grid-template-columns: 150px 300px 1fr auto; gap: 0.5rem; align-items: start;">
                     <div class="form-group" style="margin: 0;">
                         <label for="add-object-type" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Type</label>
-                        <select name="object_type" required class="filter-select" id="add-object-type" style="width: 100%;">
+                        <select name="object_type" required class="searchable-select" id="add-object-type" style="width: 100%;">
                             <option value="">Select Type...</option>
                             <option value="equipment">Equipment</option>
                             <option value="instrument">Instrument</option>
@@ -278,9 +335,9 @@
                             <option value="computer">Computer</option>
                         </select>
                     </div>
-                    <div class="form-group" style="margin: 0;">
+                    <div class="form-group" style="margin: 0;" id="object-select-container">
                         <label for="add-object-id" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Object</label>
-                        <select name="object_id" required class="searchable-select" id="add-object-id" style="width: 100%;">
+                        <select name="object_id" required id="add-object-id" style="width: 100%;">
                             <option value="">Select type first...</option>
                         </select>
                     </div>
@@ -303,16 +360,52 @@
         <script id="computers-data" type="application/json">{{ computers_list | tojson }}</script>
         {% endif %}
     </div>
+    
+    <!-- Images Section -->
+    {% include 'partials/image_gallery.html' %}
+    
+    <!-- Files Section -->
+    {% include 'partials/file_gallery.html' %}
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const typeSelect = document.getElementById('add-object-type');
-    const objectSelect = document.getElementById('add-object-id');
+    // Edit notes functionality
+    document.querySelectorAll('.edit-notes-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const type = this.dataset.type;
+            const id = this.dataset.id;
+            const display = document.querySelector(`.notes-display[data-type="${type}"][data-id="${id}"]`);
+            const form = document.querySelector(`.notes-edit-form[data-type="${type}"][data-id="${id}"]`);
+            if (display && form) {
+                display.style.display = 'none';
+                form.style.display = 'flex';
+                form.style.gap = '0.5rem';
+                form.style.alignItems = 'center';
+                form.querySelector('input[name="notes"]').focus();
+            }
+        });
+    });
     
-    if (!typeSelect || !objectSelect) return;
+    document.querySelectorAll('.cancel-edit').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const form = this.closest('.notes-edit-form');
+            const type = form.dataset.type;
+            const id = form.dataset.id;
+            const display = document.querySelector(`.notes-display[data-type="${type}"][data-id="${id}"]`);
+            if (display && form) {
+                form.style.display = 'none';
+                display.style.display = 'inline';
+            }
+        });
+    });
+    
+    const typeSelect = document.getElementById('add-object-type');
+    const objectSelectContainer = document.getElementById('object-select-container');
+    
+    if (!typeSelect || !objectSelectContainer) return;
     
     // Load data from hidden script tags
     function loadData(elementId) {
@@ -350,68 +443,71 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function updateObjectOptions(type) {
-        // Get the wrapper if it exists (for searchable-select)
-        const wrapper = objectSelect.closest('.searchable-select-wrapper');
-        
-        // Clear current options
-        objectSelect.innerHTML = '<option value="">Select ' + (type || 'type first') + '...</option>';
-        
-        if (!type || !objectData[type]) {
-            // If wrapper exists, update it too
-            if (wrapper) {
-                const optionsList = wrapper.querySelector('.searchable-select-options');
-                if (optionsList) {
-                    optionsList.innerHTML = '<div class="searchable-select-option" data-value="">Select type first...</div>';
-                }
-                const display = wrapper.querySelector('.searchable-select-display');
-                if (display) {
-                    display.textContent = 'Select type first...';
-                }
-            }
-            return;
+        // Remove existing wrapper if present
+        const existingWrapper = objectSelectContainer.querySelector('.searchable-select-wrapper');
+        if (existingWrapper) {
+            existingWrapper.remove();
         }
         
-        const items = objectData[type];
-        items.forEach(function(item) {
-            const option = document.createElement('option');
-            option.value = item.id;
-            option.textContent = getDisplayName(item, type);
-            objectSelect.appendChild(option);
-        });
+        // Remove any existing plain select (not inside wrapper)
+        const existingSelect = objectSelectContainer.querySelector('select#add-object-id');
+        if (existingSelect) {
+            existingSelect.remove();
+        }
         
-        // Re-render the searchable-select wrapper if initialized
-        if (wrapper) {
-            const optionsList = wrapper.querySelector('.searchable-select-options');
-            if (optionsList) {
-                optionsList.innerHTML = '';
-                // Add placeholder option
-                const placeholder = document.createElement('div');
-                placeholder.className = 'searchable-select-option';
-                placeholder.dataset.value = '';
-                placeholder.textContent = 'Select ' + type + '...';
-                optionsList.appendChild(placeholder);
-                
-                // Add all options
-                items.forEach(function(item) {
-                    const optDiv = document.createElement('div');
-                    optDiv.className = 'searchable-select-option';
-                    optDiv.dataset.value = item.id;
-                    optDiv.textContent = getDisplayName(item, type);
-                    optionsList.appendChild(optDiv);
-                });
-            }
-            const display = wrapper.querySelector('.searchable-select-display');
-            if (display) {
-                display.textContent = 'Select ' + type + '...';
-            }
+        // Create fresh select element
+        const objectSelect = document.createElement('select');
+        objectSelect.name = 'object_id';
+        objectSelect.required = true;
+        objectSelect.id = 'add-object-id';
+        objectSelect.style.width = '100%';
+        objectSelect.dataset.entityType = type || '';
+        
+        // Add placeholder option
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = type ? 'Select ' + type + '...' : 'Select type first...';
+        objectSelect.appendChild(placeholder);
+        
+        // Add options if type is selected
+        if (type && objectData[type]) {
+            objectSelect.classList.add('searchable-select');
+            const items = objectData[type];
+            items.forEach(function(item) {
+                const option = document.createElement('option');
+                option.value = item.id;
+                option.textContent = getDisplayName(item, type);
+                objectSelect.appendChild(option);
+            });
+        }
+        
+        // Append new select to container
+        objectSelectContainer.appendChild(objectSelect);
+        
+        // Initialize searchable-select if type is selected
+        if (type && objectData[type] && typeof initSearchableSelects === 'function') {
+            initSearchableSelects();
         }
     }
     
-    // Handle type selection change
-    typeSelect.addEventListener('change', function() {
-        updateObjectOptions(this.value);
-        objectSelect.value = '';
-    });
+    // Handle type selection change - use a custom event handler for searchable-select
+    function handleTypeChange(value) {
+        updateObjectOptions(value);
+    }
+    
+    // Check for searchable-select wrapper (type select gets initialized by main.js)
+    const typeWrapper = typeSelect.closest('.searchable-select-wrapper');
+    if (typeWrapper) {
+        // The type select is already a searchable-select, listen to the underlying select
+        typeSelect.addEventListener('change', function() {
+            handleTypeChange(this.value);
+        });
+    } else {
+        // Fallback for when searchable-select isn't initialized yet
+        typeSelect.addEventListener('change', function() {
+            handleTypeChange(this.value);
+        });
+    }
     
     // Initialize with empty state
     updateObjectOptions('');

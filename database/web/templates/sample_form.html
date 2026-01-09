@@ -56,7 +56,7 @@
                 
                 <div class="form-group">
                     <label for="sample_type">Sample Type</label>
-                    <select id="sample_type" name="sample_type">
+                    <select id="sample_type" name="sample_type" class="searchable-select" data-current-value="{{ sample.sample_type if sample and sample.sample_type else '' }}">
                         <option value="">Select type...</option>
                         <option value="thin_film" {% if sample and sample.sample_type == 'thin_film' %}selected{% endif %}>Thin Film</option>
                         <option value="bulk" {% if sample and sample.sample_type == 'bulk' %}selected{% endif %}>Bulk</option>
@@ -76,7 +76,7 @@
                 
                 <div class="form-group">
                     <label for="status">Status</label>
-                    <select id="status" name="status">
+                    <select id="status" name="status" class="searchable-select" data-current-value="{{ sample.status if sample and sample.status else 'active' }}">
                         <option value="active" {% if sample and sample.status == 'active' %}selected{% endif %}>Active</option>
                         <option value="consumed" {% if sample and sample.status == 'consumed' %}selected{% endif %}>Consumed</option>
                         <option value="archived" {% if sample and sample.status == 'archived' %}selected{% endif %}>Archived</option>

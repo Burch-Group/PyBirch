@@ -771,6 +771,20 @@ code {
     border-color: var(--color-error);
 }
 
+.btn-icon.btn-icon-unlink:hover,
+.btn-icon-unlink:hover {
+    color: var(--color-warning);
+    border-color: var(--color-warning);
+}
+
+.btn-icon.btn-icon-link:hover,
+.btn-icon-link:hover,
+.btn-icon.btn-icon-add:hover,
+.btn-icon-add:hover {
+    color: var(--color-success);
+    border-color: var(--color-success);
+}
+
 .action-buttons {
     display: flex;
     gap: 0.25rem;

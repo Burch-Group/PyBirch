@@ -34,7 +34,7 @@
             
             <div class="form-group">
                 <label for="instrument_type">Type</label>
-                <select id="instrument_type" name="instrument_type">
+                <select id="instrument_type" name="instrument_type" class="searchable-select" data-current-value="{{ instrument.instrument_type if instrument and instrument.instrument_type else '' }}">
                     <option value="">Select type...</option>
                     <option value="movement" {% if instrument and instrument.instrument_type == 'movement' %}selected{% endif %}>Movement</option>
                     <option value="measurement" {% if instrument and instrument.instrument_type == 'measurement' %}selected{% endif %}>Measurement</option>
@@ -110,7 +110,7 @@
             
             <div class="form-group">
                 <label for="status">Status</label>
-                <select id="status" name="status">
+                <select id="status" name="status" class="searchable-select" data-current-value="{{ instrument.status if instrument and instrument.status else 'available' }}">
                     <option value="available" {% if instrument and instrument.status == 'available' %}selected{% endif %}>Available</option>
                     <option value="in_use" {% if instrument and instrument.status == 'in_use' %}selected{% endif %}>In Use</option>
                     <option value="maintenance" {% if instrument and instrument.status == 'maintenance' %}selected{% endif %}>Maintenance</option>

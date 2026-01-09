@@ -68,7 +68,7 @@
                 
                 <div class="form-group">
                     <label for="status">Status</label>
-                    <select id="status" name="status">
+                    <select id="status" name="status" class="searchable-select" data-current-value="{{ equipment.status if equipment and equipment.status else 'operational' }}">
                         <option value="operational" {% if equipment and equipment.status == 'operational' %}selected{% endif %}>Operational</option>
                         <option value="maintenance" {% if equipment and equipment.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
                         <option value="offline" {% if equipment and equipment.status == 'offline' %}selected{% endif %}>Offline</option>

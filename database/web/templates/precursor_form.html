@@ -129,7 +129,7 @@
                 
                 <div class="form-group">
                     <label for="status">Status</label>
-                    <select id="status" name="status">
+                    <select id="status" name="status" class="searchable-select" data-current-value="{{ precursor.status if precursor and precursor.status else 'new' }}">
                         <option value="new" {% if precursor and precursor.status == 'new' %}selected{% endif %}>New</option>
                         <option value="in_use" {% if precursor and precursor.status == 'in_use' %}selected{% endif %}>In Use</option>
                         <option value="low" {% if precursor and precursor.status == 'low' %}selected{% endif %}>Low</option>

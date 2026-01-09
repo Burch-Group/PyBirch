@@ -65,7 +65,7 @@
                 
                 <div class="form-group">
                     <label for="status">Status</label>
-                    <select id="status" name="status">
+                    <select id="status" name="status" class="searchable-select" data-current-value="{{ template.status if template and template.status else 'active' }}">
                         <option value="active" {% if template and template.status == 'active' %}selected{% elif not template %}selected{% endif %}>Active</option>
                         <option value="draft" {% if template and template.status == 'draft' %}selected{% endif %}>Draft</option>
                         <option value="archived" {% if template and template.status == 'archived' %}selected{% endif %}>Archived</option>
@@ -105,7 +105,7 @@
                     </div>
                     <div class="form-group">
                         <label for="data_sample_type">Sample Type</label>
-                        <select id="data_sample_type" name="data_sample_type">
+                        <select id="data_sample_type" name="data_sample_type" class="searchable-select" data-current-value="{{ template.template_data.sample_type if template and template.template_data and template.template_data.sample_type else '' }}">
                             <option value="">Select type...</option>
                             <option value="thin_film" {% if template and template.template_data and template.template_data.sample_type == 'thin_film' %}selected{% endif %}>Thin Film</option>
                             <option value="bulk" {% if template and template.template_data and template.template_data.sample_type == 'bulk' %}selected{% endif %}>Bulk</option>
@@ -180,7 +180,7 @@
                     </div>
                     <div class="form-group">
                         <label for="data_instrument_type">Instrument Type</label>
-                        <select id="data_instrument_type" name="data_instrument_type">
+                        <select id="data_instrument_type" name="data_instrument_type" class="searchable-select" data-current-value="{{ template.template_data.instrument_type if template and template.template_data and template.template_data.instrument_type else '' }}">
                             <option value="">Select type...</option>
                             <option value="movement" {% if template and template.template_data and template.template_data.instrument_type == 'movement' %}selected{% endif %}>Movement</option>
                             <option value="measurement" {% if template and template.template_data and template.template_data.instrument_type == 'measurement' %}selected{% endif %}>Measurement</option>
@@ -267,7 +267,7 @@
                     </div>
                     <div class="form-group">
                         <label for="data_procedure_type">Procedure Type</label>
-                        <select id="data_procedure_type" name="data_procedure_type">
+                        <select id="data_procedure_type" name="data_procedure_type" class="searchable-select" data-current-value="{{ template.template_data.procedure_type if template and template.template_data and template.template_data.procedure_type else '' }}">
                             <option value="">Select type...</option>
                             <option value="deposition" {% if template and template.template_data and template.template_data.procedure_type == 'deposition' %}selected{% endif %}>Deposition</option>
                             <option value="annealing" {% if template and template.template_data and template.template_data.procedure_type == 'annealing' %}selected{% endif %}>Annealing</option>

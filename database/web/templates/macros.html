@@ -64,6 +64,30 @@
 </svg>
 {% endmacro %}
 
+{% macro icon_unlink() %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M6.5 6.5L4.75 8.25a2.12 2.12 0 0 0 3 3L9.5 9.5"/>
+  <path d="M9.5 9.5l1.75-1.75a2.12 2.12 0 0 0-3-3L6.5 6.5"/>
+  <path d="M4 12l2-2"/>
+  <path d="M10 6l2-2"/>
+</svg>
+{% endmacro %}
+
+{% macro icon_link() %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M6.5 9.5L4.75 11.25a2.12 2.12 0 0 0 3 3L9.5 12.5"/>
+  <path d="M9.5 6.5l1.75-1.75a2.12 2.12 0 0 0-3-3L6.5 3.5"/>
+  <path d="M5.5 10.5l5-5"/>
+</svg>
+{% endmacro %}
+
+{% macro icon_plus() %}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M8 3v10"/>
+  <path d="M3 8h10"/>
+</svg>
+{% endmacro %}
+
 {# Complete action button set for list rows #}
 {% macro action_buttons(view_url=None, edit_url=None, open_url=None, issues_url=None, duplicate_url=None, entity_type=None, entity_id=None, show_archive=true, show_trash=true) %}
 <div class="action-buttons">

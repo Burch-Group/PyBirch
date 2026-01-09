@@ -41,7 +41,7 @@
                 
                 <div class="form-group">
                     <label for="status">Status</label>
-                    <select id="status" name="status">
+                    <select id="status" name="status" class="searchable-select" data-current-value="{{ project.status if project and project.status else 'active' }}">
                         <option value="planning" {% if project and project.status == 'planning' %}selected{% endif %}>Planning</option>
                         <option value="active" {% if project and project.status == 'active' %}selected{% elif not project %}selected{% endif %}>Active</option>
                         <option value="paused" {% if project and project.status == 'paused' %}selected{% endif %}>Paused</option>

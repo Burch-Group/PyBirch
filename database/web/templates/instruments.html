@@ -47,8 +47,15 @@
                 <option value="maintenance" {% if status == 'maintenance' %}selected{% endif %}>Maintenance</option>
                 <option value="retired" {% if status == 'retired' %}selected{% endif %}>Retired</option>
             </select>
+            <select name="lab_id" class="filter-select" {% if filter_lab_id %}disabled title="Using site-wide lab filter"{% endif %}>
+                <option value="">All Labs</option>
+                {% for lab in labs %}
+                <option value="{{ lab.id }}" {% if lab_id == lab.id or filter_lab_id == lab.id %}selected{% endif %}>{{ lab.name }}</option>
+                {% endfor %}
+            </select>
+            {% if filter_lab_id %}<input type="hidden" name="lab_id" value="{{ filter_lab_id }}">{% endif %}
             <button type="submit" class="btn btn-secondary">Filter</button>
-            {% if search or status %}
+            {% if search or status or lab_id %}
                 <a href="{{ url_for('main.instruments') }}" class="btn btn-link">Clear</a>
             {% endif %}
         </form>

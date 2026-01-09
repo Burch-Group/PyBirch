@@ -542,7 +542,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    fileInput.addEventListener('change', handleFileSelect, false);
+    fileInput.addEventListener('change', handleFileInputChange, false);
     
     // Clipboard paste support for files
     document.addEventListener('paste', function(e) {
@@ -579,7 +579,7 @@ function handleFileDrop(e) {
     handleEntityFiles(files);
 }
 
-function handleFileSelect(e) {
+function handleFileInputChange(e) {
     const files = e.target.files;
     handleEntityFiles(files);
 }

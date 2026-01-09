@@ -48,7 +48,7 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label for="status">Status *</label>
-                        <select id="status" name="status" required onchange="toggleFailureMode()">
+                        <select id="status" name="status" class="searchable-select" required onchange="toggleFailureMode()" data-current-value="{{ run.status if run and run.status else 'pending' }}">
                             <option value="pending" {% if not run or run.status == 'pending' %}selected{% endif %}>Pending</option>
                             <option value="in_progress" {% if run and run.status == 'in_progress' %}selected{% endif %}>In Progress</option>
                             <option value="completed" {% if run and run.status == 'completed' %}selected{% endif %}>Completed</option>

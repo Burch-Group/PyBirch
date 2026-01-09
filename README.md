@@ -77,6 +77,16 @@ Items:
 - [x] Add file uploads with optional name & description. The UI should be like image uploads are currently, with drag and drop over the section & manual file selection options. These should be implemented everywhere image uploads are allowed. Acccept all standard file types, as well as scientific types like .kdf design files, gwiddeon afm files, etc. Make adding new acceptable file types easy to do (in case it is necessary for developers in the future.)
 - [x] Add issue timeline
 - [x] add recurring maintenance tasks to equipment, which open a predefined maintenance issue after a given wait, and begin the wait again after that issue is resolved. They should be editable and deletable
+add confirmation modal after loading qr code with main image (if available) name & details (optipns confirm, retry, cancel)
+- [ ] add a legend option to line & scatter visualizations. <10 datapoints it plots them & gives a legend (sorted by color (configurable) numerical or alphabetical), or as a heatbar on the side if >10 datapoints, labeled with letters or numbers. clicking on a datapoint will give the item it comes from.
+- [ ] add config or something to drivers for reference files (all in python). folder or file upload. driver file must follow a naming convention so it can be found.
+- [ ] add characterizations. connect to equipment, samples. Have type, json results, files & images
+- [ ] add analyses. take data file(s) csv. output data file csv & images. python code, with dependencies. naming convention like drivers, and autorecognition. can apply analysis to scans. can push images to scan image gallery, tells user where they came from. For data transparency
+- [ ] split into inventory & data sections. too large now
+  add featured (not starred) tag. limit of one for images
+    add permissions page to all objects. can view local lab permissions, but also options to add guests, or share between labs. At the bottom lists shared labs & shared guests for that item (editable, unless inherited), as well as if that permission is inherited from a parent and which one.
+    add option to average & plot stdv error bars on line & scatterplot if there exist multiple datapoints per position
+    think about mixing chemicals. how is that supported?
 - [ ] Invigilator, access to lab objects but not projects
 
 - [ ] alldow to share equipment with users or with labs. They may create issues and view the equipment & its issues, but that is all.
@@ -113,7 +123,7 @@ Items:
 - [x] make parameters in procedures dynamic & configurable. e.g. deposition vs. photolithography will use a completely different set of parameters.
 - [x] make equipment types dynamic & configurable within a lab (i.e. should be able to add new types, which will populate in the dropdown.)
 
-- [ ] Add images to labs (so i can add the cute group photo)
+- [x] Add images and files to labs and projects (like other database items)
 - [ ] Troubleshooting (draft name) page for fabrication runs. Able to plot statistics by parameter, histograms or lineplots if numerical. statistics by user (instances of the error, in sorted error). statistics by substrate & sample material, by precursor id, plots by time of day and by time in general. plots by weather
 
 - [x] Site-wide filters need to be edited -- the button is visible longer than the Ui bar that it opens (frustrating)

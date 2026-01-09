@@ -14,8 +14,22 @@
         <form method="GET" class="filter-form">
             <input type="text" name="search" placeholder="Search precursors..." 
                    value="{{ search }}" class="filter-input">
+            <select name="lab_id" class="filter-select" {% if filter_lab_id %}disabled title="Using site-wide lab filter"{% endif %}>
+                <option value="">All Labs</option>
+                {% for lab in labs %}
+                <option value="{{ lab.id }}" {% if lab_id == lab.id or filter_lab_id == lab.id %}selected{% endif %}>{{ lab.name }}</option>
+                {% endfor %}
+            </select>
+            {% if filter_lab_id %}<input type="hidden" name="lab_id" value="{{ filter_lab_id }}">{% endif %}
+            <select name="project_id" class="filter-select" {% if filter_project_id %}disabled title="Using site-wide project filter"{% endif %}>
+                <option value="">All Projects</option>
+                {% for project in projects %}
+                <option value="{{ project.id }}" {% if project_id == project.id or filter_project_id == project.id %}selected{% endif %}>{{ project.name }}</option>
+                {% endfor %}
+            </select>
+            {% if filter_project_id %}<input type="hidden" name="project_id" value="{{ filter_project_id }}">{% endif %}
             <button type="submit" class="btn btn-secondary">Filter</button>
-            {% if search %}
+            {% if search or lab_id or project_id %}
                 <a href="{{ url_for('main.precursors') }}" class="btn btn-link">Clear</a>
             {% endif %}
         </form>

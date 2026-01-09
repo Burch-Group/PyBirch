@@ -41,8 +41,8 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="category">Category <span class="required">*</span></label>
-                    <select id="category" name="category" required>
-                        <option value="bug" {% if issue and issue.category == 'bug' %}selected{% endif %}>🐛 Bug</option>
+                    <select id="category" name="category" class="searchable-select" required data-current-value="{{ issue.category if issue and issue.category else 'bug' }}">
+                        <option value="bug" {% if issue and issue.category == 'bug' %}selected{% endif %}>Bug</option>
                         <option value="feature" {% if issue and issue.category == 'feature' %}selected{% endif %}>Feature Request</option>
                         <option value="enhancement" {% if issue and issue.category == 'enhancement' %}selected{% endif %}>Enhancement</option>
                         <option value="question" {% if issue and issue.category == 'question' %}selected{% endif %}>Question</option>
@@ -50,7 +50,7 @@
                 </div>
                 <div class="form-group">
                     <label for="priority">Priority</label>
-                    <select id="priority" name="priority">
+                    <select id="priority" name="priority" class="searchable-select" data-current-value="{{ issue.priority if issue and issue.priority else 'medium' }}">
                         <option value="low" {% if issue and issue.priority == 'low' %}selected{% endif %}>Low</option>
                         <option value="medium" {% if (not issue) or (issue and issue.priority == 'medium') %}selected{% endif %}>Medium</option>
                         <option value="high" {% if issue and issue.priority == 'high' %}selected{% endif %}>High</option>

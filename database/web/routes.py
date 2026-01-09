@@ -243,13 +243,21 @@ def samples():
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '')
     status = request.args.get('status', '')
+    lab_id = request.args.get('lab_id', type=int)
+    project_id = request.args.get('project_id', type=int)
     
     db = get_db_service()
     samples_list, total = db.get_samples(
         search=search if search else None,
         status=status if status else None,
+        lab_id=lab_id,
+        project_id=project_id,
         page=page
     )
+    
+    # Get labs and projects for filter dropdowns
+    labs_list, _ = db.get_labs(per_page=100)
+    projects_list = db.get_projects_simple_list()
     
     total_pages = (total + 19) // 20
     
@@ -260,11 +268,15 @@ def samples():
     
     return render_template('samples.html',
         samples=samples_list,
+        labs=labs_list,
+        projects=projects_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
         status=status,
+        lab_id=lab_id,
+        project_id=project_id,
         pinned_ids=pinned_ids
     )
 
@@ -279,7 +291,10 @@ def sample_detail(sample_id):
         return redirect(url_for('main.samples'))
     images = db.get_entity_images('sample', sample_id)
     attachments = db.get_entity_attachments('sample', sample_id)
-    return render_template('sample_detail.html', sample=sample, images=images, attachments=attachments)
+    object_location = db.get_object_location('sample', sample_id)
+    locations_list = db.get_locations_simple_list()
+    return render_template('sample_detail.html', sample=sample, images=images, attachments=attachments,
+                           object_type='sample', object_id=sample_id, object_location=object_location, locations_list=locations_list)
 
 
 @main_bp.route('/samples/new', methods=['GET', 'POST'])
@@ -1063,13 +1078,21 @@ def scans():
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '')
     status = request.args.get('status', '')
+    lab_id = request.args.get('lab_id', type=int)
+    project_id = request.args.get('project_id', type=int)
     
     db = get_db_service()
     scans_list, total = db.get_scans(
         search=search if search else None,
         status=status if status else None,
+        lab_id=lab_id,
+        project_id=project_id,
         page=page
     )
+    
+    # Get labs and projects for filter dropdowns
+    labs_list, _ = db.get_labs(per_page=100)
+    projects_list = db.get_projects_simple_list()
     
     total_pages = (total + 19) // 20
     
@@ -1080,11 +1103,15 @@ def scans():
     
     return render_template('scans.html',
         scans=scans_list,
+        labs=labs_list,
+        projects=projects_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
         status=status,
+        lab_id=lab_id,
+        project_id=project_id,
         pinned_ids=pinned_ids
     )
 
@@ -1247,13 +1274,21 @@ def queues():
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '')
     status = request.args.get('status', '')
+    lab_id = request.args.get('lab_id', type=int)
+    project_id = request.args.get('project_id', type=int)
     
     db = get_db_service()
     queues_list, total = db.get_queues(
         search=search if search else None,
         status=status if status else None,
+        lab_id=lab_id,
+        project_id=project_id,
         page=page
     )
+    
+    # Get labs and projects for filter dropdowns
+    labs_list, _ = db.get_labs(per_page=100)
+    projects_list = db.get_projects_simple_list()
     
     total_pages = (total + 19) // 20
     
@@ -1264,11 +1299,15 @@ def queues():
     
     return render_template('queues.html',
         queues=queues_list,
+        labs=labs_list,
+        projects=projects_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
         status=status,
+        lab_id=lab_id,
+        project_id=project_id,
         pinned_ids=pinned_ids
     )
 
@@ -1364,13 +1403,18 @@ def equipment():
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '')
     status = request.args.get('status', '')
+    lab_id = request.args.get('lab_id', type=int)
     
     db = get_db_service()
     equipment_list, total = db.get_equipment_list(
         search=search if search else None,
         status=status if status else None,
+        lab_id=lab_id,
         page=page
     )
+    
+    # Get labs for filter dropdown
+    labs_list, _ = db.get_labs(per_page=100)
     
     total_pages = (total + 19) // 20
     
@@ -1381,11 +1425,13 @@ def equipment():
     
     return render_template('equipment.html',
         equipment=equipment_list,
+        labs=labs_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
         status=status,
+        lab_id=lab_id,
         pinned_ids=pinned_ids
     )
 
@@ -1411,12 +1457,93 @@ def equipment_detail(equipment_id):
     # Get recent issues for this equipment
     recent_issues, _ = db.get_equipment_issues(equipment_id=equipment_id, per_page=5)
     
+    # Get available instruments (not assigned to any equipment) for linking
+    available_instruments, _ = db.get_instruments_list(no_equipment=True, per_page=500)
+    
+    # Get images and attachments
+    images = db.get_entity_images('equipment', equipment_id)
+    attachments = db.get_entity_attachments('equipment', equipment_id)
+    
+    # Get location data
+    object_location = db.get_object_location('equipment', equipment_id)
+    locations_list = db.get_locations_simple_list()
+    
     return render_template('equipment_detail.html', 
         equipment=item,
         maintenance_tasks=maintenance_tasks,
         child_instruments=child_instruments,
-        recent_issues=recent_issues
+        recent_issues=recent_issues,
+        available_instruments=available_instruments,
+        images=images,
+        attachments=attachments,
+        entity_type='equipment',
+        entity_id=equipment_id,
+        object_type='equipment',
+        object_id=equipment_id,
+        object_location=object_location,
+        locations_list=locations_list
     )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/link-instrument', methods=['POST'])
+def equipment_link_instrument(equipment_id):
+    """Link an existing instrument to this equipment."""
+    db = get_db_service()
+    
+    # Verify equipment exists
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    instrument_id = request.form.get('instrument_id', type=int)
+    if not instrument_id:
+        flash('Please select an instrument to link', 'warning')
+        return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
+    
+    # Get the instrument
+    instrument = db.get_instrument(instrument_id)
+    if not instrument:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
+    
+    # Check if already linked to another equipment
+    if instrument.get('equipment_id') and instrument['equipment_id'] != equipment_id:
+        flash('This instrument is already linked to another equipment', 'warning')
+        return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
+    
+    # Update the instrument to link it to this equipment
+    db.update_instrument(instrument_id, {'equipment_id': equipment_id})
+    flash(f'Instrument "{instrument["name"]}" linked to this equipment', 'success')
+    return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
+
+
+@main_bp.route('/equipment/<int:equipment_id>/unlink-instrument/<int:instrument_id>', methods=['POST'])
+def equipment_unlink_instrument(equipment_id, instrument_id):
+    """Unlink an instrument from this equipment."""
+    db = get_db_service()
+    
+    # Verify equipment exists
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    # Get the instrument
+    instrument = db.get_instrument(instrument_id)
+    if not instrument:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
+    
+    # Check if it belongs to this equipment
+    if instrument.get('equipment_id') != equipment_id:
+        flash('This instrument is not linked to this equipment', 'warning')
+        return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
+    
+    # Update the instrument to unlink it
+    db.update_instrument(instrument_id, {'equipment_id': None})
+    flash(f'Instrument "{instrument["name"]}" unlinked from this equipment', 'success')
+    return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
 
 
 @main_bp.route('/equipment/new', methods=['GET', 'POST'])
@@ -2232,6 +2359,10 @@ def location_detail(location_id):
     precursors_list = db.get_precursors_simple_list()
     computers_list = db.get_computers_list()
     
+    # Get images and attachments
+    images = db.get_entity_images('location', location_id)
+    attachments = db.get_entity_attachments('location', location_id)
+    
     return render_template('location_detail.html', 
                           location=location, 
                           all_locations=all_locations,
@@ -2239,7 +2370,11 @@ def location_detail(location_id):
                           instruments_list=instruments_list,
                           samples_list=samples_list,
                           precursors_list=precursors_list,
-                          computers_list=computers_list)
+                          computers_list=computers_list,
+                          images=images,
+                          attachments=attachments,
+                          entity_type='location',
+                          entity_id=location_id)
 
 
 @main_bp.route('/locations/new', methods=['GET', 'POST'])
@@ -2489,6 +2624,91 @@ def location_remove_object(location_id):
     return redirect(url_for('main.location_detail', location_id=location_id))
 
 
+@main_bp.route('/locations/<int:location_id>/update-object-notes', methods=['POST'])
+@login_required
+def location_update_object_notes(location_id):
+    """Update the notes/directions for an object at a location."""
+    db = get_db_service()
+    
+    object_type = request.form.get('object_type')
+    object_id = request.form.get('object_id')
+    notes = request.form.get('notes', '').strip() or None
+    
+    if not object_type or not object_id:
+        flash('Object type and ID are required', 'error')
+        return redirect(url_for('main.location_detail', location_id=location_id))
+    
+    try:
+        db.update_object_location_notes(object_type=object_type, object_id=int(object_id), notes=notes)
+        flash('Notes updated', 'success')
+    except Exception as e:
+        flash(f'Error updating notes: {str(e)}', 'error')
+    
+    return redirect(url_for('main.location_detail', location_id=location_id))
+
+
+# -------------------- Object Location Routes (from object's perspective) --------------------
+
+@main_bp.route('/object/<object_type>/<int:object_id>/set-location', methods=['POST'])
+@login_required
+def object_set_location(object_type, object_id):
+    """Set/change the location for an object."""
+    db = get_db_service()
+    
+    location_id = request.form.get('location_id')
+    notes = request.form.get('notes')
+    
+    if not location_id:
+        flash('Location is required', 'error')
+    else:
+        try:
+            db.add_object_to_location(
+                location_id=int(location_id),
+                object_type=object_type,
+                object_id=object_id,
+                notes=notes,
+                placed_by=g.current_user.get('username') if g.current_user else None
+            )
+            flash('Location updated successfully', 'success')
+        except Exception as e:
+            flash(f'Error setting location: {str(e)}', 'error')
+    
+    # Redirect back to the object's detail page
+    redirect_map = {
+        'equipment': ('main.equipment_detail', {'equipment_id': object_id}),
+        'instrument': ('main.instrument_detail', {'instrument_id': object_id}),
+        'sample': ('main.sample_detail', {'sample_id': object_id}),
+        'precursor': ('main.precursor_detail', {'precursor_id': object_id}),
+        'computer': ('main.computer_detail', {'computer_id': object_id}),
+    }
+    endpoint, kwargs = redirect_map.get(object_type, ('main.index', {}))
+    return redirect(url_for(endpoint, **kwargs))
+
+
+@main_bp.route('/object/<object_type>/<int:object_id>/remove-location', methods=['POST'])
+@login_required
+def object_remove_location(object_type, object_id):
+    """Remove an object from its current location."""
+    db = get_db_service()
+    
+    try:
+        db.remove_object_from_location(object_type=object_type, object_id=object_id)
+        flash('Removed from location', 'success')
+    except Exception as e:
+        flash(f'Error removing from location: {str(e)}', 'error')
+    
+    # Redirect back to the object's detail page
+    redirect_map = {
+        'equipment': ('main.equipment_detail', {'equipment_id': object_id}),
+        'instrument': ('main.instrument_detail', {'instrument_id': object_id}),
+        'sample': ('main.sample_detail', {'sample_id': object_id}),
+        'precursor': ('main.precursor_detail', {'precursor_id': object_id}),
+        'computer': ('main.computer_detail', {'computer_id': object_id}),
+    }
+    endpoint, kwargs = redirect_map.get(object_type, ('main.index', {}))
+    return redirect(url_for(endpoint, **kwargs))
+
+
 # -------------------- Precursors --------------------
 
 @main_bp.route('/precursors')
@@ -2496,12 +2716,20 @@ def precursors():
     """Precursors list page."""
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '')
+    lab_id = request.args.get('lab_id', type=int)
+    project_id = request.args.get('project_id', type=int)
     
     db = get_db_service()
     precursors_list, total = db.get_precursors(
         search=search if search else None,
+        lab_id=lab_id,
+        project_id=project_id,
         page=page
     )
+    
+    # Get labs and projects for filter dropdowns
+    labs_list, _ = db.get_labs(per_page=100)
+    projects_list = db.get_projects_simple_list()
     
     total_pages = (total + 19) // 20
     
@@ -2512,10 +2740,14 @@ def precursors():
     
     return render_template('precursors.html',
         precursors=precursors_list,
+        labs=labs_list,
+        projects=projects_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
+        lab_id=lab_id,
+        project_id=project_id,
         pinned_ids=pinned_ids
     )
 
@@ -2530,7 +2762,10 @@ def precursor_detail(precursor_id):
         return redirect(url_for('main.precursors'))
     images = db.get_entity_images('precursor', precursor_id)
     attachments = db.get_entity_attachments('precursor', precursor_id)
-    return render_template('precursor_detail.html', precursor=item, images=images, attachments=attachments)
+    object_location = db.get_object_location('precursor', precursor_id)
+    locations_list = db.get_locations_simple_list()
+    return render_template('precursor_detail.html', precursor=item, images=images, attachments=attachments,
+                           object_type='precursor', object_id=precursor_id, object_location=object_location, locations_list=locations_list)
 
 
 @main_bp.route('/precursors/new', methods=['GET', 'POST'])
@@ -2828,13 +3063,21 @@ def procedures():
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '')
     procedure_type = request.args.get('type', '')
+    lab_id = request.args.get('lab_id', type=int)
+    project_id = request.args.get('project_id', type=int)
     
     db = get_db_service()
     procedures_list, total = db.get_procedures(
         search=search if search else None,
         procedure_type=procedure_type if procedure_type else None,
+        lab_id=lab_id,
+        project_id=project_id,
         page=page
     )
+    
+    # Get labs and projects for filter dropdowns
+    labs_list, _ = db.get_labs(per_page=100)
+    projects_list = db.get_projects_simple_list()
     
     total_pages = (total + 19) // 20
     
@@ -2845,11 +3088,15 @@ def procedures():
     
     return render_template('procedures.html',
         procedures=procedures_list,
+        labs=labs_list,
+        projects=projects_list,
         page=page,
         total_pages=total_pages,
         total=total,
         search=search,
         procedure_type=procedure_type,
+        lab_id=lab_id,
+        project_id=project_id,
         pinned_ids=pinned_ids
     )
 
@@ -3277,7 +3524,9 @@ def lab_detail(lab_id):
     if not lab:
         flash('Lab not found', 'error')
         return redirect(url_for('main.labs'))
-    return render_template('lab_detail.html', lab=lab)
+    images = db.get_entity_images('lab', lab_id)
+    attachments = db.get_entity_attachments('lab', lab_id)
+    return render_template('lab_detail.html', lab=lab, images=images, attachments=attachments)
 
 
 @main_bp.route('/labs/new', methods=['GET', 'POST'])
@@ -3524,7 +3773,10 @@ def project_detail(project_id):
     guests = db.get_item_guests('project', project_id)
     project['guests'] = guests
     
-    return render_template('project_detail.html', project=project)
+    images = db.get_entity_images('project', project_id)
+    attachments = db.get_entity_attachments('project', project_id)
+    
+    return render_template('project_detail.html', project=project, images=images, attachments=attachments)
 
 
 @main_bp.route('/projects/new', methods=['GET', 'POST'])
@@ -6159,13 +6411,18 @@ def instruments():
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '')
     status = request.args.get('status', '')
+    lab_id = request.args.get('lab_id', type=int)
     
     db = get_db_service()
     instruments_list, total = db.get_instruments_list(
         search=search if search else None,
         status=status if status else None,
+        lab_id=lab_id,
         page=page
     )
+    
+    # Get labs for filter dropdown
+    labs_list, _ = db.get_labs(per_page=100)
     
     total_pages = (total + 19) // 20
     
@@ -6176,11 +6433,13 @@ def instruments():
     
     return render_template('instruments.html',
         instruments=instruments_list,
+        labs=labs_list,
         total=total,
         page=page,
         total_pages=total_pages,
         search=search,
         status=status,
+        lab_id=lab_id,
         pinned_ids=pinned_ids,
     )
 
@@ -6195,7 +6454,10 @@ def instrument_detail(instrument_id):
         return redirect(url_for('main.instruments'))
     images = db.get_entity_images('instrument', instrument_id)
     attachments = db.get_entity_attachments('instrument', instrument_id)
-    return render_template('instrument_detail.html', instrument=instrument, images=images, attachments=attachments)
+    object_location = db.get_object_location('instrument', instrument_id)
+    locations_list = db.get_locations_simple_list()
+    return render_template('instrument_detail.html', instrument=instrument, images=images, attachments=attachments,
+                           object_type='instrument', object_id=instrument_id, object_location=object_location, locations_list=locations_list)
 
 
 @main_bp.route('/instruments/<int:instrument_id>/qrcode/preview')
@@ -6416,7 +6678,6 @@ def instrument_duplicate(instrument_id):
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
-            'description': request.form.get('description'),
             'status': request.form.get('status', 'available'),
             'lab_id': lab_id,
         }
@@ -7435,7 +7696,11 @@ def computer_detail(computer_id):
         flash('Computer not found', 'error')
         return redirect(url_for('main.computers'))
     
-    return render_template('computer_detail.html', computer=computer)
+    object_location = db.get_object_location('computer', computer_id)
+    locations_list = db.get_locations_simple_list()
+    
+    return render_template('computer_detail.html', computer=computer,
+                           object_type='computer', object_id=computer_id, object_location=object_location, locations_list=locations_list)
 
 
 @main_bp.route('/computers/new', methods=['GET', 'POST'])

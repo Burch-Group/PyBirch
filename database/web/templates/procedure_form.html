@@ -69,7 +69,7 @@
             
             <div class="form-group">
                 <label for="procedure_type">Type</label>
-                <select id="procedure_type" name="procedure_type">
+                <select id="procedure_type" name="procedure_type" class="searchable-select" data-current-value="{{ procedure.procedure_type if procedure and procedure.procedure_type else '' }}">
                     <option value="">Select type...</option>
                     <option value="deposition" {% if procedure and procedure.procedure_type == 'deposition' %}selected{% endif %}>Deposition</option>
                     <option value="annealing" {% if procedure and procedure.procedure_type == 'annealing' %}selected{% endif %}>Annealing</option>

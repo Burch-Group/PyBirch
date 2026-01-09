@@ -151,6 +151,14 @@
         <p class="empty-message">No projects yet.</p>
         {% endif %}
     </div>
+
+<!-- Images Section -->
+{% set entity_type = 'lab' %}
+{% set entity_id = lab.id %}
+{% include 'partials/image_gallery.html' %}
+
+<!-- Files Section -->
+{% include 'partials/file_gallery.html' %}
     
     <!-- Danger Zone -->
     <div class="detail-section full-width danger-zone">

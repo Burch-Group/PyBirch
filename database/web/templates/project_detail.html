@@ -199,6 +199,14 @@
         </table>
         {% endif %}
     </div>
+
+<!-- Images Section -->
+{% set entity_type = 'project' %}
+{% set entity_id = project.id %}
+{% include 'partials/image_gallery.html' %}
+
+<!-- Files Section -->
+{% include 'partials/file_gallery.html' %}
     
     <!-- Danger Zone -->
     <div class="detail-section full-width danger-zone">

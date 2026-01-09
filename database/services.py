@@ -1562,10 +1562,15 @@ class DatabaseService:
         status: Optional[str] = None,
         lab_id: Optional[int] = None,
         equipment_id: Optional[int] = None,
+        no_equipment: bool = False,
         page: int = 1,
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
-        """Get paginated list of instruments."""
+        """Get paginated list of instruments.
+        
+        Args:
+            no_equipment: If True, only return instruments not assigned to any equipment
+        """
         from sqlalchemy.orm import joinedload
         
         with self.session_scope() as session:
@@ -1593,7 +1598,9 @@ class DatabaseService:
             if lab_id:
                 query = query.filter(Instrument.lab_id == lab_id)
             
-            if equipment_id:
+            if no_equipment:
+                query = query.filter(Instrument.equipment_id.is_(None))
+            elif equipment_id:
                 query = query.filter(Instrument.equipment_id == equipment_id)
             
             total = query.count()
@@ -2827,8 +2834,8 @@ class DatabaseService:
                     binding_dict['instrument_name'] = b.instrument.name
                     binding_dict['instrument_status'] = b.instrument.status
                     binding_dict['pybirch_class'] = b.instrument.pybirch_class
-                    if b.Instrument.driver:
-                        binding_dict['driver_name'] = b.Instrument.driver.name
+                    if b.instrument.driver:
+                        binding_dict['driver_name'] = b.instrument.driver.name
                 result['bindings'].append(binding_dict)
             
             return result
@@ -6531,7 +6538,7 @@ class DatabaseService:
         ).all()
         
         for ol in obj_locs:
-            obj_info = {'id': ol.object_id, 'notes': ol.notes, 'placed_at': ol.placed_at.isoformat() if ol.placed_at else None}
+            obj_info = {'object_id': ol.object_id, 'id': ol.id, 'notes': ol.notes, 'placed_at': ol.placed_at.isoformat() if ol.placed_at else None}
             
             if ol.object_type == 'equipment':
                 eq = session.query(Equipment).filter(Equipment.id == ol.object_id).first()
@@ -6625,6 +6632,21 @@ class DatabaseService:
             
             for e in existing:
                 e.is_current = False
+            return True
+    
+    def update_object_location_notes(self, object_type: str, object_id: int, notes: Optional[str]) -> bool:
+        """Update the notes/directions for an object's current location."""
+        with self.session_scope() as session:
+            existing = session.query(ObjectLocation).filter(
+                ObjectLocation.object_type == object_type,
+                ObjectLocation.object_id == object_id,
+                ObjectLocation.is_current == True
+            ).first()
+            
+            if not existing:
+                return False
+            
+            existing.notes = notes
             return True
     
     def get_object_location(self, object_type: str, object_id: int) -> Optional[Dict]:

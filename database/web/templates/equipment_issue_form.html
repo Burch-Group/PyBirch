@@ -34,7 +34,7 @@
                 
                 <div class="form-group">
                     <label for="category">Category</label>
-                    <select id="category" name="category">
+                    <select id="category" name="category" class="searchable-select" data-current-value="{{ issue.category if issue and issue.category else 'malfunction' }}">
                         <option value="malfunction" {% if issue and issue.category == 'malfunction' %}selected{% elif not issue %}selected{% endif %}>Malfunction</option>
                         <option value="maintenance" {% if issue and issue.category == 'maintenance' %}selected{% endif %}>Maintenance</option>
                         <option value="safety" {% if issue and issue.category == 'safety' %}selected{% endif %}>Safety</option>
@@ -45,7 +45,7 @@
                 
                 <div class="form-group">
                     <label for="priority">Priority</label>
-                    <select id="priority" name="priority">
+                    <select id="priority" name="priority" class="searchable-select" data-current-value="{{ issue.priority if issue and issue.priority else 'medium' }}">
                         <option value="low" {% if issue and issue.priority == 'low' %}selected{% endif %}>Low</option>
                         <option value="medium" {% if issue and issue.priority == 'medium' %}selected{% elif not issue %}selected{% endif %}>Medium</option>
                         <option value="high" {% if issue and issue.priority == 'high' %}selected{% endif %}>High</option>
@@ -56,7 +56,7 @@
                 {% if issue %}
                 <div class="form-group">
                     <label for="status">Status</label>
-                    <select id="status" name="status">
+                    <select id="status" name="status" class="searchable-select" data-current-value="{{ issue.status if issue and issue.status else 'open' }}">
                         <option value="open" {% if issue.status == 'open' %}selected{% endif %}>Open</option>
                         <option value="in_progress" {% if issue.status == 'in_progress' %}selected{% endif %}>In Progress</option>
                         <option value="resolved" {% if issue.status == 'resolved' %}selected{% endif %}>Resolved</option>

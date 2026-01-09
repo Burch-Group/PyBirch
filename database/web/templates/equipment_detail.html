@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import detail_action_buttons %}
+{% from "macros.html" import detail_action_buttons, icon_unlink, icon_plus %}
 
 {% block title %}{{ equipment.name }} - PyBirch Database{% endblock %}
 
@@ -106,7 +106,7 @@
     <div class="detail-section full-width">
         <div class="section-header">
             <h2>Instruments</h2>
-            <a href="{{ url_for('main.instrument_new', equipment_id=equipment.id) }}" class="btn btn-link btn-sm">Add Instrument →</a>
+            <a href="{{ url_for('main.instrument_new', equipment_id=equipment.id) }}" class="btn btn-link btn-sm">Create New →</a>
         </div>
         <p class="section-description">PyBirch-compatible instruments that are part of this equipment.</p>
         {% if child_instruments %}
@@ -117,6 +117,7 @@
                     <th>Type</th>
                     <th>PyBirch Class</th>
                     <th>Status</th>
+                    <th style="width: 80px;">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -126,6 +127,11 @@
                     <td>{{ inst.instrument_type or '-' }}</td>
                     <td><code>{{ inst.pybirch_class or '-' }}</code></td>
                     <td><span class="status-badge status-{{ inst.status }}">{{ inst.status }}</span></td>
+                    <td class="actions-cell">
+                        <form id="unlink-form-{{ inst.id }}" action="{{ url_for('main.equipment_unlink_instrument', equipment_id=equipment.id, instrument_id=inst.id) }}" method="POST" style="display: inline;">
+                            <button type="button" class="btn-icon btn-icon-unlink" title="Unlink instrument" onclick="confirmUnlinkInstrument({{ inst.id }}, '{{ inst.name | e }}')">{{ icon_unlink() }}</button>
+                        </form>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -133,6 +139,28 @@
         {% else %}
         <p class="empty-text">No instruments linked to this equipment.</p>
         {% endif %}
+        
+        <!-- Link Existing Instrument Form -->
+        <div class="link-instrument-form" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--color-border);">
+            {% if available_instruments %}
+            <form action="{{ url_for('main.equipment_link_instrument', equipment_id=equipment.id) }}" method="POST" class="inline-form">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="instrument_id" style="margin-bottom: 0.5rem;">Link Existing Instrument</label>
+                    <div style="display: flex; gap: 0.5rem; align-items: flex-start;">
+                        <select id="instrument_id" name="instrument_id" class="searchable-select" data-entity-type="instrument" style="flex: 1;">
+                            <option value="">Select an instrument...</option>
+                            {% for inst in available_instruments %}
+                            <option value="{{ inst.id }}">{{ inst.name }}{% if inst.instrument_type %} ({{ inst.instrument_type }}){% endif %}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn-icon btn-icon-add" title="Link instrument">{{ icon_plus() }}</button>
+                    </div>
+                </div>
+            </form>
+            {% else %}
+            <p class="empty-text" style="margin: 0;">All instruments are already linked to equipment. <a href="{{ url_for('main.instrument_new', equipment_id=equipment.id) }}">Create a new instrument</a> to add more.</p>
+            {% endif %}
+        </div>
     </div>
     
     <!-- Maintenance Tasks Section -->
@@ -201,47 +229,14 @@
     </div>
     {% endif %}
     
-    <!-- Images Section -->
-    <div class="detail-section full-width">
-        <h2>Images</h2>
-        {% if current_user %}
-        <div class="image-upload-section">
-            <form id="image-upload-form" enctype="multipart/form-data">
-                <input type="file" id="image-file" name="image" accept="image/*" style="display: none;">
-                <button type="button" class="btn btn-secondary" onclick="document.getElementById('image-file').click()">
-                    Upload Image
-                </button>
-            </form>
-        </div>
-        {% endif %}
-        
-        {% if images %}
-        <div class="image-gallery">
-            {% for img in images %}
-            <div class="gallery-item {% if img.is_primary %}primary{% endif %}">
-                <img src="{{ img.file_path }}" alt="{{ img.caption or equipment.name }}">
-                {% if img.caption %}
-                <p class="image-caption">{{ img.caption }}</p>
-                {% endif %}
-                {% if current_user %}
-                <div class="image-actions">
-                    {% if not img.is_primary %}
-                    <form action="{{ url_for('main.equipment_image_set_primary', equipment_id=equipment.id, image_id=img.id) }}" method="POST" style="display: inline;">
-                        <button type="submit" class="btn btn-sm" title="Set as primary">⭐</button>
-                    </form>
-                    {% endif %}
-                    <form action="{{ url_for('main.equipment_image_delete', equipment_id=equipment.id, image_id=img.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Delete this image?')">
-                        <button type="submit" class="btn btn-sm btn-danger" title="Delete">🗑️</button>
-                    </form>
-                </div>
-                {% endif %}
-            </div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <p class="empty-text">No images uploaded yet.</p>
-        {% endif %}
-    </div>
+<!-- Location Section -->
+{% include 'partials/location_section.html' %}
+
+<!-- Images Section -->
+{% include 'partials/image_gallery.html' %}
+
+<!-- Files Section -->
+{% include 'partials/file_gallery.html' %}
 </div>
 
 <style>
@@ -395,5 +390,25 @@ document.getElementById('image-file')?.addEventListener('change', function(e) {
         });
     }
 });
+
+async function confirmUnlinkInstrument(instrumentId, instrumentName) {
+    const confirmed = await PyBirchModal.confirm({
+        type: 'warning',
+        title: 'Unlink Instrument',
+        body: `
+            <p>Are you sure you want to unlink <strong>"${instrumentName}"</strong> from this equipment?</p>
+            <div class="info-text">
+                The instrument will not be deleted, only disconnected from this equipment.
+            </div>
+        `,
+        cancelText: 'Cancel',
+        confirmText: 'Unlink',
+        confirmType: 'primary'
+    });
+    
+    if (confirmed) {
+        document.getElementById('unlink-form-' + instrumentId).submit();
+    }
+}
 </script>
 {% endblock %}
