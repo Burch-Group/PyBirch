@@ -69,7 +69,7 @@ Items:
 
 
 - [ ] ask members of teams
-- [x] Add the ability to individually delete all types of database objects in the UI (including images, samples, computers, scans, queues etc.). When deleted, they should be given the trash attribute (which hides them from all searches unless specifically allowed in the site-wide filtwrs). After 30 days, they should be removed entirely. Add appropriate buttons to the UI, both in the object pages and detail pages. Labs and projects should be implemented slightly differently, with a danger zone on their details page, since deleting a lab or project will permanently delete all referenced objects (again with the same 30-day buffer period). Queues should propagate the trash attribute to their scans, locations to their child locations. After the wait period, please make sure to clean up all references/links neatly and in a industry standard fashion, with appropriate messages for users when looking at deleted links.
+- [x] Add the ability to individually delete all types of database objects in the UI
 - [x] allow visualizations to be saved into the images section of the corresponding sample
 - [x] allow users to edit scans and queues to add links to samples and projects that may be missing
 - [x] For image uploads in general, remove the drag & drop box (it is too large & clutters the UI), instead allow users to drop images onto the gallery (as is standard in other well-established applications)
@@ -112,6 +112,7 @@ Items:
 - [x] make equipment types dynamic & configurable within a lab (i.e. should be able to add new types, which will populate in the dropdown.)
 
 - [ ] Add images to labs (so i can add the cute group photo)
+- [ ] Troubleshooting (draft name) page for fabrication runs. Able to plot statistics by parameter, histograms or lineplots if numerical. statistics by user (instances of the error, in sorted error). statistics by substrate & sample material, by precursor id, plots by time of day and by time in general. plots by weather
 
 - [ ] Site-wide filters need to be edited -- the button is visible longer than the Ui bar that it opens (frustrating)
 - [ ] allow users to choose a lab in their profile, filters everything. allow labs to turn on/off database items they don't use -- wont show up in navlinks or index when that lab is selected for viewing in the user profile. allow labs to configure a custom color theme (three or four primary colors) that will be used when that lab is selected for viewing.
@@ -123,7 +124,3 @@ Items:
 - [ ] Eventually: add the possibility to configure a small subset of lab objects to be made public  (available to all users to view, not just those with permissions). This will be like a lab website or group page. 
 - [ ] Eventually: live polling to connected computers, ability to query to instruments from instrument detail page & check connection there. ability to start scans from other devices via connection through pybirch. Ability to check whether computers are connected. of course, computers need to be first class database objects for this to make sense.
 - [ ] Eventually: migrate pybirch to jshtml with api
-
-1. updating the status of an issue should be separate from editing the issue for equipment and instrument issues. 
-
-2. Also, please allow images to be submitted with site-wide, equipment, and instrument issues.
