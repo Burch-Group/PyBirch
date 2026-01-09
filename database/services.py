@@ -2335,6 +2335,80 @@ class DatabaseService:
             session.delete(binding)
             return True
     
+    def get_computer_binding(self, binding_id: int) -> Optional[Dict]:
+        """Get a single computer binding by ID.
+        
+        Args:
+            binding_id: ID of the binding
+        
+        Returns:
+            Binding as dictionary with instrument info, or None if not found
+        """
+        from database.models import ComputerBinding, Instrument
+        from sqlalchemy.orm import joinedload
+        
+        with self.session_scope() as session:
+            binding = session.query(ComputerBinding).options(
+                joinedload(ComputerBinding.computer),
+                joinedload(ComputerBinding.instrument)
+            ).filter(
+                ComputerBinding.id == binding_id
+            ).first()
+            
+            if not binding:
+                return None
+            
+            result = self._computer_binding_to_dict(binding)
+            result['instrument_name'] = binding.instrument.name if binding.instrument else None
+            return result
+    
+    def update_computer_binding(
+        self,
+        binding_id: int,
+        data: Dict[str, Any],
+    ) -> Optional[Dict]:
+        """Update a computer binding.
+        
+        Args:
+            binding_id: ID of the binding to update
+            data: Dictionary with fields to update:
+                - computer_name: hostname
+                - computer_id: MAC address or UUID
+                - username: OS username
+                - adapter: VISA address
+                - adapter_type: 'GPIB', 'USB', 'Serial', 'TCP', etc.
+                - is_primary: bool
+        
+        Returns:
+            Updated binding as dictionary, or None if not found
+        """
+        from database.models import ComputerBinding, Computer
+        
+        with self.session_scope() as session:
+            binding = session.query(ComputerBinding).filter(
+                ComputerBinding.id == binding_id
+            ).first()
+            
+            if not binding:
+                return None
+            
+            # Update allowed fields
+            for field in ['computer_name', 'computer_id', 'username', 'adapter', 'adapter_type', 'is_primary']:
+                if field in data:
+                    setattr(binding, field, data[field])
+            
+            # If computer_name changed, try to link to existing Computer
+            if 'computer_name' in data:
+                computer = session.query(Computer).filter(
+                    Computer.computer_name == data['computer_name']
+                ).first()
+                binding.computer_id_fk = computer.id if computer else None
+            
+            session.flush()
+            session.refresh(binding)
+            
+            return self._computer_binding_to_dict(binding)
+    
     def get_definition_ids_for_computer(
         self,
         computer_name: str,

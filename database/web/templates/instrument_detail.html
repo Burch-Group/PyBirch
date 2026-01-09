@@ -194,9 +194,12 @@
                         {{ binding.computer_name }}
                         {% endif %}
                     </strong>
-                    {% if binding.is_primary %}
-                    <span class="badge badge-success">Primary</span>
-                    {% endif %}
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        {% if binding.is_primary %}
+                        <span class="badge badge-success">Primary</span>
+                        {% endif %}
+                        <a href="{{ url_for('main.instrument_binding_edit', instrument_id=instrument.id, binding_id=binding.id) }}" class="btn btn-small btn-secondary" title="Edit binding">✏️ Edit</a>
+                    </div>
                 </div>
                 <dl class="detail-list" style="margin: 0;">
                     {% if binding.adapter %}

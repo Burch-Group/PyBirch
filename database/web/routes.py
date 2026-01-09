@@ -5831,6 +5831,127 @@ def instrument_binding_delete(instrument_id, binding_id):
     return redirect(url_for('main.instruments'))
 
 
+@main_bp.route('/instruments/<int:instrument_id>/bindings/<int:binding_id>/edit', methods=['GET', 'POST'])
+@login_required
+def instrument_binding_edit(instrument_id, binding_id):
+    """Edit a computer binding from the instrument page."""
+    db = get_db_service()
+    instrument = db.get_instrument(instrument_id)
+    binding = db.get_computer_binding(binding_id)
+    
+    if not instrument:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.instruments'))
+    
+    if not binding:
+        flash('Binding not found', 'error')
+        return redirect(url_for('main.instrument_detail', instrument_id=instrument_id))
+    
+    definition_id = instrument.get('definition_id')
+    
+    if request.method == 'POST':
+        data = {
+            'computer_name': request.form.get('computer_name', '').strip(),
+            'computer_id': request.form.get('computer_id', '').strip() or None,
+            'username': request.form.get('username', '').strip() or None,
+            'adapter': request.form.get('adapter', '').strip() or None,
+            'adapter_type': request.form.get('adapter_type', '').strip() or None,
+            'is_primary': request.form.get('is_primary') == 'on',
+        }
+        
+        if not data['computer_name']:
+            flash('Computer name (hostname) is required', 'error')
+        else:
+            try:
+                db.update_computer_binding(binding_id, data)
+                
+                # Update Computer nickname if provided
+                nickname = request.form.get('nickname', '').strip()
+                if nickname:
+                    existing_computer = db.get_computer(data['computer_name'])
+                    if existing_computer:
+                        db.update_computer(existing_computer['id'], {'nickname': nickname})
+                
+                flash('Binding updated successfully', 'success')
+                return redirect(url_for('main.instrument_detail', instrument_id=instrument_id))
+            except Exception as e:
+                flash(f'Error updating binding: {str(e)}', 'error')
+    
+    # Get existing computer info for nickname
+    existing_computer = db.get_computer(binding['computer_name']) if binding.get('computer_name') else None
+    
+    return render_template('computer_binding_form.html',
+        instrument=instrument,
+        definition_id=definition_id,
+        binding=binding,
+        computer=existing_computer,
+        form_action=url_for('main.instrument_binding_edit', instrument_id=instrument_id, binding_id=binding_id),
+        form_title=f'Edit Binding for {instrument["name"]}',
+        is_edit=True,
+        return_url=url_for('main.instrument_detail', instrument_id=instrument_id),
+    )
+
+
+@main_bp.route('/computers/<int:computer_id>/bindings/<int:binding_id>/edit', methods=['GET', 'POST'])
+@login_required
+def computer_binding_edit(computer_id, binding_id):
+    """Edit a computer binding from the computer page."""
+    db = get_db_service()
+    computer = db.get_computer_by_id(computer_id)
+    binding = db.get_computer_binding(binding_id)
+    
+    if not computer:
+        flash('Computer not found', 'error')
+        return redirect(url_for('main.computers'))
+    
+    if not binding:
+        flash('Binding not found', 'error')
+        return redirect(url_for('main.computer_detail', computer_id=computer_id))
+    
+    # Get the instrument for display
+    instrument = db.get_instrument(binding['instrument_id'])
+    if not instrument:
+        flash('Instrument not found', 'error')
+        return redirect(url_for('main.computer_detail', computer_id=computer_id))
+    
+    if request.method == 'POST':
+        data = {
+            'computer_name': request.form.get('computer_name', '').strip(),
+            'computer_id': request.form.get('computer_id', '').strip() or None,
+            'username': request.form.get('username', '').strip() or None,
+            'adapter': request.form.get('adapter', '').strip() or None,
+            'adapter_type': request.form.get('adapter_type', '').strip() or None,
+            'is_primary': request.form.get('is_primary') == 'on',
+        }
+        
+        if not data['computer_name']:
+            flash('Computer name (hostname) is required', 'error')
+        else:
+            try:
+                db.update_computer_binding(binding_id, data)
+                
+                # Update Computer nickname if provided
+                nickname = request.form.get('nickname', '').strip()
+                if nickname and data['computer_name'] == computer['computer_name']:
+                    db.update_computer(computer_id, {'nickname': nickname})
+                
+                flash('Binding updated successfully', 'success')
+                return redirect(url_for('main.computer_detail', computer_id=computer_id))
+            except Exception as e:
+                flash(f'Error updating binding: {str(e)}', 'error')
+    
+    return render_template('computer_binding_form.html',
+        instrument=instrument,
+        definition_id=instrument.get('definition_id'),
+        binding=binding,
+        computer=computer,
+        form_action=url_for('main.computer_binding_edit', computer_id=computer_id, binding_id=binding_id),
+        form_title=f'Edit Binding for {instrument["name"]}',
+        is_edit=True,
+        return_url=url_for('main.computer_detail', computer_id=computer_id),
+    )
+
+
 # -------------------- Computers --------------------
 
 @main_bp.route('/computers')

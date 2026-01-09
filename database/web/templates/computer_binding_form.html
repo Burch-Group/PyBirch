@@ -114,13 +114,15 @@
 {% block content %}
 <div class="form-container">
     <div class="breadcrumb">
-        {% if definition_id %}
+        {% if return_url %}
+        <a href="{{ return_url }}">← Back</a>
+        {% elif definition_id %}
         <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / 
         <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition_id) }}">Back</a> / 
         {% else %}
         <a href="{{ url_for('main.instruments') }}">Instruments</a> / 
         {% endif %}
-        Bind to Computer
+        {% if is_edit %}Edit Binding{% else %}Bind to Computer{% endif %}
     </div>
     
     <h1>{{ form_title }}</h1>
@@ -130,12 +132,14 @@
         <strong>{{ instrument.name }}</strong>
     </div>
     
+    {% if not is_edit %}
     <div class="info-banner">
         <strong>What is a Computer Binding?</strong>
         A binding connects an instrument to a specific computer by hostname. When PyBirch runs on that computer
         with "Show bound instruments only" enabled, it will automatically discover instruments bound to it.
         You can also specify a different adapter address per computer if needed.
     </div>
+    {% endif %}
     
     <form method="POST" action="{{ form_action }}">
         <div class="form-section">
@@ -207,12 +211,14 @@
         </div>
         
         <div class="form-actions">
-            {% if definition_id %}
+            {% if return_url %}
+            <a href="{{ return_url }}" class="btn btn-secondary">Cancel</a>
+            {% elif definition_id %}
             <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition_id) }}" class="btn btn-secondary">Cancel</a>
             {% else %}
             <a href="{{ url_for('main.instruments') }}" class="btn btn-secondary">Cancel</a>
             {% endif %}
-            <button type="submit" class="btn btn-primary">Create Binding</button>
+            <button type="submit" class="btn btn-primary">{% if is_edit %}Save Changes{% else %}Create Binding{% endif %}</button>
         </div>
     </form>
 </div>
