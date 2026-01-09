@@ -264,16 +264,42 @@
                 <div class="fun-stat-card">
                     <div class="fun-stat-icon">🖥️</div>
                     <div class="fun-stat-content">
-                        <div class="fun-stat-value">~{{ stats.fun.estimated_pages_visited }}</div>
-                        <div class="fun-stat-label">Estimated Pages Visited</div>
+                        <div class="fun-stat-value">{{ stats.page_views.total }}</div>
+                        <div class="fun-stat-label">Pages Visited</div>
+                    </div>
+                </div>
+                <div class="fun-stat-card">
+                    <div class="fun-stat-icon">⏱️</div>
+                    <div class="fun-stat-content">
+                        {% set avg_time = stats.page_views.avg_time_per_page|default(0) %}
+                        {% if avg_time >= 60 %}
+                        <div class="fun-stat-value">{{ (avg_time / 60)|round(1) }} min</div>
+                        {% else %}
+                        <div class="fun-stat-value">{{ avg_time|round(0)|int }} sec</div>
+                        {% endif %}
+                        <div class="fun-stat-label">Avg. Time Per Page</div>
+                        {% set total_time = stats.page_views.total_time_seconds|default(0) %}
+                        {% if total_time >= 3600 %}
+                        <div class="fun-stat-detail">{{ (total_time / 3600)|round(1) }} hours total</div>
+                        {% elif total_time >= 60 %}
+                        <div class="fun-stat-detail">{{ (total_time / 60)|round(0)|int }} minutes total</div>
+                        {% else %}
+                        <div class="fun-stat-detail">{{ total_time }} seconds total</div>
+                        {% endif %}
                     </div>
                 </div>
                 <div class="fun-stat-card">
                     <div class="fun-stat-icon">📜</div>
                     <div class="fun-stat-content">
-                        <div class="fun-stat-value">~{{ stats.fun.estimated_scroll_miles }} mi</div>
+                        {% set scroll_miles = stats.fun.scroll_miles|default(0) %}
+                        {% set scroll_feet = stats.fun.scroll_feet|default(0) %}
+                        {% if scroll_miles >= 0.01 %}
+                        <div class="fun-stat-value">{{ scroll_miles }} mi</div>
+                        {% else %}
+                        <div class="fun-stat-value">{{ scroll_feet|round(0)|int }} ft</div>
+                        {% endif %}
                         <div class="fun-stat-label">Miles Scrolled</div>
-                        <div class="fun-stat-detail">That's {{ (stats.fun.estimated_scroll_miles * 5280)|int }} feet of scrolling!</div>
+                        <div class="fun-stat-detail">That's {{ scroll_feet|round(0)|int }} feet of scrolling!</div>
                     </div>
                 </div>
                 <div class="fun-stat-card">

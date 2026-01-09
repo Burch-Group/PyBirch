@@ -1110,6 +1110,53 @@
             });
         });
     </script>
+    
+    <!-- Page Time Tracking -->
+    <script>
+        (function() {
+            const pageLoadTime = Date.now();
+            let durationSent = false;
+            
+            function sendPageDuration() {
+                // Only send once per page load
+                if (durationSent) return;
+                
+                // Need page view ID to update
+                const pageViewId = window.__PAGE_VIEW_ID__;
+                if (!pageViewId) return;
+                
+                durationSent = true;
+                const duration = Math.floor((Date.now() - pageLoadTime) / 1000);
+                
+                // Use sendBeacon for reliable delivery on page unload
+                const payload = JSON.stringify({ page_view_id: pageViewId, duration: duration });
+                
+                if (navigator.sendBeacon) {
+                    const blob = new Blob([payload], { type: 'application/json' });
+                    navigator.sendBeacon('/api/track/page-duration', blob);
+                } else {
+                    // Fallback for older browsers
+                    fetch('/api/track/page-duration', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: payload,
+                        keepalive: true
+                    }).catch(() => {});
+                }
+            }
+            
+            // Send duration when user leaves the page
+            window.addEventListener('pagehide', sendPageDuration);
+            window.addEventListener('beforeunload', sendPageDuration);
+            
+            // Also send on visibility change (tab switch)
+            document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'hidden') {
+                    sendPageDuration();
+                }
+            });
+        })();
+    </script>
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

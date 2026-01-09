@@ -358,6 +358,7 @@ class User(Base):
     driver_issues_created = relationship("DriverIssue", back_populates="reporter", foreign_keys="DriverIssue.reporter_id")
     driver_issues_assigned = relationship("DriverIssue", back_populates="assignee", foreign_keys="DriverIssue.assignee_id")
     qr_scans = relationship("QrCodeScan", back_populates="user", cascade="all, delete-orphan")
+    page_views = relationship("PageView", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', role='{self.role}')>"
@@ -413,6 +414,36 @@ class QrCodeScan(Base):
     
     def __repr__(self):
         return f"<QrCodeScan(user_id={self.user_id}, entity={self.entity_type}:{self.entity_id})>"
+
+
+class PageView(Base):
+    """
+    Tracks page views and time spent on pages for analytics.
+    """
+    __tablename__ = "page_views"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    page_path: Mapped[str] = mapped_column(String(500), nullable=False)  # URL path (without query string)
+    page_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Page title if available
+    referrer: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Referring page
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Time spent on page
+    scroll_pixels: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Total scroll distance in pixels
+    viewed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    session_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Browser session tracking
+    
+    # Relationships
+    user = relationship("User", back_populates="page_views")
+    
+    __table_args__ = (
+        Index('idx_page_views_user', 'user_id'),
+        Index('idx_page_views_path', 'page_path'),
+        Index('idx_page_views_timestamp', 'viewed_at'),
+        Index('idx_page_views_session', 'session_id'),
+    )
+    
+    def __repr__(self):
+        return f"<PageView(user_id={self.user_id}, path={self.page_path}, duration={self.duration_seconds}s, scroll={self.scroll_pixels}px)>"
 
 
 # ============================================================

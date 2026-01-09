@@ -63,6 +63,58 @@ def load_current_user():
         g.current_user = db.get_user_by_id(session['user_id'])
 
 
+@main_bp.before_request
+def init_page_view_tracking():
+    """Initialize page view tracking before each request."""
+    g.page_view_id = None
+
+
+@main_bp.after_request
+def track_page_view(response):
+    """Log page views for analytics (only for successful HTML page requests)."""
+    # Only track successful GET requests for HTML pages
+    if (request.method == 'GET' and 
+        response.status_code == 200 and 
+        response.content_type and 
+        'text/html' in response.content_type):
+        
+        # Skip static files and certain paths
+        skip_paths = ['/static/', '/api/', '/favicon', '/_']
+        if not any(request.path.startswith(p) for p in skip_paths):
+            try:
+                db = get_db_service()
+                user_id = session.get('user_id')
+                session_id = session.get('_id') or getattr(session, 'sid', None)
+                
+                result = db.log_page_view(
+                    page_path=request.path,
+                    user_id=user_id,
+                    referrer=request.referrer,
+                    session_id=str(session_id) if session_id else None
+                )
+                page_view_id = result['id']
+                
+                # Store in session for fallback
+                session['_current_page_view_id'] = page_view_id
+                
+                # Inject page view ID into HTML response for JavaScript tracking
+                if response.direct_passthrough is False:
+                    try:
+                        data = response.get_data(as_text=True)
+                        # Insert a script tag with the page view ID before </body>
+                        inject_script = f'<script>window.__PAGE_VIEW_ID__={page_view_id};</script></body>'
+                        data = data.replace('</body>', inject_script)
+                        response.set_data(data)
+                    except Exception:
+                        pass  # If injection fails, session fallback will be used
+                        
+            except Exception as e:
+                # Don't let tracking errors break the response
+                current_app.logger.warning(f"Page view tracking error: {e}")
+    
+    return response
+
+
 @api_bp.before_request
 def api_load_current_user():
     """Load current user before each API request."""
@@ -8068,3 +8120,72 @@ def api_archive_stats():
     archive_svc = get_archive_service()
     stats = archive_svc.get_archive_stats()
     return jsonify(stats)
+
+
+# ==================== Page View Tracking ====================
+
+@api_bp.route('/track/page-duration', methods=['POST'])
+def api_track_page_duration():
+    """Update the duration and scroll distance for the current page view.
+    
+    This endpoint is called via beacon API when user leaves a page.
+    Does not require authentication - uses session-based page view ID.
+    """
+    try:
+        # Parse JSON data - use force=True to handle beacon requests
+        data = request.get_json(force=True, silent=True) or {}
+        page_view_id = data.get('page_view_id') or session.get('_current_page_view_id')
+        duration = data.get('duration', 0)
+        
+        if not page_view_id:
+            return jsonify({'success': False, 'error': 'No page view to update'}), 400
+        
+        # Validate duration (must be positive, cap at 30 minutes)
+        try:
+            duration = int(duration)
+            if duration < 0:
+                duration = 0
+            elif duration > 1800:
+                duration = 1800
+        except (TypeError, ValueError):
+            duration = 0
+        
+        db = get_db_service()
+        success = db.update_page_view_duration(page_view_id, duration)
+        
+        return jsonify({'success': success})
+    except Exception as e:
+        current_app.logger.warning(f"Page duration tracking error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/track/page-view', methods=['POST'])
+def api_log_page_view():
+    """Manually log a page view (for SPA navigation or custom tracking).
+    
+    This is an alternative to automatic after_request tracking.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        page_path = data.get('path', request.path)
+        page_title = data.get('title')
+        referrer = data.get('referrer', request.referrer)
+        
+        db = get_db_service()
+        user_id = session.get('user_id')
+        session_id = session.get('_id')
+        
+        result = db.log_page_view(
+            page_path=page_path,
+            user_id=user_id,
+            page_title=page_title,
+            referrer=referrer,
+            session_id=str(session_id) if session_id else None
+        )
+        
+        session['_current_page_view_id'] = result['id']
+        
+        return jsonify({'success': True, 'page_view_id': result['id']})
+    except Exception as e:
+        current_app.logger.warning(f"Page view logging error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

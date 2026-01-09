@@ -19,7 +19,7 @@ from database.models import (
     Lab, LabMember, Project, ProjectMember, ItemGuest,
     User, UserPin, Issue, IssueUpdate, EntityImage, Attachment,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
-    DriverIssue, Location, ObjectLocation, MaintenanceTask, QrCodeScan
+    DriverIssue, Location, ObjectLocation, MaintenanceTask, QrCodeScan, PageView
 )
 from database.session import get_session, init_db
 
@@ -5435,6 +5435,90 @@ class DatabaseService:
                 QrCodeScan.user_id == user_id
             ).scalar() or 0
     
+    # ==================== Page View Tracking ====================
+    
+    def log_page_view(self, page_path: str, user_id: Optional[int] = None, 
+                      page_title: Optional[str] = None, referrer: Optional[str] = None,
+                      session_id: Optional[str] = None) -> Dict:
+        """Log a page view for analytics.
+        
+        Args:
+            page_path: The URL path of the page viewed
+            user_id: Optional user ID if logged in
+            page_title: Optional page title
+            referrer: Optional referring page
+            session_id: Optional browser session ID for tracking
+            
+        Returns:
+            Dict with page view record info including id for duration updates
+        """
+        with self.session_scope() as session:
+            page_view = PageView(
+                user_id=user_id,
+                page_path=page_path,
+                page_title=page_title,
+                referrer=referrer,
+                session_id=session_id
+            )
+            session.add(page_view)
+            session.flush()
+            return {
+                'id': page_view.id,
+                'page_path': page_view.page_path,
+                'viewed_at': page_view.viewed_at.isoformat() if page_view.viewed_at else None
+            }
+    
+    def update_page_view_duration(self, page_view_id: int, duration_seconds: int) -> bool:
+        """Update the duration for a page view.
+        
+        Args:
+            page_view_id: The ID of the page view record
+            duration_seconds: Time spent on the page in seconds
+            
+        Returns:
+            True if successful, False if page view not found
+        """
+        with self.session_scope() as session:
+            page_view = session.query(PageView).filter(PageView.id == page_view_id).first()
+            if page_view:
+                # Cap duration at 30 minutes to filter out abandoned tabs
+                page_view.duration_seconds = min(duration_seconds, 1800)
+                return True
+            return False
+    
+    def get_user_page_view_stats(self, user_id: int) -> Dict:
+        """Get page view statistics for a user.
+        
+        Args:
+            user_id: The user's ID
+            
+        Returns:
+            Dict with total_pages, avg_duration_seconds, and total_time_seconds
+        """
+        with self.session_scope() as session:
+            total_pages = session.query(func.count(PageView.id)).filter(
+                PageView.user_id == user_id
+            ).scalar() or 0
+            
+            # Get average duration (only for pages with recorded duration)
+            avg_duration = session.query(func.avg(PageView.duration_seconds)).filter(
+                PageView.user_id == user_id,
+                PageView.duration_seconds.isnot(None),
+                PageView.duration_seconds > 0
+            ).scalar() or 0
+            
+            # Get total time spent
+            total_time = session.query(func.sum(PageView.duration_seconds)).filter(
+                PageView.user_id == user_id,
+                PageView.duration_seconds.isnot(None)
+            ).scalar() or 0
+            
+            return {
+                'total_pages': total_pages,
+                'avg_duration_seconds': round(float(avg_duration), 1),
+                'total_time_seconds': int(total_time)
+            }
+    
     # ==================== User Pins ====================
     
     def pin_item(self, user_id: int, entity_type: str, entity_id: int) -> bool:
@@ -6953,12 +7037,31 @@ class DatabaseService:
             total_issues_resolved = issues_resolved + equipment_issues_resolved
             total_uploads = images_uploaded + files_uploaded
             
-            # Fun statistics
-            # Calculate approximate "scrolling distance" based on items viewed (rough estimate)
-            total_items = total_items_created + issues_created + total_uploads
-            estimated_pages_visited = total_items * 3  # Assume 3 page views per item created
-            estimated_scroll_feet = estimated_pages_visited * 2  # Assume 2 feet of scrolling per page
-            estimated_scroll_miles = estimated_scroll_feet / 5280  # Convert to miles
+            # Page view statistics (real tracking)
+            page_view_stats = session.query(
+                func.count(PageView.id).label('total_pages'),
+                func.avg(PageView.duration_seconds).label('avg_duration'),
+                func.sum(PageView.duration_seconds).label('total_time')
+            ).filter(
+                PageView.user_id == user_id
+            ).first()
+            
+            pages_visited = page_view_stats.total_pages or 0
+            
+            # Calculate average time per page (only for pages with duration > 0)
+            avg_time_result = session.query(func.avg(PageView.duration_seconds)).filter(
+                PageView.user_id == user_id,
+                PageView.duration_seconds.isnot(None),
+                PageView.duration_seconds > 0
+            ).scalar()
+            avg_time_per_page = round(float(avg_time_result), 1) if avg_time_result else 0
+            
+            total_time_on_site = int(page_view_stats.total_time or 0)
+            
+            # Calculate estimated scroll distance (fun pseudo-metric)
+            # Estimate ~2 feet of scrolling per page visited
+            scroll_feet = pages_visited * 2
+            scroll_miles = round(scroll_feet / 5280, 2)
             
             return {
                 # Account info
@@ -7036,10 +7139,19 @@ class DatabaseService:
                     'fabrication_runs': recent_fab_runs,
                 },
                 
+                # Page view stats
+                'page_views': {
+                    'total': pages_visited,
+                    'avg_time_per_page': avg_time_per_page,
+                    'total_time_seconds': total_time_on_site,
+                },
+                
                 # Fun stats
                 'fun': {
-                    'estimated_pages_visited': estimated_pages_visited,
-                    'estimated_scroll_miles': round(estimated_scroll_miles, 2),
+                    'pages_visited': pages_visited,
+                    'avg_time_per_page': avg_time_per_page,
+                    'scroll_miles': scroll_miles,
+                    'scroll_feet': scroll_feet,
                     'coffee_cups_equivalent': total_items_created // 5,  # 1 coffee per 5 items created
                     'contribution_streak': days_active if total_items_created > 0 else 0,
                 },
