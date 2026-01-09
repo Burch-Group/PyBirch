@@ -801,6 +801,11 @@
         }
     };
     
+    // Alias for backwards compatibility with action_buttons macro
+    function trashItem(entityType, entityId, entityName) {
+        return moveToTrash(entityType, entityId, entityName);
+    }
+    
     async function moveToTrash(entityType, entityId, entityName) {
         const name = entityName || `#${entityId}`;
         const typeName = entityType.replace(/_/g, ' ');

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
 
 {% block title %}{{ equipment.name }} - PyBirch Database{% endblock %}
 
@@ -14,12 +15,13 @@
         <h1>{{ equipment.name }}</h1>
         <div class="detail-actions">
             <span class="status-badge status-{{ equipment.status }}">{{ equipment.status }}</span>
-            <a href="{{ url_for('main.equipment_issues', equipment_id=equipment.id) }}" class="btn btn-secondary">Issues</a>
-            <a href="{{ url_for('main.equipment_issue_new', equipment_id=equipment.id) }}" class="btn btn-secondary">+ Report Issue</a>
-            <a href="{{ url_for('main.equipment_duplicate', equipment_id=equipment.id) }}" class="btn btn-secondary">Duplicate</a>
-            <a href="{{ url_for('main.equipment_edit', equipment_id=equipment.id) }}" class="btn btn-secondary">Edit</a>
-            <button class="btn btn-warning" onclick="archiveItem('equipment', {{ equipment.id }}, '{{ equipment.name | e }}')">📦 Archive</button>
-            <button class="btn btn-danger" onclick="moveToTrash('equipment', {{ equipment.id }}, '{{ equipment.name | e }}')">🗑️ Move to Trash</button>
+            {{ detail_action_buttons(
+                edit_url=url_for('main.equipment_edit', equipment_id=equipment.id),
+                issues_url=url_for('main.equipment_issues', equipment_id=equipment.id),
+                duplicate_url=url_for('main.equipment_duplicate', equipment_id=equipment.id),
+                entity_type='equipment',
+                entity_id=equipment.id
+            ) }}
         </div>
     </div>
     

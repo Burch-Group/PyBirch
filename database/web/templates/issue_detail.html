@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
 
 {% block title %}Issue #{{ issue.id }}: {{ issue.title }} - PyBirch Database{% endblock %}
 
@@ -11,18 +12,29 @@
     </div>
     
     <div class="issue-header">
-        <div class="issue-title-row">
-            <span class="issue-id">#{{ issue.id }}</span>
-            <h1>{{ issue.title }}</h1>
+        <div class="issue-title-section">
+            <div class="issue-title-row">
+                <span class="issue-id">#{{ issue.id }}</span>
+                <h1>{{ issue.title }}</h1>
+            </div>
+            <div class="issue-badges">
+                <span class="category-badge category-{{ issue.category }}">
+                    {% if issue.category == 'bug' %}🐛{% elif issue.category == 'feature' %}✨{% elif issue.category == 'enhancement' %}📈{% else %}❓{% endif %}
+                    {{ issue.category }}
+                </span>
+                <span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span>
+                <span class="status-badge status-{{ issue.status }}">{{ issue.status|replace('_', ' ') }}</span>
+            </div>
         </div>
-        <div class="issue-badges">
-            <span class="category-badge category-{{ issue.category }}">
-                {% if issue.category == 'bug' %}🐛{% elif issue.category == 'feature' %}✨{% elif issue.category == 'enhancement' %}📈{% else %}❓{% endif %}
-                {{ issue.category }}
-            </span>
-            <span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span>
-            <span class="status-badge status-{{ issue.status }}">{{ issue.status|replace('_', ' ') }}</span>
-        </div>
+        {% if current_user and (current_user.role == 'admin' or issue.reporter_id == current_user.id) %}
+        {{ detail_action_buttons(
+            edit_url=url_for('main.issue_edit', issue_id=issue.id),
+            entity_type='issue',
+            entity_id=issue.id,
+            show_archive=false,
+            show_trash=(current_user.role == 'admin')
+        ) }}
+        {% endif %}
     </div>
     
     <div class="issue-grid">
@@ -125,17 +137,7 @@
                 </dl>
             </div>
             
-            <div class="sidebar-actions">
-                {% if current_user and (current_user.role == 'admin' or issue.reporter_id == current_user.id) %}
-                <a href="{{ url_for('main.issue_edit', issue_id=issue.id) }}" class="btn btn-secondary btn-block">Edit Issue</a>
-                {% endif %}
-                
-                {% if current_user and current_user.role == 'admin' %}
-                <form action="{{ url_for('main.issue_delete', issue_id=issue.id) }}" method="POST" style="margin-top: 0.5rem;">
-                    <button type="submit" class="btn btn-danger btn-block" onclick="return confirm('Delete this issue?')">Delete Issue</button>
-                </form>
-                {% endif %}
-            </div>
+
         </div>
     </div>
 </div>
@@ -147,7 +149,15 @@
 }
 
 .issue-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
     margin-bottom: 1.5rem;
+}
+
+.issue-title-section {
+    flex: 1;
 }
 
 .issue-title-row {

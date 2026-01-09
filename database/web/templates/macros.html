@@ -96,3 +96,39 @@
     {% endif %}
 </div>
 {% endmacro %}
+
+{# Action buttons for detail page headers - slightly larger with labels on hover #}
+{% macro detail_action_buttons(edit_url=None, open_url=None, issues_url=None, duplicate_url=None, entity_type=None, entity_id=None, show_archive=true, show_trash=true, extra_buttons=None) %}
+<div class="detail-action-buttons">
+    {% if edit_url %}
+    <a href="{{ edit_url }}" class="btn-icon-lg btn-icon-edit" title="Edit">
+        {{ icon_edit() }}
+    </a>
+    {% endif %}
+    {% if open_url %}
+    <a href="{{ open_url }}" class="btn-icon-lg btn-icon-open" title="Open in PyBirch">
+        {{ icon_open() }}
+    </a>
+    {% endif %}
+    {% if issues_url %}
+    <a href="{{ issues_url }}" class="btn-icon-lg btn-icon-issues" title="Issues">
+        {{ icon_issues() }}
+    </a>
+    {% endif %}
+    {% if duplicate_url %}
+    <a href="{{ duplicate_url }}" class="btn-icon-lg btn-icon-duplicate" title="Duplicate">
+        {{ icon_duplicate() }}
+    </a>
+    {% endif %}
+    {% if show_archive and entity_type and entity_id %}
+    <button type="button" class="btn-icon-lg btn-icon-archive" title="Archive" onclick="archiveItem('{{ entity_type }}', {{ entity_id }})">
+        {{ icon_archive() }}
+    </button>
+    {% endif %}
+    {% if show_trash and entity_type and entity_id %}
+    <button type="button" class="btn-icon-lg btn-icon-trash" title="Move to Trash" onclick="moveToTrash('{{ entity_type }}', {{ entity_id }})">
+        {{ icon_trash() }}
+    </button>
+    {% endif %}
+</div>
+{% endmacro %}

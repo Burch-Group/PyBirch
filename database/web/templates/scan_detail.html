@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
 
 {% block title %}{{ scan.scan_name or 'Scan' }} - PyBirch Database{% endblock %}
 
@@ -366,9 +367,17 @@
             <span class="live-indicator">LIVE</span>
             {% endif %}
             <span id="connection-status" class="connection-status connecting" title="Connecting..."></span>
-            <a href="{{ scan.pybirch_uri }}" class="btn btn-primary">Open in PyBirch</a>
-            <button class="btn btn-warning" onclick="archiveItem('scan', {{ scan.id }}, '{{ (scan.scan_name or scan.scan_id) | e }}')">📦 Archive</button>
-            <button class="btn btn-danger" onclick="moveToTrash('scan', {{ scan.id }}, '{{ (scan.scan_name or scan.scan_id) | e }}')">🗑️ Trash</button>
+            <div class="detail-action-buttons">
+                <a href="{{ scan.pybirch_uri }}" class="btn-icon-lg action-open" title="Open in PyBirch">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                </a>
+                <button type="button" class="btn-icon-lg action-archive" title="Archive" onclick="archiveItem('scan', {{ scan.id }}, '{{ (scan.scan_name or scan.scan_id) | e }}')">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+                </button>
+                <button type="button" class="btn-icon-lg action-trash" title="Move to Trash" onclick="moveToTrash('scan', {{ scan.id }}, '{{ (scan.scan_name or scan.scan_id) | e }}')">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
+            </div>
         </div>
     </div>
     

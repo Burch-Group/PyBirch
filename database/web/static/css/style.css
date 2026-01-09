@@ -783,6 +783,73 @@ code {
     justify-content: flex-end;
 }
 
+/* Detail page action buttons - larger size */
+.detail-action-buttons {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.btn-icon-lg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-decoration: none;
+}
+
+.btn-icon-lg svg {
+    width: 18px;
+    height: 18px;
+}
+
+.btn-icon-lg:hover {
+    background: var(--color-bg-tertiary);
+}
+
+.btn-icon-lg.btn-icon-view:hover {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+}
+
+.btn-icon-lg.btn-icon-edit:hover {
+    color: var(--color-secondary);
+    border-color: var(--color-secondary);
+}
+
+.btn-icon-lg.btn-icon-open:hover {
+    color: var(--color-success);
+    border-color: var(--color-success);
+}
+
+.btn-icon-lg.btn-icon-issues:hover {
+    color: var(--color-info);
+    border-color: var(--color-info);
+}
+
+.btn-icon-lg.btn-icon-duplicate:hover {
+    color: var(--color-secondary);
+    border-color: var(--color-secondary);
+}
+
+.btn-icon-lg.btn-icon-archive:hover {
+    color: var(--color-warning);
+    border-color: var(--color-warning);
+}
+
+.btn-icon-lg.btn-icon-trash:hover {
+    color: var(--color-error);
+    border-color: var(--color-error);
+}
+
 /* ==================== Forms ==================== */
 input[type="text"],
 input[type="number"],

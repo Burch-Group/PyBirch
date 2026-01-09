@@ -1925,6 +1925,63 @@ def location_edit(location_id):
     )
 
 
+@main_bp.route('/locations/<int:location_id>/duplicate', methods=['GET', 'POST'])
+@login_required
+def location_duplicate(location_id):
+    """Duplicate a location with a new name."""
+    db = get_db_service()
+    location = db.get_location(location_id)
+    
+    if not location:
+        flash('Location not found', 'error')
+        return redirect(url_for('main.locations'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        parent_location_id = request.form.get('parent_location_id')
+        
+        data = {
+            'name': request.form.get('name'),
+            'location_type': request.form.get('location_type'),
+            'description': request.form.get('description'),
+            'room_number': request.form.get('room_number'),
+            'building': request.form.get('building'),
+            'floor': request.form.get('floor'),
+            'capacity': request.form.get('capacity'),
+            'conditions': request.form.get('conditions'),
+            'access_notes': request.form.get('access_notes'),
+            'lab_id': int(lab_id) if lab_id else None,
+            'parent_location_id': int(parent_location_id) if parent_location_id else None,
+            'created_by': g.current_user.get('username') if g.current_user else None,
+        }
+        
+        if not data['lab_id']:
+            flash('Lab is required', 'error')
+        elif not data['name']:
+            flash('Name is required', 'error')
+        else:
+            try:
+                new_location = db.create_location(data)
+                flash(f'Location "{data["name"]}" created successfully (duplicated from "{location["name"]}")', 'success')
+                return redirect(url_for('main.location_detail', location_id=new_location['id']))
+            except Exception as e:
+                flash(f'Error duplicating location: {str(e)}', 'error')
+    
+    # Pre-fill with existing data but suggest a new name
+    location['name'] = f"{location['name']} (Copy)"
+    
+    # Get dropdown data
+    labs = db.get_labs_simple_list()
+    all_locations = db.get_locations_simple_list()
+    
+    return render_template('location_form.html',
+        action='Duplicate',
+        location=location,
+        labs=labs,
+        all_locations=all_locations,
+    )
+
+
 @main_bp.route('/locations/<int:location_id>/delete', methods=['POST'])
 @login_required
 def location_delete(location_id):

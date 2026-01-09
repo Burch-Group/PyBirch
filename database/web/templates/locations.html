@@ -85,6 +85,7 @@
                         {{ action_buttons(
                             view_url=url_for('main.location_detail', location_id=item.id),
                             edit_url=url_for('main.location_edit', location_id=item.id),
+                            duplicate_url=url_for('main.location_duplicate', location_id=item.id),
                             entity_type='location',
                             entity_id=item.id
                         ) }}
@@ -121,6 +122,7 @@
                         {{ action_buttons(
                             view_url=url_for('main.location_detail', location_id=item.id),
                             edit_url=url_for('main.location_edit', location_id=item.id),
+                            duplicate_url=url_for('main.location_duplicate', location_id=item.id),
                             entity_type='location',
                             entity_id=item.id
                         ) }}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
 
 {% block title %}{{ lab.name }} - PyBirch Database{% endblock %}
 
@@ -16,8 +17,12 @@
             {% if lab.code %}
             <span class="badge badge-lg">{{ lab.code }}</span>
             {% endif %}
-            <a href="{{ url_for('main.lab_edit', lab_id=lab.id) }}" class="btn btn-secondary">Edit</a>
-            <button class="btn btn-warning" onclick="archiveItem('lab', {{ lab.id }}, '{{ lab.name | e }}')">📦 Archive</button>
+            {{ detail_action_buttons(
+                edit_url=url_for('main.lab_edit', lab_id=lab.id),
+                entity_type='lab',
+                entity_id=lab.id,
+                show_trash=false
+            ) }}
         </div>
     </div>
     

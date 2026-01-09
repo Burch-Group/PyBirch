@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
 
 {% block title %}{{ instrument.name }} - PyBirch Database{% endblock %}
 
@@ -77,10 +78,12 @@
         </h1>
         <div class="detail-actions">
             <span class="status-badge status-{{ instrument.status }}" id="instrument-status-badge">{{ instrument.status }}</span>
-            <a href="{{ url_for('main.instrument_duplicate', instrument_id=instrument.id) }}" class="btn btn-secondary">Duplicate</a>
-            <a href="{{ url_for('main.instrument_edit', instrument_id=instrument.id) }}" class="btn btn-secondary">Edit</a>
-            <button class="btn btn-warning" onclick="archiveItem('instrument', {{ instrument.id }}, '{{ instrument.name | e }}')">📦 Archive</button>
-            <button class="btn btn-danger" onclick="moveToTrash('instrument', {{ instrument.id }}, '{{ instrument.name | e }}')">🗑️ Move to Trash</button>
+            {{ detail_action_buttons(
+                edit_url=url_for('main.instrument_edit', instrument_id=instrument.id),
+                duplicate_url=url_for('main.instrument_duplicate', instrument_id=instrument.id),
+                entity_type='instrument',
+                entity_id=instrument.id
+            ) }}
         </div>
     </div>
     

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import action_buttons %}
 
 {% block title %}Fabrication Runs - PyBirch Database{% endblock %}
 
@@ -94,10 +95,13 @@
                 <td>{{ run.created_by or '—' }}</td>
                 <td>{{ run.started_at[:10] if run.started_at else '—' }}</td>
                 <td>
-                    <a href="{{ url_for('main.fabrication_run_detail', run_id=run.id) }}" 
-                       class="btn btn-small">View</a>
-                    <a href="{{ url_for('main.fabrication_run_edit', run_id=run.id) }}" 
-                       class="btn btn-small btn-secondary">Edit</a>
+                    {{ action_buttons(
+                        view_url=url_for('main.fabrication_run_detail', run_id=run.id),
+                        edit_url=url_for('main.fabrication_run_edit', run_id=run.id),
+                        entity_type='fabrication_run',
+                        entity_id=run.id,
+                        show_archive=false
+                    ) }}
                 </td>
             </tr>
             {% endfor %}
@@ -138,10 +142,13 @@
                 <td>{{ run.created_by or '—' }}</td>
                 <td>{{ run.started_at[:10] if run.started_at else '—' }}</td>
                 <td>
-                    <a href="{{ url_for('main.fabrication_run_detail', run_id=run.id) }}" 
-                       class="btn btn-small">View</a>
-                    <a href="{{ url_for('main.fabrication_run_edit', run_id=run.id) }}" 
-                       class="btn btn-small btn-secondary">Edit</a>
+                    {{ action_buttons(
+                        view_url=url_for('main.fabrication_run_detail', run_id=run.id),
+                        edit_url=url_for('main.fabrication_run_edit', run_id=run.id),
+                        entity_type='fabrication_run',
+                        entity_id=run.id,
+                        show_archive=false
+                    ) }}
                 </td>
             </tr>
             {% endfor %}

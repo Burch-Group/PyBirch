@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
 
 {% block title %}{{ computer.nickname or computer.computer_name }} - Computer - PyBirch Database{% endblock %}
 
@@ -12,11 +13,11 @@
     
     <div class="detail-header">
         <h1>{{ computer.nickname or computer.computer_name }}</h1>
-        <div class="detail-actions">
-            <a href="{{ url_for('main.computer_edit', computer_id=computer.id) }}" class="btn btn-secondary">Edit</a>
-            <button class="btn btn-warning" onclick="archiveItem('computer', {{ computer.id }}, '{{ (computer.nickname or computer.computer_name) | e }}')">📦 Archive</button>
-            <button class="btn btn-danger" onclick="moveToTrash('computer', {{ computer.id }}, '{{ (computer.nickname or computer.computer_name) | e }}')">🗑️ Move to Trash</button>
-        </div>
+        {{ detail_action_buttons(
+            edit_url=url_for('main.computer_edit', computer_id=computer.id),
+            entity_type='computer',
+            entity_id=computer.id
+        ) }}
     </div>
     
     {% if computer.description %}

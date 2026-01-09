@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
 
 {% block title %}{{ project.name }} - PyBirch Database{% endblock %}
 
@@ -17,8 +18,12 @@
             <span class="badge badge-lg">{{ project.code }}</span>
             {% endif %}
             <span class="status-badge status-{{ project.status }}">{{ project.status }}</span>
-            <a href="{{ url_for('main.project_edit', project_id=project.id) }}" class="btn btn-secondary">Edit</a>
-            <button class="btn btn-warning" onclick="archiveItem('project', {{ project.id }}, '{{ project.name | e }}')">📦 Archive</button>
+            {{ detail_action_buttons(
+                edit_url=url_for('main.project_edit', project_id=project.id),
+                entity_type='project',
+                entity_id=project.id,
+                show_trash=false
+            ) }}
         </div>
     </div>
     

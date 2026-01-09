@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
 
 {% block title %}{{ driver.display_name }} - Driver - PyBirch Database{% endblock %}
 
@@ -252,13 +253,13 @@
             <h1 class="driver-title">{{ driver.display_name }}</h1>
             <div class="driver-class-name">Class: <code>{{ driver.name }}</code></div>
         </div>
-        <div class="action-buttons">
-            <a href="{{ url_for('main.driver_issues', driver_id=driver.id) }}" class="btn btn-secondary">Issues</a>
-            <a href="{{ url_for('main.driver_edit', driver_id=driver.id) }}" class="btn btn-primary">Edit</a>
-            <a href="{{ url_for('main.driver_duplicate', driver_id=driver.id) }}" class="btn btn-secondary">Duplicate</a>
-            <button class="btn btn-warning" onclick="archiveItem('driver', {{ driver.id }}, '{{ driver.display_name | e }}')">📦 Archive</button>
-            <button class="btn btn-danger" onclick="moveToTrash('driver', {{ driver.id }}, '{{ driver.display_name | e }}')">🗑️ Move to Trash</button>
-        </div>
+        {{ detail_action_buttons(
+            edit_url=url_for('main.driver_edit', driver_id=driver.id),
+            issues_url=url_for('main.driver_issues', driver_id=driver.id),
+            duplicate_url=url_for('main.driver_duplicate', driver_id=driver.id),
+            entity_type='driver',
+            entity_id=driver.id
+        ) }}
     </div>
     
     <div class="driver-meta">

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
 
 {% block title %}{{ precursor.name }} - PyBirch Database{% endblock %}
 
@@ -16,9 +17,14 @@
             {% if precursor.status %}
             <span class="status-badge status-{{ precursor.status }}">{{ precursor.status }}</span>
             {% endif %}
-            <a href="{{ url_for('main.precursor_duplicate', precursor_id=precursor.id) }}" class="btn btn-secondary">Duplicate</a>
-            <a href="{{ url_for('main.precursor_replace', precursor_id=precursor.id) }}" class="btn btn-secondary" title="Create a new precursor and replace this one in all templates">Replace</a>
-            <a href="{{ url_for('main.precursor_edit', precursor_id=precursor.id) }}" class="btn btn-secondary">Edit</a>
+            {{ detail_action_buttons(
+                edit_url=url_for('main.precursor_edit', precursor_id=precursor.id),
+                duplicate_url=url_for('main.precursor_duplicate', precursor_id=precursor.id),
+                entity_type='precursor',
+                entity_id=precursor.id,
+                show_archive=false,
+                show_trash=false
+            ) }}
         </div>
     </div>
     

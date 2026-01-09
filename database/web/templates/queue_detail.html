@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
 
 {% block title %}{{ queue.name or 'Queue' }} - PyBirch Database{% endblock %}
 
@@ -13,9 +14,11 @@
             <span class="live-indicator">LIVE</span>
             {% endif %}
             <span id="connection-status" class="connection-status connecting" title="Connecting..."></span>
-            <a href="{{ queue.pybirch_uri }}" class="btn btn-primary">Open in PyBirch</a>
-            <button class="btn btn-warning" onclick="archiveItem('queue', {{ queue.id }}, '{{ (queue.name or queue.queue_id) | e }}')">📦 Archive</button>
-            <button class="btn btn-danger" onclick="moveToTrash('queue', {{ queue.id }}, '{{ (queue.name or queue.queue_id) | e }}')">🗑️ Trash</button>
+            {{ detail_action_buttons(
+                open_url=queue.pybirch_uri,
+                entity_type='queue',
+                entity_id=queue.id
+            ) }}
         </div>
     </div>
     
