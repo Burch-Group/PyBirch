@@ -4950,6 +4950,107 @@ def api_stats():
     return jsonify(stats)
 
 
+@api_bp.route('/resolve-qr')
+def api_resolve_qr():
+    """Resolve a QR code URL to entity information.
+    
+    This endpoint parses URLs from scanned QR codes and returns
+    the entity type, ID, and display name for use in form dropdowns.
+    
+    Args:
+        url: The full URL from the scanned QR code
+        expected_type: (optional) The expected entity type for validation
+    
+    Returns:
+        {
+            'success': true,
+            'entity_type': 'sample',
+            'entity_id': 123,
+            'display_name': 'Sample ABC-001',
+            'url': '/samples/123'
+        }
+    """
+    import re
+    from urllib.parse import urlparse
+    
+    url = request.args.get('url', '')
+    expected_type = request.args.get('expected_type', '')
+    
+    if not url:
+        return jsonify({'success': False, 'error': 'No URL provided'}), 400
+    
+    # Parse the URL to extract the path
+    try:
+        parsed = urlparse(url)
+        path = parsed.path
+    except Exception:
+        return jsonify({'success': False, 'error': 'Invalid URL format'}), 400
+    
+    # Define entity type patterns and their corresponding getters
+    entity_patterns = {
+        'sample': (r'/samples/(\d+)', 'get_sample', lambda s: s.get('name') or s.get('sample_id') or f"Sample #{s['id']}"),
+        'precursor': (r'/precursors/(\d+)', 'get_precursor', lambda p: p.get('name') or f"Precursor #{p['id']}"),
+        'equipment': (r'/equipment/(\d+)', 'get_equipment', lambda e: e.get('name') or f"Equipment #{e['id']}"),
+        'procedure': (r'/procedures/(\d+)', 'get_procedure', lambda p: p.get('name') or f"Procedure #{p['id']}"),
+        'project': (r'/projects/(\d+)', 'get_project', lambda p: p.get('name') or f"Project #{p['id']}"),
+        'lab': (r'/labs/(\d+)', 'get_lab', lambda l: l.get('name') or f"Lab #{l['id']}"),
+        'location': (r'/locations/(\d+)', 'get_location', lambda l: l.get('name') or f"Location #{l['id']}"),
+        'instrument': (r'/instruments/(\d+)', 'get_instrument', lambda i: i.get('name') or f"Instrument #{i['id']}"),
+        'computer': (r'/computers/(\d+)', 'get_computer', lambda c: c.get('nickname') or c.get('computer_name') or f"Computer #{c['id']}"),
+        'template': (r'/templates/(\d+)', 'get_template', lambda t: t.get('name') or f"Template #{t['id']}"),
+        'driver': (r'/drivers/(\d+)', 'get_driver', lambda d: d.get('display_name') or d.get('class_name') or f"Driver #{d['id']}"),
+        'user': (r'/users/(\d+)', 'get_user', lambda u: u.get('display_name') or u.get('username') or f"User #{u['id']}"),
+    }
+    
+    db = get_db_service()
+    
+    # Try to match each entity type pattern
+    for entity_type, (pattern, getter_name, display_func) in entity_patterns.items():
+        match = re.search(pattern, path)
+        if match:
+            entity_id = int(match.group(1))
+            
+            # Check if expected type matches (if specified)
+            if expected_type and expected_type != entity_type:
+                return jsonify({
+                    'success': False,
+                    'error': f'Expected {expected_type} but scanned {entity_type}',
+                    'scanned_type': entity_type
+                }), 400
+            
+            # Get the entity details
+            getter = getattr(db, getter_name, None)
+            if getter:
+                entity = getter(entity_id)
+                if entity:
+                    return jsonify({
+                        'success': True,
+                        'entity_type': entity_type,
+                        'entity_id': entity_id,
+                        'display_name': display_func(entity),
+                        'url': path
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': f'{entity_type.title()} #{entity_id} not found'
+                    }), 404
+            
+            # If no getter, just return the basic info
+            return jsonify({
+                'success': True,
+                'entity_type': entity_type,
+                'entity_id': entity_id,
+                'display_name': f'{entity_type.title()} #{entity_id}',
+                'url': path
+            })
+    
+    return jsonify({
+        'success': False,
+        'error': 'Could not parse entity from URL'
+    }), 400
+
+
 @api_bp.route('/images/<entity_type>/<int:entity_id>/upload', methods=['POST'])
 @api_login_required
 def api_upload_entity_image(entity_type, entity_id):

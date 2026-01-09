@@ -8,6 +8,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize search autocomplete
     initSearchAutocomplete();
+    
+    // Initialize QR scanner modal
+    initQRScannerModal();
 });
 
 /**
@@ -345,6 +348,11 @@ function initSearchableSelects() {
         
         // Initial render
         renderOptions();
+        
+        // Add QR scan button if this entity type supports it
+        if (entityType) {
+            addQRScanButton(wrapper, select, entityType);
+        }
     });
     
     // Close dropdowns when clicking outside
@@ -409,4 +417,284 @@ function initSetDefaultLinks() {
             }
         });
     });
+}
+
+/**
+ * QR Scanner Modal for searchable selects
+ * Allows scanning QR codes to populate dropdown fields
+ */
+let qrScannerModal = null;
+let qrScannerStream = null;
+let qrScannerCallback = null;
+let qrScannerExpectedType = null;
+
+function initQRScannerModal() {
+    // Create modal HTML if it doesn't exist
+    if (!document.getElementById('qr-scanner-modal')) {
+        const modalHtml = `
+            <div id="qr-scanner-modal" class="qr-scanner-modal" style="display: none;">
+                <div class="qr-scanner-content">
+                    <div class="qr-scanner-header">
+                        <h3>📷 Scan QR Code</h3>
+                        <button type="button" class="qr-scanner-close" onclick="closeQRScanner()">&times;</button>
+                    </div>
+                    <div class="qr-scanner-body">
+                        <div id="qr-scanner-video-container">
+                            <video id="qr-scanner-video" autoplay playsinline></video>
+                            <div class="qr-scanner-overlay">
+                                <div class="qr-scanner-frame"></div>
+                            </div>
+                        </div>
+                        <div id="qr-scanner-status" class="qr-scanner-status">
+                            Initializing camera...
+                        </div>
+                        <div id="qr-scanner-result" class="qr-scanner-result" style="display: none;"></div>
+                    </div>
+                    <div class="qr-scanner-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeQRScanner()">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+    qrScannerModal = document.getElementById('qr-scanner-modal');
+}
+
+function openQRScanner(selectElement, expectedType) {
+    if (!qrScannerModal) {
+        initQRScannerModal();
+    }
+    
+    qrScannerExpectedType = expectedType;
+    qrScannerCallback = (entityId, displayName) => {
+        // Find the option with this value and select it
+        const option = selectElement.querySelector(`option[value="${entityId}"]`);
+        if (option) {
+            selectElement.value = entityId;
+            selectElement.dispatchEvent(new Event('change'));
+            
+            // Update the searchable-select display if it exists
+            const wrapper = selectElement.closest('.searchable-select-wrapper');
+            if (wrapper) {
+                const display = wrapper.querySelector('.selected-text');
+                if (display) {
+                    display.textContent = displayName;
+                }
+            }
+        } else {
+            // Option doesn't exist in dropdown - show error
+            alert(`${expectedType} found but not available in this dropdown. The ${expectedType} may not be associated with the current lab/project.`);
+        }
+    };
+    
+    qrScannerModal.style.display = 'flex';
+    document.getElementById('qr-scanner-status').textContent = 'Initializing camera...';
+    document.getElementById('qr-scanner-result').style.display = 'none';
+    
+    startQRScanner();
+}
+
+function closeQRScanner() {
+    if (qrScannerStream) {
+        qrScannerStream.getTracks().forEach(track => track.stop());
+        qrScannerStream = null;
+    }
+    if (qrScannerModal) {
+        qrScannerModal.style.display = 'none';
+    }
+    qrScannerCallback = null;
+    qrScannerExpectedType = null;
+}
+
+async function startQRScanner() {
+    const video = document.getElementById('qr-scanner-video');
+    const statusEl = document.getElementById('qr-scanner-status');
+    
+    try {
+        // Request camera access
+        qrScannerStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment' }
+        });
+        
+        video.srcObject = qrScannerStream;
+        statusEl.textContent = `Point camera at a ${qrScannerExpectedType || 'entity'} QR code`;
+        
+        // Start scanning with BarcodeDetector if available, else use jsQR library
+        if ('BarcodeDetector' in window) {
+            scanWithBarcodeDetector(video);
+        } else {
+            // Fallback: load jsQR dynamically and use canvas-based scanning
+            await loadJsQR();
+            scanWithJsQR(video);
+        }
+        
+    } catch (err) {
+        console.error('Camera error:', err);
+        statusEl.textContent = 'Camera access denied. Please allow camera permissions and try again.';
+    }
+}
+
+async function scanWithBarcodeDetector(video) {
+    const barcodeDetector = new BarcodeDetector({ formats: ['qr_code'] });
+    
+    const scan = async () => {
+        if (!qrScannerStream) return;
+        
+        try {
+            const barcodes = await barcodeDetector.detect(video);
+            if (barcodes.length > 0) {
+                const url = barcodes[0].rawValue;
+                await processScannedQR(url);
+                return;
+            }
+        } catch (err) {
+            console.error('Scan error:', err);
+        }
+        
+        // Continue scanning
+        if (qrScannerStream) {
+            requestAnimationFrame(scan);
+        }
+    };
+    
+    // Wait for video to be ready
+    video.onloadedmetadata = () => {
+        video.play();
+        scan();
+    };
+}
+
+// Load jsQR library dynamically if BarcodeDetector not available
+async function loadJsQR() {
+    if (window.jsQR) return;
+    
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+}
+
+function scanWithJsQR(video) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    const scan = () => {
+        if (!qrScannerStream) return;
+        
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            
+            if (code) {
+                processScannedQR(code.data);
+                return;
+            }
+        }
+        
+        // Continue scanning
+        if (qrScannerStream) {
+            requestAnimationFrame(scan);
+        }
+    };
+    
+    video.onloadedmetadata = () => {
+        video.play();
+        scan();
+    };
+}
+
+async function processScannedQR(url) {
+    const statusEl = document.getElementById('qr-scanner-status');
+    const resultEl = document.getElementById('qr-scanner-result');
+    
+    statusEl.textContent = 'Processing...';
+    
+    try {
+        // Call API to resolve the QR code URL
+        const apiUrl = `/api/resolve-qr?url=${encodeURIComponent(url)}` + 
+            (qrScannerExpectedType ? `&expected_type=${qrScannerExpectedType}` : '');
+        
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        
+        if (data.success) {
+            // Success - show result and close
+            statusEl.textContent = '✓ Found!';
+            resultEl.innerHTML = `<strong>${data.display_name}</strong> (${data.entity_type})`;
+            resultEl.style.display = 'block';
+            resultEl.className = 'qr-scanner-result success';
+            
+            // Call the callback to update the select
+            if (qrScannerCallback) {
+                qrScannerCallback(data.entity_id, data.display_name);
+            }
+            
+            // Close after a brief delay
+            setTimeout(() => {
+                closeQRScanner();
+            }, 1000);
+            
+        } else {
+            // Error
+            statusEl.textContent = 'Scan failed';
+            resultEl.innerHTML = data.error || 'Unknown error';
+            resultEl.style.display = 'block';
+            resultEl.className = 'qr-scanner-result error';
+            
+            // Resume scanning after showing error
+            setTimeout(() => {
+                resultEl.style.display = 'none';
+                statusEl.textContent = `Point camera at a ${qrScannerExpectedType || 'entity'} QR code`;
+                // Restart scanning
+                const video = document.getElementById('qr-scanner-video');
+                if ('BarcodeDetector' in window) {
+                    scanWithBarcodeDetector(video);
+                } else {
+                    scanWithJsQR(video);
+                }
+            }, 2000);
+        }
+        
+    } catch (err) {
+        console.error('API error:', err);
+        statusEl.textContent = 'Error processing QR code';
+        resultEl.innerHTML = 'Network error. Please try again.';
+        resultEl.style.display = 'block';
+        resultEl.className = 'qr-scanner-result error';
+    }
+}
+
+/**
+ * Add QR scan button to a searchable select wrapper
+ */
+function addQRScanButton(wrapper, selectElement, entityType) {
+    // Don't add if already exists
+    if (wrapper.querySelector('.qr-scan-btn')) return;
+    
+    // Entity types that have QR codes
+    const qrEnabledTypes = ['sample', 'precursor', 'equipment', 'procedure', 'project', 'lab', 'location', 'instrument', 'template'];
+    
+    if (!qrEnabledTypes.includes(entityType)) return;
+    
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'qr-scan-btn';
+    btn.title = `Scan ${entityType} QR code`;
+    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect></svg>`;
+    
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openQRScanner(selectElement, entityType);
+    });
+    
+    wrapper.appendChild(btn);
 }
