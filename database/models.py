@@ -1736,20 +1736,24 @@ class Attachment(TrashableMixin, ArchivableMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'sample', 'scan', 'analysis', etc.
     entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
-    file_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)  # Original filename
+    stored_filename: Mapped[str] = mapped_column(String(255), nullable=False)  # UUID-based stored filename
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # User-provided name/title
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mime_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    file_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Legacy field, kept for compatibility
+    file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Legacy field, kept for compatibility
     uploaded_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     __table_args__ = (
         Index('idx_attachments', 'entity_type', 'entity_id'),
+        Index('idx_attachments_created', 'created_at'),
     )
     
     def __repr__(self):
-        return f"<Attachment(id={self.id}, filename='{self.filename}')>"
+        return f"<Attachment(id={self.id}, name='{self.name}', filename='{self.filename}')>"
 
 
 # ============================================================

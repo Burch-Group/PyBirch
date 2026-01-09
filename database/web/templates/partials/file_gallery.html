@@ -1,0 +1,893 @@
+<!-- Entity Files Gallery Component -->
+<!-- Include this partial with: include 'partials/file_gallery.html' -->
+<!-- Required variables: entity_type, entity_id, attachments (list) -->
+{% from "macros.html" import icon_edit, icon_trash, icon_download %}
+
+<div class="files-section" id="files-section" tabindex="0">
+    <div class="section-header">
+        <h2>Files</h2>
+        <span class="file-count">({{ attachments|length if attachments else 0 }})</span>
+        <div class="header-actions">
+            <!-- Paste info with tooltip -->
+            <span class="paste-info-wrapper">
+                <span class="paste-info-icon" title="Press Ctrl+V (or Cmd+V on Mac) to paste a file from your clipboard">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                </span>
+                <span class="paste-label">Paste (Ctrl+V)</span>
+            </span>
+            {% if attachments %}
+            <!-- Upload button shown when files exist -->
+            <label class="btn btn-secondary btn-small upload-btn-header" for="file-file-input">
+                + Add Files
+            </label>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Hidden file input -->
+    <input type="file" id="file-file-input" multiple class="visually-hidden">
+    
+    <!-- Upload progress (shown during upload) -->
+    <div class="upload-progress" id="file-upload-progress" style="display: none;">
+        <div class="progress-bar">
+            <div class="progress-fill" id="file-progress-fill"></div>
+        </div>
+        <p class="progress-text" id="file-progress-text">Uploading...</p>
+    </div>
+    <div class="upload-error" id="file-upload-error" style="display: none;">
+        <span class="error-icon">⚠️</span>
+        <span class="error-message" id="file-upload-error-message"></span>
+        <button type="button" class="error-dismiss" onclick="hideFileUploadError()">&times;</button>
+    </div>
+    
+    <!-- File Gallery Grid (also serves as drop zone when populated) -->
+    <div class="file-gallery {% if not attachments %}file-gallery-empty{% endif %}" id="file-gallery">
+        {% if attachments %}
+            {% for file in attachments %}
+            <div class="file-card" data-file-id="{{ file.id }}">
+                <div class="file-icon">
+                    {{ get_file_icon(file.file_type or (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'file')) }}
+                </div>
+                <div class="file-info">
+                    <div class="file-name" title="{{ file.name or file.filename }}">
+                        {{ file.name or file.filename }}
+                    </div>
+                    {% if file.description %}
+                    <div class="file-description" title="{{ file.description }}">
+                        {{ file.description }}
+                    </div>
+                    {% endif %}
+                    <div class="file-meta">
+                        <span class="file-date">{{ file.created_at[:10] if file.created_at else '' }}</span>
+                        <span class="file-size">{{ format_file_size(file.file_size_bytes) }}</span>
+                        <span class="file-type">.{{ file.file_type or (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else '?') }}</span>
+                    </div>
+                </div>
+                <div class="file-actions">
+                    <a href="{{ url_for('static', filename='uploads/files/' + file.stored_filename) }}" 
+                       download="{{ file.name or file.filename }}" 
+                       class="btn-icon btn-icon-download" title="Download">
+                        {{ icon_download() }}
+                    </a>
+                    <button class="btn-icon btn-icon-edit" onclick='editFileMetadata({{ file.id }}, "{{ (file.name or '')|e }}", "{{ (file.description or '')|e }}")' title="Edit">
+                        {{ icon_edit() }}
+                    </button>
+                    <form action="{{ url_for('main.delete_entity_attachment', attachment_id=file.id) }}" method="POST" style="display: inline;" 
+                          onsubmit="return confirm('Delete this file?')">
+                        <button type="submit" class="btn-icon btn-icon-trash btn-danger" title="Delete">{{ icon_trash() }}</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+            <!-- Drop overlay shown when dragging over gallery -->
+            <div class="file-gallery-drop-overlay" id="file-gallery-drop-overlay">
+                <div class="file-drop-overlay-content">
+                    <span class="file-drop-overlay-icon">📁</span>
+                    <span>Drop files here</span>
+                </div>
+            </div>
+        {% else %}
+            <!-- Empty state: show drop zone box -->
+            <div class="empty-drop-zone file-drop-zone" id="file-empty-drop-zone">
+                <div class="drop-zone-content">
+                    <div class="drop-icon">📁</div>
+                    <p>Drag & drop files here</p>
+                    <p class="drop-hint">or paste from clipboard (Ctrl+V)</p>
+                    <label class="btn btn-secondary btn-small upload-btn" for="file-file-input">
+                        Choose Files
+                    </label>
+                    <p class="file-types">PDF, CSV, JSON, KDF, AFM data, and more (max 50MB)</p>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Edit File Metadata Modal -->
+<div class="edit-modal" id="edit-file-modal">
+    <div class="edit-modal-content">
+        <h3>Edit File Details</h3>
+        <form id="edit-file-form">
+            <input type="hidden" id="edit-file-id">
+            <input type="hidden" id="edit-file-is-new">
+            <div class="form-group">
+                <label for="edit-file-name">Name</label>
+                <input type="text" id="edit-file-name" placeholder="e.g., Design layout v2">
+            </div>
+            <div class="form-group">
+                <label for="edit-file-description">Description</label>
+                <textarea id="edit-file-description" rows="3" placeholder="Optional description of the file"></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeFileEditModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+/* File Section Styles */
+.files-section {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.files-section .section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.files-section .section-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.file-count {
+    color: var(--text-muted, #666);
+    font-size: 0.9rem;
+}
+
+/* Header actions container */
+.files-section .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-left: auto;
+}
+
+/* Focus indicator for paste support */
+.files-section:focus {
+    outline: 2px solid var(--primary-color, #2563eb);
+    outline-offset: 2px;
+}
+
+.files-section:focus-visible {
+    outline: 2px solid var(--primary-color, #2563eb);
+    outline-offset: 2px;
+}
+
+/* File Gallery Grid */
+.file-gallery {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    position: relative;
+    min-height: 60px;
+}
+
+.file-gallery.drag-over {
+    background: rgba(37, 99, 235, 0.03);
+    border-radius: 8px;
+}
+
+.file-gallery-empty {
+    min-height: 200px;
+}
+
+/* File Card */
+.file-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    background: var(--bg-light, #f8f9fa);
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 6px;
+    transition: all 0.15s ease;
+}
+
+.file-card:hover {
+    border-color: var(--primary-color, #2563eb);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.file-icon {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.75rem;
+}
+
+.file-icon svg {
+    width: 32px;
+    height: 32px;
+}
+
+.file-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.file-name {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary, #333);
+}
+
+.file-description {
+    font-size: 0.85rem;
+    color: var(--text-secondary, #666);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 0.25rem;
+}
+
+.file-meta {
+    display: flex;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    color: var(--text-muted, #888);
+    margin-top: 0.25rem;
+}
+
+.file-actions {
+    display: flex;
+    gap: 0.25rem;
+    flex-shrink: 0;
+}
+
+/* Empty state drop zone */
+.file-drop-zone {
+    grid-column: 1 / -1;
+    border: 2px dashed var(--border-color, #ddd);
+    border-radius: 8px;
+    padding: 3rem 2rem;
+    text-align: center;
+    transition: all 0.2s ease;
+    background: var(--bg-light, #f9f9f9);
+    cursor: pointer;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.file-drop-zone:hover {
+    border-color: var(--primary-color, #2563eb);
+    background: rgba(37, 99, 235, 0.02);
+}
+
+.file-drop-zone.drag-over {
+    border-color: var(--primary-color, #2563eb);
+    background: rgba(37, 99, 235, 0.08);
+    border-style: solid;
+}
+
+/* Gallery drop overlay */
+.file-gallery-drop-overlay {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(37, 99, 235, 0.15);
+    border: 3px dashed var(--primary-color, #2563eb);
+    border-radius: 8px;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.file-gallery-drop-overlay.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.file-drop-overlay-content {
+    background: white;
+    padding: 1rem 2rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-weight: 500;
+    color: var(--primary-color, #2563eb);
+}
+
+.file-drop-overlay-icon {
+    font-size: 1.5rem;
+}
+
+/* Edit Modal (reuse existing styles) */
+#edit-file-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 1001;
+    justify-content: center;
+    align-items: center;
+}
+
+#edit-file-modal.active {
+    display: flex;
+}
+
+#edit-file-modal .edit-modal-content {
+    background: var(--card-bg, #fff);
+    padding: 1.5rem;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+
+#edit-file-modal h3 {
+    margin: 0 0 1rem 0;
+}
+
+#edit-file-modal .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .file-card {
+        flex-wrap: wrap;
+    }
+    
+    .file-actions {
+        width: 100%;
+        justify-content: flex-end;
+        margin-top: 0.5rem;
+    }
+}
+</style>
+
+<script>
+// File gallery functionality - auto-detect entity type and id from available context
+{% if entity_type is defined and entity_id is defined %}
+const fileEntityType = '{{ entity_type }}';
+const fileEntityId = {{ entity_id }};
+{% elif sample is defined %}
+const fileEntityType = 'sample';
+const fileEntityId = {{ sample.id }};
+{% elif equipment is defined %}
+const fileEntityType = 'equipment';
+const fileEntityId = {{ equipment.id }};
+{% elif precursor is defined %}
+const fileEntityType = 'precursor';
+const fileEntityId = {{ precursor.id }};
+{% elif procedure is defined %}
+const fileEntityType = 'procedure';
+const fileEntityId = {{ procedure.id }};
+{% elif instrument is defined %}
+const fileEntityType = 'instrument';
+const fileEntityId = {{ instrument.id }};
+{% elif project is defined %}
+const fileEntityType = 'project';
+const fileEntityId = {{ project.id }};
+{% elif lab is defined %}
+const fileEntityType = 'lab';
+const fileEntityId = {{ lab.id }};
+{% elif issue is defined %}
+const fileEntityType = '{{ entity_type }}';
+const fileEntityId = {{ issue.id }};
+{% else %}
+// Fallback - entity type not detected
+const fileEntityType = '';
+const fileEntityId = 0;
+console.error('File gallery: entity_type and entity_id not detected. File upload will not work.');
+{% endif %}
+
+// File type icons
+function getFileIcon(ext) {
+    ext = (ext || '').toLowerCase();
+    
+    // Document types
+    if (['pdf'].includes(ext)) {
+        return '📄';
+    } else if (['doc', 'docx', 'odt', 'rtf', 'txt'].includes(ext)) {
+        return '📝';
+    } else if (['xls', 'xlsx', 'ods', 'csv'].includes(ext)) {
+        return '📊';
+    } else if (['ppt', 'pptx', 'odp'].includes(ext)) {
+        return '📽️';
+    }
+    // Data/Code
+    else if (['json', 'yaml', 'yml', 'xml', 'toml'].includes(ext)) {
+        return '📋';
+    } else if (['py', 'ipynb', 'r', 'jl', 'm'].includes(ext)) {
+        return '🐍';
+    }
+    // Scientific
+    else if (['kdf', 'gds', 'gdsii'].includes(ext)) {
+        return '🔬';
+    } else if (['spm', 'afm', 'nid', 'gsf', 'sxm', 'mtrx', 'ibw'].includes(ext)) {
+        return '📈';
+    } else if (['h5', 'hdf5', 'hdf', 'nc', 'netcdf', 'mat', 'npy', 'npz'].includes(ext)) {
+        return '💾';
+    } else if (['fits', 'fit', 'cif', 'pdb'].includes(ext)) {
+        return '🧬';
+    }
+    // Archives
+    else if (['zip', 'tar', 'gz', 'bz2', '7z', 'rar'].includes(ext)) {
+        return '📦';
+    }
+    // Images
+    else if (['tif', 'tiff', 'raw', 'dng', 'svg', 'eps', 'ai'].includes(ext)) {
+        return '🖼️';
+    }
+    // Default
+    return '📁';
+}
+
+// Format file size
+function formatFileSize(bytes) {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const filesSection = document.getElementById('files-section');
+    const gallery = document.getElementById('file-gallery');
+    const emptyDropZone = document.getElementById('file-empty-drop-zone');
+    const dropOverlay = document.getElementById('file-gallery-drop-overlay');
+    const fileInput = document.getElementById('file-file-input');
+    
+    if (!gallery || !fileInput) return;
+    
+    let fileDragCounter = 0;
+    
+    function preventFileDragDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    
+    // Gallery drag and drop
+    gallery.addEventListener('dragenter', function(e) {
+        preventFileDragDefaults(e);
+        fileDragCounter++;
+        gallery.classList.add('drag-over');
+        if (dropOverlay) {
+            dropOverlay.classList.add('active');
+        }
+    }, false);
+    
+    gallery.addEventListener('dragover', function(e) {
+        preventFileDragDefaults(e);
+    }, false);
+    
+    gallery.addEventListener('dragleave', function(e) {
+        preventFileDragDefaults(e);
+        fileDragCounter--;
+        if (fileDragCounter === 0) {
+            gallery.classList.remove('drag-over');
+            if (dropOverlay) {
+                dropOverlay.classList.remove('active');
+            }
+        }
+    }, false);
+    
+    gallery.addEventListener('drop', function(e) {
+        preventFileDragDefaults(e);
+        fileDragCounter = 0;
+        gallery.classList.remove('drag-over');
+        if (dropOverlay) {
+            dropOverlay.classList.remove('active');
+        }
+        handleFileDrop(e);
+    }, false);
+    
+    // Empty drop zone handlers
+    if (emptyDropZone) {
+        ['dragenter', 'dragover'].forEach(eventName => {
+            emptyDropZone.addEventListener(eventName, function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                emptyDropZone.classList.add('drag-over');
+            }, false);
+        });
+        
+        emptyDropZone.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            emptyDropZone.classList.remove('drag-over');
+        }, false);
+        
+        emptyDropZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            emptyDropZone.classList.remove('drag-over');
+            handleFileDrop(e);
+        }, false);
+        
+        emptyDropZone.addEventListener('click', function(e) {
+            if (e.target.tagName === 'INPUT') return;
+            if (e.target.tagName === 'LABEL' || e.target.closest('label')) return;
+            fileInput.click();
+        });
+    }
+    
+    fileInput.addEventListener('change', handleFileSelect, false);
+    
+    // Clipboard paste support for files
+    document.addEventListener('paste', function(e) {
+        const rect = filesSection?.getBoundingClientRect();
+        if (!rect) return;
+        
+        const activeElement = document.activeElement;
+        const isTextInput = activeElement.tagName === 'INPUT' || 
+                           activeElement.tagName === 'TEXTAREA' || 
+                           activeElement.isContentEditable;
+        
+        if (isTextInput) return;
+        
+        // Check if there are files in clipboard
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        
+        for (const item of items) {
+            // Handle non-image files from clipboard
+            if (item.kind === 'file' && !item.type.startsWith('image/')) {
+                e.preventDefault();
+                const file = item.getAsFile();
+                if (file) {
+                    uploadEntityFile(file);
+                    return;
+                }
+            }
+        }
+    });
+});
+
+function handleFileDrop(e) {
+    const files = e.dataTransfer.files;
+    handleEntityFiles(files);
+}
+
+function handleFileSelect(e) {
+    const files = e.target.files;
+    handleEntityFiles(files);
+}
+
+function handleEntityFiles(files) {
+    [...files].forEach(uploadEntityFile);
+}
+
+function uploadEntityFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', file.name);
+    
+    const progressDiv = document.getElementById('file-upload-progress');
+    const emptyDropZone = document.getElementById('file-empty-drop-zone');
+    const progressFill = document.getElementById('file-progress-fill');
+    const progressText = document.getElementById('file-progress-text');
+    
+    if (emptyDropZone) {
+        emptyDropZone.style.display = 'none';
+    }
+    progressDiv.style.display = 'block';
+    progressText.textContent = `Uploading ${file.name}...`;
+    
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            progressFill.style.width = percent + '%';
+            progressText.textContent = `Uploading ${file.name}... ${percent}%`;
+        }
+    });
+    
+    xhr.addEventListener('load', () => {
+        progressDiv.style.display = 'none';
+        progressFill.style.width = '0%';
+        
+        if (xhr.status === 200) {
+            const response = JSON.parse(xhr.responseText);
+            if (response.success) {
+                hideFileUploadError();
+                addFileToGallery(response.attachment, response.url);
+                promptFileDetails(response.attachment.id, file.name);
+            } else {
+                if (emptyDropZone) emptyDropZone.style.display = 'flex';
+                showFileUploadError('Upload failed: ' + response.error);
+            }
+        } else {
+            if (emptyDropZone) emptyDropZone.style.display = 'flex';
+            let errorMsg = 'Upload failed';
+            try {
+                const response = JSON.parse(xhr.responseText);
+                if (response.error) {
+                    errorMsg = response.error;
+                }
+            } catch (e) {
+                if (xhr.status === 401) {
+                    errorMsg = 'Please log in to upload files';
+                } else if (xhr.status === 413) {
+                    errorMsg = 'File too large';
+                } else if (xhr.status === 500) {
+                    errorMsg = 'Server error - please try again';
+                } else {
+                    errorMsg = `Upload failed (HTTP ${xhr.status})`;
+                }
+            }
+            showFileUploadError(errorMsg);
+        }
+    });
+    
+    xhr.addEventListener('error', () => {
+        progressDiv.style.display = 'none';
+        if (emptyDropZone) emptyDropZone.style.display = 'flex';
+        showFileUploadError('Upload failed - network error');
+    });
+    
+    xhr.open('POST', `/api/files/${fileEntityType}/${fileEntityId}/upload`);
+    xhr.send(formData);
+}
+
+function showFileUploadError(message) {
+    const errorDiv = document.getElementById('file-upload-error');
+    const errorMessage = document.getElementById('file-upload-error-message');
+    if (errorDiv && errorMessage) {
+        errorMessage.textContent = message;
+        errorDiv.style.display = 'flex';
+    }
+}
+
+function hideFileUploadError() {
+    const errorDiv = document.getElementById('file-upload-error');
+    if (errorDiv) {
+        errorDiv.style.display = 'none';
+    }
+}
+
+function addFileToGallery(attachment, url) {
+    const gallery = document.getElementById('file-gallery');
+    const emptyDropZone = document.getElementById('file-empty-drop-zone');
+    const header = document.querySelector('.files-section .section-header');
+    
+    // Remove empty drop zone if this is the first file
+    if (emptyDropZone) {
+        emptyDropZone.remove();
+        gallery.classList.remove('file-gallery-empty');
+        
+        // Add drop overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'file-gallery-drop-overlay';
+        overlay.id = 'file-gallery-drop-overlay';
+        overlay.innerHTML = `
+            <div class="file-drop-overlay-content">
+                <span class="file-drop-overlay-icon">📁</span>
+                <span>Drop files here</span>
+            </div>
+        `;
+        gallery.appendChild(overlay);
+        
+        // Add upload button to header
+        if (header && !header.querySelector('.upload-btn-header')) {
+            const uploadBtn = document.createElement('label');
+            uploadBtn.className = 'btn btn-secondary btn-small upload-btn-header';
+            uploadBtn.setAttribute('for', 'file-file-input');
+            uploadBtn.textContent = '+ Add Files';
+            const headerActions = header.querySelector('.header-actions');
+            if (headerActions) {
+                headerActions.appendChild(uploadBtn);
+            } else {
+                header.appendChild(uploadBtn);
+            }
+        }
+    }
+    
+    const card = document.createElement('div');
+    card.className = 'file-card';
+    card.dataset.fileId = attachment.id;
+    
+    const safeName = (attachment.name || attachment.filename || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const safeDesc = (attachment.description || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const displayName = attachment.name || attachment.filename || 'File';
+    const displayDesc = attachment.description || '';
+    const ext = attachment.file_type || (attachment.filename ? attachment.filename.split('.').pop() : '');
+    
+    const downloadIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10v3.5a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5V10"/><path d="M8 2v9"/><path d="M5 8l3 3 3-3"/></svg>`;
+    const editIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2-8 8H3.5v-2z"/><path d="M10 4l2 2"/><path d="M2 14h12"/></svg>`;
+    const trashIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12"/><path d="M5 4V2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V4"/><path d="M12.5 4v9.5a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V4"/><path d="M6.5 7v5M9.5 7v5"/></svg>`;
+    
+    card.innerHTML = `
+        <div class="file-icon">${getFileIcon(ext)}</div>
+        <div class="file-info">
+            <div class="file-name" title="${displayName}">${displayName}</div>
+            ${displayDesc ? `<div class="file-description" title="${displayDesc}">${displayDesc}</div>` : ''}
+            <div class="file-meta">
+                <span class="file-date">${attachment.created_at ? attachment.created_at.slice(0, 10) : ''}</span>
+                <span class="file-size">${formatFileSize(attachment.file_size_bytes)}</span>
+                <span class="file-type">.${ext}</span>
+            </div>
+        </div>
+        <div class="file-actions">
+            <a href="${url}" download="${displayName}" class="btn-icon btn-icon-download" title="Download">${downloadIcon}</a>
+            <button class="btn-icon btn-icon-edit" onclick="editFileMetadata(${attachment.id}, '${safeName}', '${safeDesc}')" title="Edit">${editIcon}</button>
+            <form action="/files/${attachment.id}/delete" method="POST" style="display: inline;" onsubmit="return confirm('Delete this file?')">
+                <button type="submit" class="btn-icon btn-icon-trash btn-danger" title="Delete">${trashIcon}</button>
+            </form>
+        </div>
+    `;
+    
+    // Insert before the overlay if it exists
+    const dropOverlay = gallery.querySelector('.file-gallery-drop-overlay');
+    if (dropOverlay) {
+        gallery.insertBefore(card, dropOverlay);
+    } else {
+        gallery.appendChild(card);
+    }
+    
+    // Update file count
+    updateFileCount();
+}
+
+function updateFileCount() {
+    const countSpan = document.querySelector('.files-section .file-count');
+    const gallery = document.getElementById('file-gallery');
+    if (countSpan && gallery) {
+        const count = gallery.querySelectorAll('.file-card').length;
+        countSpan.textContent = `(${count})`;
+    }
+}
+
+function promptFileDetails(fileId, originalName) {
+    const modal = document.getElementById('edit-file-modal');
+    const nameInput = document.getElementById('edit-file-name');
+    const descInput = document.getElementById('edit-file-description');
+    const idInput = document.getElementById('edit-file-id');
+    const isNewInput = document.getElementById('edit-file-is-new');
+    
+    idInput.value = fileId;
+    nameInput.value = originalName;
+    descInput.value = '';
+    isNewInput.value = 'true';
+    
+    modal.classList.add('active');
+    nameInput.focus();
+    nameInput.select();
+}
+
+function editFileMetadata(fileId, name, description) {
+    const modal = document.getElementById('edit-file-modal');
+    const nameInput = document.getElementById('edit-file-name');
+    const descInput = document.getElementById('edit-file-description');
+    const idInput = document.getElementById('edit-file-id');
+    const isNewInput = document.getElementById('edit-file-is-new');
+    
+    idInput.value = fileId;
+    nameInput.value = name || '';
+    descInput.value = description || '';
+    isNewInput.value = 'false';
+    
+    modal.classList.add('active');
+    nameInput.focus();
+}
+
+function closeFileEditModal() {
+    const modal = document.getElementById('edit-file-modal');
+    modal.classList.remove('active');
+}
+
+// Form submission
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('edit-file-form');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const fileId = document.getElementById('edit-file-id').value;
+            const name = document.getElementById('edit-file-name').value;
+            const description = document.getElementById('edit-file-description').value;
+            
+            fetch(`/api/files/${fileId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name, description }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update the card in the gallery
+                    const card = document.querySelector(`.file-card[data-file-id="${fileId}"]`);
+                    if (card) {
+                        const nameEl = card.querySelector('.file-name');
+                        const descEl = card.querySelector('.file-description');
+                        
+                        if (nameEl) {
+                            nameEl.textContent = name || data.attachment.filename;
+                            nameEl.title = name || data.attachment.filename;
+                        }
+                        
+                        if (description) {
+                            if (descEl) {
+                                descEl.textContent = description;
+                                descEl.title = description;
+                            } else {
+                                const infoEl = card.querySelector('.file-info');
+                                const metaEl = card.querySelector('.file-meta');
+                                const newDesc = document.createElement('div');
+                                newDesc.className = 'file-description';
+                                newDesc.textContent = description;
+                                newDesc.title = description;
+                                infoEl.insertBefore(newDesc, metaEl);
+                            }
+                        } else if (descEl) {
+                            descEl.remove();
+                        }
+                        
+                        // Update edit button
+                        const editBtn = card.querySelector('.btn-icon-edit');
+                        if (editBtn) {
+                            const safeName = (name || '').replace(/'/g, "\\'");
+                            const safeDesc = (description || '').replace(/'/g, "\\'");
+                            editBtn.setAttribute('onclick', `editFileMetadata(${fileId}, '${safeName}', '${safeDesc}')`);
+                        }
+                    }
+                    closeFileEditModal();
+                } else {
+                    alert('Failed to update: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Error updating file: ' + error);
+            });
+        });
+    }
+});
+
+// Close modal on escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeFileEditModal();
+    }
+});
+
+// Close modal on backdrop click
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('edit-file-modal');
+    if (e.target === modal) {
+        closeFileEditModal();
+    }
+});
+</script>

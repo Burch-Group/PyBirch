@@ -78,6 +78,64 @@ def inject_user():
     return {'current_user': g.current_user}
 
 
+@main_bp.context_processor
+def inject_template_helpers():
+    """Inject helper functions for templates."""
+    
+    def get_file_icon(ext):
+        """Get an emoji icon for a file type."""
+        ext = (ext or '').lower()
+        
+        # Document types
+        if ext in ['pdf']:
+            return '📄'
+        elif ext in ['doc', 'docx', 'odt', 'rtf', 'txt']:
+            return '📝'
+        elif ext in ['xls', 'xlsx', 'ods', 'csv']:
+            return '📊'
+        elif ext in ['ppt', 'pptx', 'odp']:
+            return '📽️'
+        # Data/Code
+        elif ext in ['json', 'yaml', 'yml', 'xml', 'toml']:
+            return '📋'
+        elif ext in ['py', 'ipynb', 'r', 'jl', 'm']:
+            return '🐍'
+        # Scientific
+        elif ext in ['kdf', 'gds', 'gdsii']:
+            return '🔬'
+        elif ext in ['spm', 'afm', 'nid', 'gsf', 'sxm', 'mtrx', 'ibw']:
+            return '📈'
+        elif ext in ['h5', 'hdf5', 'hdf', 'nc', 'netcdf', 'mat', 'npy', 'npz']:
+            return '💾'
+        elif ext in ['fits', 'fit', 'cif', 'pdb']:
+            return '🧬'
+        # Archives
+        elif ext in ['zip', 'tar', 'gz', 'bz2', '7z', 'rar']:
+            return '📦'
+        # Images
+        elif ext in ['tif', 'tiff', 'raw', 'dng', 'svg', 'eps', 'ai']:
+            return '🖼️'
+        # Default
+        return '📁'
+    
+    def format_file_size(bytes):
+        """Format file size in human-readable format."""
+        if not bytes:
+            return ''
+        if bytes < 1024:
+            return f'{bytes} B'
+        if bytes < 1024 * 1024:
+            return f'{bytes / 1024:.1f} KB'
+        if bytes < 1024 * 1024 * 1024:
+            return f'{bytes / (1024 * 1024):.1f} MB'
+        return f'{bytes / (1024 * 1024 * 1024):.1f} GB'
+    
+    return {
+        'get_file_icon': get_file_icon,
+        'format_file_size': format_file_size,
+    }
+
+
 # ==================== HTML Routes ====================
 
 @main_bp.route('/')
@@ -220,7 +278,8 @@ def sample_detail(sample_id):
         flash('Sample not found', 'error')
         return redirect(url_for('main.samples'))
     images = db.get_entity_images('sample', sample_id)
-    return render_template('sample_detail.html', sample=sample, images=images)
+    attachments = db.get_entity_attachments('sample', sample_id)
+    return render_template('sample_detail.html', sample=sample, images=images, attachments=attachments)
 
 
 @main_bp.route('/samples/new', methods=['GET', 'POST'])
@@ -826,8 +885,9 @@ def fabrication_run_detail(run_id):
                 'parameters': run_obj.procedure.parameters,
             }
     
-    # Get images and precursors
+    # Get images, attachments and precursors
     images = db.get_entity_images('fabrication_run', run_id)
+    attachments = db.get_entity_attachments('fabrication_run', run_id)
     precursors = db.get_fabrication_run_precursors(run_id)
     
     return render_template('fabrication_run_detail.html',
@@ -835,6 +895,7 @@ def fabrication_run_detail(run_id):
                           sample=sample,
                           procedure=procedure,
                           images=images,
+                          attachments=attachments,
                           precursors=precursors,
                           entity_type='fabrication_run',
                           entity_id=run_id)
@@ -1715,14 +1776,16 @@ def equipment_issue_detail(equipment_id, issue_id):
     # Get users for assignee dropdown
     users, _ = db.get_users(per_page=1000)
     
-    # Get images for this issue
+    # Get images and attachments for this issue
     images = db.get_entity_images('equipment_issue', issue_id)
+    attachments = db.get_entity_attachments('equipment_issue', issue_id)
     
     return render_template('equipment_issue_detail.html',
         equipment=equipment,
         issue=issue,
         users=users,
         images=images,
+        attachments=attachments,
         entity_type='equipment_issue',
         entity_id=issue_id,
     )
@@ -2235,7 +2298,8 @@ def precursor_detail(precursor_id):
         flash('Precursor not found', 'error')
         return redirect(url_for('main.precursors'))
     images = db.get_entity_images('precursor', precursor_id)
-    return render_template('precursor_detail.html', precursor=item, images=images)
+    attachments = db.get_entity_attachments('precursor', precursor_id)
+    return render_template('precursor_detail.html', precursor=item, images=images, attachments=attachments)
 
 
 @main_bp.route('/precursors/new', methods=['GET', 'POST'])
@@ -2568,7 +2632,8 @@ def procedure_detail(procedure_id):
         flash('Procedure not found', 'error')
         return redirect(url_for('main.procedures'))
     images = db.get_entity_images('procedure', procedure_id)
-    return render_template('procedure_detail.html', procedure=procedure, images=images)
+    attachments = db.get_entity_attachments('procedure', procedure_id)
+    return render_template('procedure_detail.html', procedure=procedure, images=images, attachments=attachments)
 
 
 @main_bp.route('/procedures/new', methods=['GET', 'POST'])
@@ -3925,13 +3990,15 @@ def issue_detail(issue_id):
     
     users, _ = db.get_users()  # For assignee dropdown
     
-    # Get images for this issue
+    # Get images and attachments for this issue
     images = db.get_entity_images('issue', issue_id)
+    attachments = db.get_entity_attachments('issue', issue_id)
     
     return render_template('issue_detail.html', 
         issue=issue, 
         users=users,
         images=images,
+        attachments=attachments,
         entity_type='issue',
         entity_id=issue_id,
     )
@@ -5565,6 +5632,175 @@ def api_upload_entity_image_base64(entity_type, entity_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# -------------------- File Attachments API --------------------
+# Configurable allowed file types - easily extendable for new scientific file formats
+ALLOWED_FILE_EXTENSIONS = {
+    # Documents
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf', 'txt',
+    # Data formats
+    'csv', 'json', 'xml', 'yaml', 'yml', 'toml',
+    # Scientific/Lab-specific
+    'kdf',          # KLayout design files
+    'gds', 'gdsii', # GDSII layout files
+    'spm', 'afm',   # Gwyddion AFM/SPM files  
+    'nid', 'gsf',   # Gwyddion native formats
+    'ibw', 'pxp',   # Igor Pro files
+    'dat', 'asc',   # Generic data files
+    'sxm', 'mtrx',  # Nanoscope/other SPM formats
+    'h5', 'hdf5', 'hdf', 'nc', 'netcdf',  # HDF5 and NetCDF scientific data
+    'npy', 'npz',   # NumPy data files
+    'mat',          # MATLAB files
+    'fits', 'fit',  # FITS astronomical data
+    'cif', 'pdb',   # Crystallography/molecular data
+    # Archives
+    'zip', 'tar', 'gz', 'bz2', '7z', 'rar',
+    # Code/scripts
+    'py', 'ipynb', 'r', 'jl', 'm',
+    # Images (non-gallery, for data files)
+    'tif', 'tiff', 'raw', 'dng',
+    # Vector graphics
+    'svg', 'eps', 'ai',
+    # Other
+    'log', 'ini', 'cfg',
+}
+
+
+def is_allowed_file(filename: str) -> bool:
+    """Check if file extension is in allowed list."""
+    if '.' not in filename:
+        return False
+    ext = filename.rsplit('.', 1)[-1].lower()
+    return ext in ALLOWED_FILE_EXTENSIONS
+
+
+def get_file_extension(filename: str) -> str:
+    """Get lowercase file extension."""
+    return filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+
+
+@api_bp.route('/files/<entity_type>/<int:entity_id>/upload', methods=['POST'])
+@api_login_required
+def api_upload_entity_file(entity_type, entity_id):
+    """Upload a file attachment for any entity type."""
+    import os
+    import uuid
+    from werkzeug.utils import secure_filename
+    
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'}), 400
+    
+    # Validate file type
+    if not is_allowed_file(file.filename):
+        ext = get_file_extension(file.filename)
+        return jsonify({
+            'success': False, 
+            'error': f'File type .{ext} is not allowed. Contact admin to add support for this file type.'
+        }), 400
+    
+    try:
+        # Generate unique filename
+        original_filename = secure_filename(file.filename)
+        stored_filename = f"{uuid.uuid4().hex}_{original_filename}"
+        
+        # Save file
+        upload_folder = os.path.join(current_app.root_path, 'static', 'uploads', 'files')
+        os.makedirs(upload_folder, exist_ok=True)
+        filepath = os.path.join(upload_folder, stored_filename)
+        file.save(filepath)
+        
+        # Get file info
+        file_size = os.path.getsize(filepath)
+        ext = get_file_extension(original_filename)
+        
+        db = get_db_service()
+        attachment = db.create_entity_attachment({
+            'entity_type': entity_type,
+            'entity_id': entity_id,
+            'filename': original_filename,
+            'stored_filename': stored_filename,
+            'file_size_bytes': file_size,
+            'mime_type': file.content_type,
+            'file_type': ext,
+            'name': request.form.get('name', original_filename),
+            'description': request.form.get('description', ''),
+            'uploaded_by': g.current_user.get('username') if g.current_user else None,
+        })
+        
+        return jsonify({
+            'success': True,
+            'attachment': attachment,
+            'url': f"/static/uploads/files/{stored_filename}"
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main_bp.route('/files/<int:attachment_id>/delete', methods=['POST'])
+@login_required
+def delete_entity_attachment(attachment_id):
+    """Delete an entity attachment."""
+    import os
+    
+    db = get_db_service()
+    
+    try:
+        # Delete returns the stored filename so we can remove the file
+        stored_filename = db.delete_entity_attachment(attachment_id)
+        
+        if stored_filename:
+            # Delete the actual file
+            filepath = os.path.join(current_app.root_path, 'static', 'uploads', 'files', stored_filename)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            flash('File deleted', 'success')
+        else:
+            flash('File not found', 'error')
+    except Exception as e:
+        flash(f'Error deleting file: {str(e)}', 'error')
+    
+    # Redirect back to referrer or home
+    return redirect(request.referrer or url_for('main.index'))
+
+
+@api_bp.route('/files/<int:attachment_id>', methods=['PUT'])
+@api_login_required
+def api_update_entity_attachment(attachment_id):
+    """Update an entity attachment's metadata."""
+    db = get_db_service()
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+    
+    try:
+        update_data = {}
+        if 'name' in data:
+            update_data['name'] = data['name']
+        if 'description' in data:
+            update_data['description'] = data['description']
+        
+        attachment = db.update_entity_attachment(attachment_id, update_data)
+        if attachment:
+            return jsonify({'success': True, 'attachment': attachment})
+        else:
+            return jsonify({'success': False, 'error': 'File not found'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/files/allowed-types', methods=['GET'])
+def api_get_allowed_file_types():
+    """Get list of allowed file extensions."""
+    return jsonify({
+        'success': True,
+        'extensions': sorted(list(ALLOWED_FILE_EXTENSIONS))
+    })
+
+
 # -------------------- Instruments --------------------
 
 @main_bp.route('/instruments')
@@ -5608,7 +5844,8 @@ def instrument_detail(instrument_id):
         flash('Instrument not found', 'error')
         return redirect(url_for('main.instruments'))
     images = db.get_entity_images('instrument', instrument_id)
-    return render_template('instrument_detail.html', instrument=instrument, images=images)
+    attachments = db.get_entity_attachments('instrument', instrument_id)
+    return render_template('instrument_detail.html', instrument=instrument, images=images, attachments=attachments)
 
 
 @main_bp.route('/instruments/<int:instrument_id>/qrcode/preview')
@@ -6361,8 +6598,9 @@ def driver_issue_detail(driver_id, issue_id):
     # Get users for assignee dropdown
     users, _ = db.get_users(per_page=1000)
     
-    # Get images for this issue
+    # Get images and attachments for this issue
     images = db.get_entity_images('driver_issue', issue_id)
+    attachments = db.get_entity_attachments('driver_issue', issue_id)
     
     return render_template('driver_issue_detail.html',
         driver=driver,
@@ -6370,6 +6608,7 @@ def driver_issue_detail(driver_id, issue_id):
         versions=versions,
         users=users,
         images=images,
+        attachments=attachments,
         entity_type='driver_issue',
         entity_id=issue_id,
     )

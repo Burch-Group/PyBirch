@@ -17,7 +17,7 @@ from database.models import (
     Queue, QueueLog, Scan, ScanLog, MeasurementObject, MeasurementDataPoint,
     Tag, EntityTag, FabricationRun, FabricationRunPrecursor,
     Lab, LabMember, Project, ProjectMember, ItemGuest,
-    User, UserPin, Issue, EntityImage,
+    User, UserPin, Issue, EntityImage, Attachment,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
     DriverIssue, Location, ObjectLocation
 )
@@ -5480,6 +5480,87 @@ class DatabaseService:
             'height': image.height,
             'uploaded_by': image.uploaded_by,
             'created_at': image.created_at.isoformat() if image.created_at else None,
+        }
+    
+    # ==================== Attachments ====================
+    
+    def get_entity_attachments(self, entity_type: str, entity_id: int) -> List[Dict]:
+        """Get all attachments for an entity."""
+        with self.session_scope() as session:
+            attachments = session.query(Attachment).filter(
+                Attachment.entity_type == entity_type,
+                Attachment.entity_id == entity_id
+            ).order_by(Attachment.created_at.desc()).all()
+            
+            return [self._attachment_to_dict(att) for att in attachments]
+    
+    def get_attachment(self, attachment_id: int) -> Optional[Dict]:
+        """Get a single attachment by ID."""
+        with self.session_scope() as session:
+            attachment = session.query(Attachment).filter(Attachment.id == attachment_id).first()
+            return self._attachment_to_dict(attachment) if attachment else None
+    
+    def create_entity_attachment(self, data: Dict[str, Any]) -> Dict:
+        """Create a new entity attachment record."""
+        with self.session_scope() as session:
+            attachment = Attachment(
+                entity_type=data['entity_type'],
+                entity_id=data['entity_id'],
+                filename=data['filename'],
+                stored_filename=data['stored_filename'],
+                name=data.get('name'),
+                description=data.get('description'),
+                file_size_bytes=data.get('file_size_bytes'),
+                mime_type=data.get('mime_type'),
+                file_type=data.get('file_type'),
+                file_path=data['stored_filename'],  # Legacy field, set to stored_filename
+                uploaded_by=data.get('uploaded_by'),
+            )
+            session.add(attachment)
+            session.flush()
+            return self._attachment_to_dict(attachment)
+    
+    def update_entity_attachment(self, attachment_id: int, data: Dict[str, Any]) -> Optional[Dict]:
+        """Update an entity attachment's metadata."""
+        with self.session_scope() as session:
+            attachment = session.query(Attachment).filter(Attachment.id == attachment_id).first()
+            if not attachment:
+                return None
+            
+            if 'name' in data:
+                attachment.name = data['name']
+            if 'description' in data:
+                attachment.description = data['description']
+            
+            session.flush()
+            return self._attachment_to_dict(attachment)
+    
+    def delete_entity_attachment(self, attachment_id: int) -> Optional[str]:
+        """Delete an entity attachment. Returns the stored filename for file cleanup."""
+        with self.session_scope() as session:
+            attachment = session.query(Attachment).filter(Attachment.id == attachment_id).first()
+            if not attachment:
+                return None
+            
+            stored_filename = attachment.stored_filename
+            session.delete(attachment)
+            return stored_filename
+    
+    def _attachment_to_dict(self, attachment: Attachment) -> Dict:
+        """Convert Attachment to dictionary."""
+        return {
+            'id': attachment.id,
+            'entity_type': attachment.entity_type,
+            'entity_id': attachment.entity_id,
+            'filename': attachment.filename,
+            'stored_filename': attachment.stored_filename,
+            'name': attachment.name,
+            'description': attachment.description,
+            'file_size_bytes': attachment.file_size_bytes,
+            'mime_type': attachment.mime_type,
+            'file_type': attachment.file_type,
+            'uploaded_by': attachment.uploaded_by,
+            'created_at': attachment.created_at.isoformat() if attachment.created_at else None,
         }
     
     # ==================== Search ====================
