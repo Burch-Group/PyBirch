@@ -123,7 +123,3 @@ Items:
 - [ ] Eventually: add the possibility to configure a small subset of lab objects to be made public  (available to all users to view, not just those with permissions). This will be like a lab website or group page. 
 - [ ] Eventually: live polling to connected computers, ability to query to instruments from instrument detail page & check connection there. ability to start scans from other devices via connection through pybirch. Ability to check whether computers are connected. of course, computers need to be first class database objects for this to make sense.
 - [ ] Eventually: migrate pybirch to jshtml with api
-
-1. updating the status of an issue should be separate from editing the issue for equipment and instrument issues. 
-
-2. Also, please allow images to be submitted with site-wide, equipment, and instrument issues.
