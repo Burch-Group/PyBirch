@@ -69,3 +69,47 @@ Items:
 - [ ] Maybe: Autogenerate Acquisition, Movement objects from PyMeasure instruments
 - [ ] Maybe: Autofind devices using 2D scans, add folder for data passing between scans...
 
+
+- [ ] Eventually: migrate pybirch to jshtml with api
+- [ ] allow users to choose a lab in their profile, filters everything. allow labs to turn on/off database items they don't use -- wont show up in navlinks or index when that lab is selected for viewing in the user profile. allow labs to configure a custom color theme (three or four primary colors) that will be used when that lab is selected for viewing.
+- [ ] allow to share equipment with users or with labs. They may create issues and view the equipment & its issues, but that is all.
+- [ ] ability to pin image
+- [ ] add multiple y values and legend for line plot
+- [ ] Automations -- emails, slack notifications, api calls to other databases; simple / template configurable
+- [ ] ask members of teams
+- [ ] notifications for users (essentially preset automations) which can be enables in email or slack for any of: scan status change, queue status change, issue assignment, assigned issue status change, assigned equipment status change, site-wide issue status change, new creation of new issues).
+- [ ] notifications for a slack channel as well, with the same settings as if it were a user, minus the assignment specific notifications 
+- [ ] maybe recipient class, with items like slack channels or email groups. user email & slack notifications are treated as a recipient with one address. can be configured with standard/custom notifications upon various lab events
+- [ ] references -- to be used in descriptions, etc. (popup search window?)
+- [ ] waste & location objects
+- [ ] dark mode xD
+- [ ] email notifications when members are added to labs/projects
+- [ ] Lab door access logs for security
+- [ ] Equipment usage logs, interface with iLab & calendar
+- [ ] equipment usage scheduling, google calendar
+- [ ] user qr code for login
+- [ ] archive feature to hide old objects unless specifically allowed in the site-wide filters
+- [ ] starred objects. appear first, after pins. database wide, not per user. starred images as well.
+- [ ] allow visualizations to be saved to the images section
+- [ ] add file and image uploads to fabrication runs
+- [ ] add settings change object to scans
+- [ ] add recurring maintenance tasks to equipment, which open a maintenance issue after agiven wait, and begin the wait again after that issue is resolved
+- [ ] separate axis names and units, these should be added to the downloadable csv file in the form name (units). Fix automatic visualization titles & axes appropriately.
+- [ ] add description field to images
+- [ ] add ability to upload other files (.kdf, gwiddeon, pdf, json, etc.) with name & description
+- [ ] add a team to the member heirarchy
+- [ ] allow sharing between labs, when accepted will add the other lab as a link to the object, and give permissions to related objects (scans, samples)
+- [ ] add analyses, json import for now. includes cisualization functionality from scan data, can save images to scan. add rest api for future automations here
+- [ ] allow users to add sample/project after a scan/queue is run by editing in the db.
+- [ ] add QR code option beside all search-select dropdowns that allows a QR code to be scanned, and inputs the resulting object if it is of the correct type, etc.
+- [ ] allow users to change default values in fabrication runs (if they are tuning something)
+- [ ] make parameters in procedures dynamic & configurable. e.g. deposition vs. photolithography will use a completely different set of parameters.
+- [ ] make equipment types dynamic & configurable within a lab (i.e. should be able to add new types, which will populate in the dropdown.)
+- [ ] Eventually: add automatic report generation that pulls from starred object
+- [ ] Eventually: add the possibility to configure a small subset of lab objects to be made public  (available to all users to view, not just those with permissions). This will be like a lab website or group page. 
+- [ ] Add images to labs (so i can add the cute group photo)
+- [ ] Add the ability to delete objects in the UI. They should be given the trash attribute (which hides them from all searches unless specifically allowed in the site-wide filtwrs). After 30 days, they should be removed entirely.
+- [ ] Site-wide filters need to be edited -- the button is visible longer than the Ui bar that it opens (frustrating)
+- [ ] Eventually: live polling to connected computers, ability to query to instruments from instrument detail page & check connection there. ability to start scans from other devices via connection through pybirch. Ability to check whether computers are connected. of course, computers need to be first class database objects for this to make sense.
+- [ ] publications -- link to scans, samples, lab, users, etc. Allows users to censor appropriately for a publically visible object that could be linked to from an actual publication (i.e. not to show description/notes on samples).
+- [ ] User statistics (labs created, samples created, etc. issues closed, publcations featured in, images added, and some other cool ones (pages visited? idk))
