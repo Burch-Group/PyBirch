@@ -17,7 +17,7 @@ from database.models import (
     Queue, QueueLog, Scan, ScanLog, MeasurementObject, MeasurementDataPoint,
     Tag, EntityTag, FabricationRun, FabricationRunPrecursor,
     Lab, LabMember, Project, ProjectMember, ItemGuest,
-    User, UserPin, Issue, EntityImage, Attachment,
+    User, UserPin, Issue, IssueUpdate, EntityImage, Attachment,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
     DriverIssue, Location, ObjectLocation
 )
@@ -5398,6 +5398,50 @@ class DatabaseService:
             'resolved_at': issue.resolved_at.isoformat() if issue.resolved_at else None,
             'created_at': issue.created_at.isoformat() if issue.created_at else None,
             'updated_at': issue.updated_at.isoformat() if issue.updated_at else None,
+        }
+    
+    # ==================== Issue Updates (Timeline) ====================
+    
+    def create_issue_update(self, data: Dict[str, Any]) -> Dict:
+        """Create a new issue update entry."""
+        with self.session_scope() as session:
+            update = IssueUpdate(
+                issue_type=data['issue_type'],
+                issue_id=data['issue_id'],
+                update_type=data.get('update_type', 'comment'),
+                content=data.get('content'),
+                old_status=data.get('old_status'),
+                new_status=data.get('new_status'),
+                author_id=data.get('author_id'),
+                author_name=data.get('author_name'),
+            )
+            session.add(update)
+            session.flush()
+            return self._issue_update_to_dict(update)
+    
+    def get_issue_updates(self, issue_type: str, issue_id: int) -> List[Dict]:
+        """Get all updates for an issue."""
+        with self.session_scope() as session:
+            updates = session.query(IssueUpdate).filter(
+                IssueUpdate.issue_type == issue_type,
+                IssueUpdate.issue_id == issue_id
+            ).order_by(IssueUpdate.created_at.asc()).all()
+            
+            return [self._issue_update_to_dict(u) for u in updates]
+    
+    def _issue_update_to_dict(self, update: IssueUpdate) -> Dict:
+        """Convert IssueUpdate model to dictionary."""
+        return {
+            'id': update.id,
+            'issue_type': update.issue_type,
+            'issue_id': update.issue_id,
+            'update_type': update.update_type,
+            'content': update.content,
+            'old_status': update.old_status,
+            'new_status': update.new_status,
+            'author_id': update.author_id,
+            'author_name': update.author_name,
+            'created_at': update.created_at.isoformat() if update.created_at else None,
         }
     
     # ==================== Entity Images ====================

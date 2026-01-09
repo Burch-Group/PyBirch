@@ -1,0 +1,383 @@
+<!-- Issue Update Timeline Component -->
+<!-- Required variables: issue_type, issue_id, updates (list), current_user -->
+
+<div class="issue-timeline-section">
+    <h2>Activity Timeline</h2>
+    
+    <!-- Update Form -->
+    {% if current_user %}
+    <form action="{{ url_for('main.issue_add_update', issue_type=issue_type, issue_id=issue_id) }}" method="POST" class="timeline-form">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="update_type">Update Type</label>
+                <select id="update_type" name="update_type" onchange="toggleStatusDropdown()">
+                    <option value="comment">Comment</option>
+                    <option value="workaround">Workaround</option>
+                    <option value="resolution">Resolution</option>
+                    <option value="status_change">Status Change</option>
+                </select>
+            </div>
+            <div class="form-group status-dropdown-group" id="status-dropdown-group" style="display: none;">
+                <label for="new_status">New Status</label>
+                <select id="new_status" name="new_status">
+                    <option value="open" {% if issue.status == 'open' %}selected{% endif %}>Open</option>
+                    <option value="in_progress" {% if issue.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                    <option value="resolved" {% if issue.status == 'resolved' %}selected{% endif %}>Resolved</option>
+                    <option value="closed" {% if issue.status == 'closed' %}selected{% endif %}>Closed</option>
+                    <option value="wont_fix" {% if issue.status == 'wont_fix' %}selected{% endif %}>Won't Fix</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="content">Update</label>
+            <textarea id="content" name="content" rows="3" placeholder="Add troubleshooting notes, workarounds, or resolution steps..."></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Add Update</button>
+    </form>
+    <script>
+    function toggleStatusDropdown() {
+        var updateType = document.getElementById('update_type').value;
+        var statusGroup = document.getElementById('status-dropdown-group');
+        statusGroup.style.display = updateType === 'status_change' ? 'block' : 'none';
+    }
+    </script>
+    {% endif %}
+    
+    <!-- Timeline -->
+    <div class="timeline">
+        {% if updates %}
+            {% for update in updates|reverse %}
+            <div class="timeline-item timeline-{{ update.update_type }}">
+                <div class="timeline-marker marker-{{ update.update_type }}">
+                </div>
+                <div class="timeline-content">
+                    <div class="timeline-header">
+                        <span class="timeline-author">{{ update.author_name or 'System' }}</span>
+                        <span class="timeline-type type-{{ update.update_type }}">{{ update.update_type|replace('_', ' ')|title }}</span>
+                        <span class="timeline-date">{{ update.created_at[:16]|replace('T', ' ') if update.created_at else '' }}</span>
+                    </div>
+                    {% if update.old_status and update.new_status %}
+                    <div class="timeline-status-change">
+                        <span class="status-badge status-{{ update.old_status }}">{{ update.old_status|replace('_', ' ') }}</span>
+                        <span class="status-arrow">→</span>
+                        <span class="status-badge status-{{ update.new_status }}">{{ update.new_status|replace('_', ' ') }}</span>
+                    </div>
+                    {% endif %}
+                    {% if update.content %}
+                    <div class="timeline-text">{{ update.content|nl2br|safe }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="timeline-empty">
+                <p>No updates yet. Add the first update above!</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.issue-timeline-section {
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.issue-timeline-section h2 {
+    margin-top: 0;
+    margin-bottom: 1.25rem;
+    font-size: 1.25rem;
+    border-bottom: 1px solid var(--border-color, #e0e0e0);
+    padding-bottom: 0.75rem;
+}
+
+/* Timeline Form */
+.timeline-form {
+    background: var(--bg-light, #f8f9fa);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border-color, #e0e0e0);
+}
+
+.timeline-form .form-group {
+    margin-bottom: 1rem;
+}
+
+.timeline-form .form-group:last-of-type {
+    margin-bottom: 1rem;
+}
+
+.timeline-form label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary, #666);
+    font-size: 0.9rem;
+}
+
+.timeline-form select,
+.timeline-form textarea {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 4px;
+    font-size: 0.95rem;
+}
+
+.timeline-form textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.timeline-form select:focus,
+.timeline-form textarea:focus {
+    outline: none;
+    border-color: var(--primary-color, #2563eb);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.timeline-form .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.timeline-form .form-row .form-group {
+    flex: 1;
+    min-width: 150px;
+}
+
+/* Timeline */
+.timeline {
+    position: relative;
+    padding-left: 2rem;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 0.75rem;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border-color, #e0e0e0);
+}
+
+.timeline-item {
+    position: relative;
+    padding-bottom: 1.5rem;
+}
+
+.timeline-item:last-child {
+    padding-bottom: 0;
+}
+
+.timeline-marker {
+    position: absolute;
+    left: -2rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    background: var(--card-bg, #fff);
+    border: 2px solid var(--border-color, #e0e0e0);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.timeline-marker::before {
+    content: '';
+    width: 12px;
+    height: 12px;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+/* Comment icon (chat bubble) */
+.marker-comment::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%236b7280'%3E%3Cpath d='M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z'/%3E%3C/svg%3E");
+}
+
+/* Workaround icon (tools/wrench) */
+.marker-workaround::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23d97706'%3E%3Cpath d='M4.48 7.27c.26.26 1.28 1.33 1.28 1.33l.56-.58-.88-.91 1.69-1.8s-.76-.74-.43-.45c.32-1.19.03-2.51-.87-3.44C4.93.52 3.66.2 2.52.51l1.93 2-.51 1.96-1.89.52-1.93-2C-.19 4.17.13 5.48 1 6.4c.94.98 2.29 1.26 3.48.87zm6.44 1.94l-2.33 2.3 3.84 3.98c.31.33.73.49 1.14.49.41 0 .82-.16 1.14-.49.63-.65.63-1.7 0-2.35l-3.79-3.93zM16 2.53L13.55 0 6.33 7.46l.88.91-4.31 4.46-.99.53-1.39 2.27.35.37 2.2-1.44.51-1.02L7.9 9.08l.88.91L16 2.53z'/%3E%3C/svg%3E");
+}
+
+/* Resolution icon (checkmark) */
+.marker-resolution::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%2316a34a'%3E%3Cpath d='M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z'/%3E%3C/svg%3E");
+}
+
+/* Status change icon (sync/arrows) */
+.marker-status_change::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%232563eb'%3E%3Cpath d='M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .656-.834ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z'/%3E%3C/svg%3E");
+}
+
+.timeline-resolution .timeline-marker {
+    border-color: var(--success-color, #22c55e);
+    background: #f0fdf4;
+}
+
+.timeline-workaround .timeline-marker {
+    border-color: var(--warning-color, #f59e0b);
+    background: #fffbeb;
+}
+
+.timeline-status_change .timeline-marker {
+    border-color: var(--primary-color, #2563eb);
+    background: #eff6ff;
+}
+
+.timeline-content {
+    background: var(--bg-light, #f8f9fa);
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+}
+
+.timeline-resolution .timeline-content {
+    border-color: var(--success-color, #22c55e);
+    background: #f0fdf4;
+}
+
+.timeline-workaround .timeline-content {
+    border-color: var(--warning-color, #f59e0b);
+    background: #fffbeb;
+}
+
+.timeline-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.timeline-author {
+    font-weight: 600;
+    color: var(--text-primary, #333);
+}
+
+.timeline-type {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+
+.type-comment {
+    background: var(--bg-muted, #e5e7eb);
+    color: var(--text-secondary, #666);
+}
+
+.type-resolution {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.type-workaround {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.type-status_change {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.timeline-date {
+    color: var(--text-muted, #888);
+    margin-left: auto;
+}
+
+.timeline-status-change {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.status-arrow {
+    color: var(--text-muted, #888);
+}
+
+.timeline-text {
+    color: var(--text-primary, #333);
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.timeline-empty {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted, #888);
+}
+
+/* Status badges */
+.status-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.status-open {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.status-in_progress {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.status-resolved {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.status-closed {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.status-wont_fix {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+@media (max-width: 768px) {
+    .timeline {
+        padding-left: 1.5rem;
+    }
+    
+    .timeline-marker {
+        left: -1.5rem;
+        width: 1.25rem;
+        height: 1.25rem;
+        font-size: 0.65rem;
+    }
+    
+    .timeline::before {
+        left: 0.5rem;
+    }
+    
+    .timeline-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+    
+    .timeline-date {
+        margin-left: 0;
+    }
+}
+</style>

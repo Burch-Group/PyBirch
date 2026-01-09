@@ -1780,6 +1780,9 @@ def equipment_issue_detail(equipment_id, issue_id):
     images = db.get_entity_images('equipment_issue', issue_id)
     attachments = db.get_entity_attachments('equipment_issue', issue_id)
     
+    # Get update history for timeline
+    updates = db.get_issue_updates('equipment_issue', issue_id)
+    
     return render_template('equipment_issue_detail.html',
         equipment=equipment,
         issue=issue,
@@ -1788,6 +1791,9 @@ def equipment_issue_detail(equipment_id, issue_id):
         attachments=attachments,
         entity_type='equipment_issue',
         entity_id=issue_id,
+        issue_type='equipment_issue',
+        issue_id=issue_id,
+        updates=updates,
     )
 
 
@@ -1892,9 +1898,12 @@ def equipment_issue_update_status(equipment_id, issue_id):
         flash('Issue not found', 'error')
         return redirect(url_for('main.equipment_issues', equipment_id=equipment_id))
     
+    old_status = issue.get('status')
+    new_status = request.form.get('status')
+    resolution_note = request.form.get('resolution')
+    
     data = {
-        'status': request.form.get('status'),
-        'resolution': request.form.get('resolution'),
+        'status': new_status,
     }
     
     assignee_id = request.form.get('assignee_id')
@@ -1905,11 +1914,35 @@ def equipment_issue_update_status(equipment_id, issue_id):
     
     # Handle resolved_at based on status change
     from datetime import datetime
-    if data['status'] in ['resolved', 'closed'] and issue['status'] not in ['resolved', 'closed']:
+    if new_status in ['resolved', 'closed'] and old_status not in ['resolved', 'closed']:
         data['resolved_at'] = datetime.utcnow()
     
     try:
         db.update_equipment_issue(issue_id, data)
+        
+        # Create an update entry if there's a status change or resolution note
+        if old_status != new_status or resolution_note:
+            author_name = None
+            author_id = None
+            if g.current_user:
+                author_name = g.current_user.get('name') or g.current_user.get('username')
+                author_id = g.current_user.get('id')
+            
+            update_type = 'status_change' if old_status != new_status else 'comment'
+            if resolution_note and new_status in ['resolved', 'closed']:
+                update_type = 'resolution'
+            
+            db.create_issue_update({
+                'issue_type': 'equipment_issue',
+                'issue_id': issue_id,
+                'update_type': update_type,
+                'content': resolution_note,
+                'old_status': old_status if old_status != new_status else None,
+                'new_status': new_status if old_status != new_status else None,
+                'author_id': author_id,
+                'author_name': author_name,
+            })
+        
         flash('Issue status updated', 'success')
     except Exception as e:
         flash(f'Error updating issue: {str(e)}', 'error')
@@ -3994,6 +4027,9 @@ def issue_detail(issue_id):
     images = db.get_entity_images('issue', issue_id)
     attachments = db.get_entity_attachments('issue', issue_id)
     
+    # Get update history for timeline
+    updates = db.get_issue_updates('issue', issue_id)
+    
     return render_template('issue_detail.html', 
         issue=issue, 
         users=users,
@@ -4001,6 +4037,9 @@ def issue_detail(issue_id):
         attachments=attachments,
         entity_type='issue',
         entity_id=issue_id,
+        issue_type='issue',
+        issue_id=issue_id,
+        updates=updates,
     )
 
 
@@ -4071,18 +4110,131 @@ def issue_update_status(issue_id):
     """Update issue status."""
     db = get_db_service()
     
+    old_issue = db.get_issue(issue_id)
+    old_status = old_issue.get('status') if old_issue else None
+    
+    new_status = request.form.get('status')
+    assignee_id = request.form.get('assignee_id') or None
+    resolution_note = request.form.get('resolution')
+    
     data = {
-        'status': request.form.get('status'),
-        'assignee_id': request.form.get('assignee_id') or None,
-        'resolution': request.form.get('resolution'),
+        'status': new_status,
+        'assignee_id': int(assignee_id) if assignee_id else None,
     }
     
-    if data['assignee_id']:
-        data['assignee_id'] = int(data['assignee_id'])
-    
     db.update_issue(issue_id, data)
+    
+    # Create an update entry if there's a status change or resolution note
+    if old_status != new_status or resolution_note:
+        author_name = None
+        author_id = None
+        if g.current_user:
+            author_name = g.current_user.get('name') or g.current_user.get('username')
+            author_id = g.current_user.get('id')
+        
+        update_type = 'status_change' if old_status != new_status else 'comment'
+        if resolution_note and new_status in ['resolved', 'closed']:
+            update_type = 'resolution'
+        
+        db.create_issue_update({
+            'issue_type': 'issue',
+            'issue_id': issue_id,
+            'update_type': update_type,
+            'content': resolution_note,
+            'old_status': old_status if old_status != new_status else None,
+            'new_status': new_status if old_status != new_status else None,
+            'author_id': author_id,
+            'author_name': author_name,
+        })
+    
     flash('Issue updated', 'success')
     return redirect(url_for('main.issue_detail', issue_id=issue_id))
+
+
+@main_bp.route('/issues/<issue_type>/<int:issue_id>/update', methods=['POST'])
+@login_required
+def issue_add_update(issue_type, issue_id):
+    """Add an update to any issue type."""
+    db = get_db_service()
+    
+    content = request.form.get('content')
+    update_type = request.form.get('update_type', 'comment')
+    new_status = request.form.get('new_status')
+    
+    # For status changes, content is optional but status is required
+    if update_type == 'status_change':
+        if not new_status:
+            flash('Please select a new status', 'error')
+        else:
+            # Get current issue status
+            old_status = None
+            if issue_type == 'issue':
+                issue = db.get_issue(issue_id)
+                if issue:
+                    old_status = issue.get('status')
+                    db.update_issue(issue_id, {'status': new_status})
+            elif issue_type == 'equipment_issue':
+                issue = db.get_equipment_issue(issue_id)
+                if issue:
+                    old_status = issue.get('status')
+                    db.update_equipment_issue(issue_id, {'status': new_status})
+            elif issue_type == 'driver_issue':
+                issue = db.get_driver_issue(issue_id)
+                if issue:
+                    old_status = issue.get('status')
+                    db.update_driver_issue(issue_id, {'status': new_status})
+            
+            author_name = None
+            author_id = None
+            if g.current_user:
+                author_name = g.current_user.get('name') or g.current_user.get('username')
+                author_id = g.current_user.get('id')
+            
+            db.create_issue_update({
+                'issue_type': issue_type,
+                'issue_id': issue_id,
+                'update_type': update_type,
+                'content': content,
+                'old_status': old_status,
+                'new_status': new_status,
+                'author_id': author_id,
+                'author_name': author_name,
+            })
+            flash('Status updated', 'success')
+    elif not content:
+        flash('Please enter an update', 'error')
+    else:
+        author_name = None
+        author_id = None
+        if g.current_user:
+            author_name = g.current_user.get('name') or g.current_user.get('username')
+            author_id = g.current_user.get('id')
+        
+        db.create_issue_update({
+            'issue_type': issue_type,
+            'issue_id': issue_id,
+            'update_type': update_type,
+            'content': content,
+            'author_id': author_id,
+            'author_name': author_name,
+        })
+        flash('Update added', 'success')
+    
+    # Redirect back to the appropriate detail page
+    if issue_type == 'issue':
+        return redirect(url_for('main.issue_detail', issue_id=issue_id))
+    elif issue_type == 'equipment_issue':
+        # Need to get the equipment_id
+        issue = db.get_equipment_issue(issue_id)
+        if issue:
+            return redirect(url_for('main.equipment_issue_detail', equipment_id=issue['equipment_id'], issue_id=issue_id))
+    elif issue_type == 'driver_issue':
+        # Need to get the driver_id
+        issue = db.get_driver_issue(issue_id)
+        if issue:
+            return redirect(url_for('main.driver_issue_detail', driver_id=issue['driver_id'], issue_id=issue_id))
+    
+    return redirect(request.referrer or url_for('main.issues'))
 
 
 @main_bp.route('/issues/<int:issue_id>/delete', methods=['POST'])
@@ -6602,6 +6754,9 @@ def driver_issue_detail(driver_id, issue_id):
     images = db.get_entity_images('driver_issue', issue_id)
     attachments = db.get_entity_attachments('driver_issue', issue_id)
     
+    # Get update history for timeline
+    updates = db.get_issue_updates('driver_issue', issue_id)
+    
     return render_template('driver_issue_detail.html',
         driver=driver,
         issue=issue,
@@ -6611,6 +6766,9 @@ def driver_issue_detail(driver_id, issue_id):
         attachments=attachments,
         entity_type='driver_issue',
         entity_id=issue_id,
+        issue_type='driver_issue',
+        issue_id=issue_id,
+        updates=updates,
     )
 
 
@@ -6740,9 +6898,12 @@ def driver_issue_update_status(driver_id, issue_id):
         flash('Issue not found', 'error')
         return redirect(url_for('main.driver_issues', driver_id=driver_id))
     
+    old_status = issue.get('status')
+    new_status = request.form.get('status')
+    resolution_note = request.form.get('resolution')
+    
     data = {
-        'status': request.form.get('status'),
-        'resolution': request.form.get('resolution'),
+        'status': new_status,
     }
     
     assignee_id = request.form.get('assignee_id')
@@ -6753,11 +6914,35 @@ def driver_issue_update_status(driver_id, issue_id):
     
     # Handle resolved_at based on status change
     from datetime import datetime
-    if data['status'] in ['resolved', 'closed'] and issue['status'] not in ['resolved', 'closed']:
+    if new_status in ['resolved', 'closed'] and old_status not in ['resolved', 'closed']:
         data['resolved_at'] = datetime.utcnow()
     
     try:
         db.update_driver_issue(issue_id, data)
+        
+        # Create an update entry if there's a status change or resolution note
+        if old_status != new_status or resolution_note:
+            author_name = None
+            author_id = None
+            if g.current_user:
+                author_name = g.current_user.get('name') or g.current_user.get('username')
+                author_id = g.current_user.get('id')
+            
+            update_type = 'status_change' if old_status != new_status else 'comment'
+            if resolution_note and new_status in ['resolved', 'closed']:
+                update_type = 'resolution'
+            
+            db.create_issue_update({
+                'issue_type': 'driver_issue',
+                'issue_id': issue_id,
+                'update_type': update_type,
+                'content': resolution_note,
+                'old_status': old_status if old_status != new_status else None,
+                'new_status': new_status if old_status != new_status else None,
+                'author_id': author_id,
+                'author_name': author_name,
+            })
+        
         flash('Issue status updated', 'success')
     except Exception as e:
         flash(f'Error updating issue: {str(e)}', 'error')

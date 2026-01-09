@@ -430,6 +430,44 @@ class Issue(TrashableMixin, ArchivableMixin, Base):
         return f"<Issue(id={self.id}, title='{self.title}', status='{self.status}')>"
 
 
+class IssueUpdate(Base):
+    """
+    Update/comment entries for issues. Supports all issue types (site-wide, equipment, driver).
+    Creates a timeline/history of troubleshooting and resolution progress.
+    """
+    __tablename__ = "issue_updates"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Polymorphic link to any issue type
+    issue_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'issue', 'equipment_issue', 'driver_issue'
+    issue_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    # Update content
+    update_type: Mapped[str] = mapped_column(String(50), default='comment')  # 'comment', 'status_change', 'resolution', 'workaround'
+    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # The actual update text
+    
+    # Status change tracking (if this update changed status)
+    old_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    new_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    
+    # Who made this update
+    author_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    author_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Denormalized for display
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationship
+    author = relationship("User", foreign_keys=[author_id])
+    
+    __table_args__ = (
+        Index('idx_issue_updates_issue', 'issue_type', 'issue_id'),
+        Index('idx_issue_updates_created', 'created_at'),
+    )
+    
+    def __repr__(self):
+        return f"<IssueUpdate(id={self.id}, issue_type='{self.issue_type}', issue_id={self.issue_id})>"
+
+
 # ============================================================
 # INSTRUMENTS (formerly Equipment) - PyBirch-compatible devices
 # ============================================================
