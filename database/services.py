@@ -635,13 +635,14 @@ class DatabaseService:
             return [self._scan_to_dict(s) for s in scans], total
     
     def get_scan(self, scan_id: int) -> Optional[Dict]:
-        """Get a single scan by ID with measurement data, parent queue, and logs."""
+        """Get a single scan by ID with measurement data, parent queue, project, and logs."""
         with self.session_scope() as session:
             scan = session.query(Scan).options(
                 joinedload(Scan.sample),
                 joinedload(Scan.measurement_objects),
                 joinedload(Scan.queue),
                 joinedload(Scan.logs),
+                joinedload(Scan.project),
             ).filter(Scan.id == scan_id).first()
             
             if not scan:
@@ -650,6 +651,7 @@ class DatabaseService:
             result = self._scan_to_dict(scan)
             result['sample'] = self._sample_to_dict(scan.sample) if scan.sample else None
             result['queue'] = self._queue_to_dict(scan.queue) if scan.queue else None
+            result['project'] = self._project_to_dict(scan.project) if scan.project else None
             result['measurement_objects'] = [
                 self._measurement_object_to_dict(mo) 
                 for mo in scan.measurement_objects
@@ -1230,12 +1232,13 @@ class DatabaseService:
             return [self._queue_to_dict(q) for q in queues], total
     
     def get_queue(self, queue_id: int) -> Optional[Dict]:
-        """Get a single queue by ID with related scans and logs."""
+        """Get a single queue by ID with related scans, project, and logs."""
         with self.session_scope() as session:
             queue = session.query(Queue).options(
                 joinedload(Queue.sample),
                 joinedload(Queue.scans),
                 joinedload(Queue.logs),
+                joinedload(Queue.project),
             ).filter(Queue.id == queue_id).first()
             
             if not queue:
@@ -1243,6 +1246,7 @@ class DatabaseService:
             
             result = self._queue_to_dict(queue)
             result['sample'] = self._sample_to_dict(queue.sample) if queue.sample else None
+            result['project'] = self._project_to_dict(queue.project) if queue.project else None
             result['scans'] = [self._scan_to_dict(s) for s in queue.scans]
             result['logs'] = [self._queue_log_to_dict(log) for log in queue.logs]
             return result

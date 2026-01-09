@@ -31,7 +31,7 @@
             edit_url=url_for('main.issue_edit', issue_id=issue.id),
             entity_type='issue',
             entity_id=issue.id,
-            show_archive=false,
+            show_archive=true,
             show_trash=(current_user.role == 'admin')
         ) }}
         {% endif %}
@@ -102,6 +102,9 @@
                 </form>
             </div>
             {% endif %}
+            
+            <!-- Images Section -->
+            {% include 'partials/image_gallery.html' %}
         </div>
         
         <div class="issue-sidebar">

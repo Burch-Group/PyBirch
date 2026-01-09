@@ -58,18 +58,34 @@
         </div>
         
         <div class="detail-section">
-            <h2>Sample</h2>
-            {% if queue.sample %}
-                <dl class="detail-list">
-                    <dt>Sample ID</dt>
-                    <dd><a href="{{ url_for('main.sample_detail', sample_id=queue.sample.id) }}">{{ queue.sample.sample_id }}</a></dd>
-                    
-                    <dt>Material</dt>
-                    <dd>{{ queue.sample.material or '-' }}</dd>
-                </dl>
-            {% else %}
-                <p class="empty-state">No sample associated with this queue.</p>
-            {% endif %}
+            <div class="section-header-inline">
+                <h2>Linked Entities</h2>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="openEditLinksModal()">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    Edit
+                </button>
+            </div>
+            <dl class="detail-list">
+                <dt>Sample</dt>
+                <dd>
+                    {% if queue.sample %}
+                        <a href="{{ url_for('main.sample_detail', sample_id=queue.sample.id) }}">{{ queue.sample.sample_id }}</a>
+                        {% if queue.sample.name %}<span class="text-muted"> - {{ queue.sample.name }}</span>{% endif %}
+                    {% else %}
+                        <span class="text-muted">None</span>
+                    {% endif %}
+                </dd>
+                
+                <dt>Project</dt>
+                <dd>
+                    {% if queue.project %}
+                        <a href="{{ url_for('main.project_detail', project_id=queue.project.id) }}">{{ queue.project.name }}</a>
+                        {% if queue.project.code %}<span class="text-muted"> ({{ queue.project.code }})</span>{% endif %}
+                    {% else %}
+                        <span class="text-muted">None</span>
+                    {% endif %}
+                </dd>
+            </dl>
             
             <h3>PyBirch URI</h3>
             <div class="uri-box">
@@ -159,7 +175,147 @@
     </div>
 </div>
 
+<!-- Edit Links Modal -->
+<div class="modal-overlay" id="edit-links-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Edit Linked Entities</h3>
+            <button type="button" class="modal-close" onclick="closeEditLinksModal()">&times;</button>
+        </div>
+        <form action="{{ url_for('main.queue_edit_links', queue_id=queue.id) }}" method="POST">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="sample_id">Sample</label>
+                    <select id="sample_id" name="sample_id" class="searchable-select" data-entity-type="sample">
+                        <option value="">-- None --</option>
+                        {% for sample in samples %}
+                        <option value="{{ sample.id }}" {% if queue.sample_id == sample.id %}selected{% endif %}>
+                            {{ sample.display }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-text">Link this queue to a sample</small>
+                </div>
+                <div class="form-group">
+                    <label for="project_id">Project</label>
+                    <select id="project_id" name="project_id" class="searchable-select" data-entity-type="project">
+                        <option value="">-- None --</option>
+                        {% for project in projects %}
+                        <option value="{{ project.id }}" {% if queue.project_id == project.id %}selected{% endif %}>
+                            {{ project.display }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-text">Link this queue to a project</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeEditLinksModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <style>
+/* Section header with inline button */
+.section-header-inline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+.section-header-inline h2 {
+    margin: 0;
+}
+.section-header-inline .btn svg {
+    margin-right: 0.25rem;
+}
+/* Edit Links Modal */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+.modal-overlay.active {
+    display: flex;
+}
+.modal-content {
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    width: 100%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--text-secondary, #666);
+    padding: 0;
+    line-height: 1;
+}
+.modal-close:hover {
+    color: var(--text-primary, #333);
+}
+.modal-body {
+    padding: 1.5rem;
+}
+.modal-body .form-group {
+    margin-bottom: 1.25rem;
+}
+.modal-body .form-group:last-child {
+    margin-bottom: 0;
+}
+.modal-body label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+.modal-body select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 4px;
+    background: var(--input-bg, #fff);
+    color: var(--text-primary, #333);
+    font-size: 1rem;
+}
+.modal-body .form-text {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary, #666);
+}
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+/* Danger Zone */
 .danger-zone {
     background: #fef2f2;
     border: 2px solid #fecaca;
@@ -207,6 +363,29 @@
 </style>
 
 <script>
+// ===== EDIT LINKS MODAL =====
+function openEditLinksModal() {
+    document.getElementById('edit-links-modal').classList.add('active');
+}
+
+function closeEditLinksModal() {
+    document.getElementById('edit-links-modal').classList.remove('active');
+}
+
+// Close modal on backdrop click
+document.getElementById('edit-links-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeEditLinksModal();
+    }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeEditLinksModal();
+    }
+});
+
 async function deleteQueueWithWarning(queueId, queueName, scanCount) {
     const confirmed = await PyBirchModal.confirm({
         type: 'danger',

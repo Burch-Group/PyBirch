@@ -1043,10 +1043,16 @@ def scan_detail(scan_id):
     # Get visualization data organized by measurement object
     visualization_data = db.get_visualization_data(scan_id)
     
+    # Get samples and projects for the edit links modal
+    samples = db.get_samples_simple_list()
+    projects = db.get_projects_simple_list()
+    
     return render_template('scan_detail.html', 
                           scan=scan, 
                           data_points=data_points,
-                          visualization_data=visualization_data)
+                          visualization_data=visualization_data,
+                          samples=samples,
+                          projects=projects)
 
 
 @main_bp.route('/scans/<int:scan_id>/download-csv')
@@ -1131,6 +1137,47 @@ def scan_delete(scan_id):
     return redirect(url_for('main.scans'))
 
 
+@main_bp.route('/scans/<int:scan_id>/edit-links', methods=['POST'])
+@login_required
+def scan_edit_links(scan_id):
+    """Edit sample and project links for a scan."""
+    db = get_db_service()
+    scan = db.get_scan(scan_id)
+    
+    if not scan:
+        flash('Scan not found', 'error')
+        return redirect(url_for('main.scans'))
+    
+    try:
+        # Get form values - empty string means "None" (unlink)
+        sample_id_str = request.form.get('sample_id', '')
+        project_id_str = request.form.get('project_id', '')
+        
+        data = {}
+        
+        # Handle sample_id - convert to int or None
+        if sample_id_str == '':
+            data['sample_id'] = None
+        else:
+            data['sample_id'] = int(sample_id_str)
+        
+        # Handle project_id - convert to int or None
+        if project_id_str == '':
+            data['project_id'] = None
+        else:
+            data['project_id'] = int(project_id_str)
+        
+        updated = db.update_scan(scan_id, data)
+        if updated:
+            flash('Scan links updated successfully', 'success')
+        else:
+            flash('Error updating scan links', 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+    
+    return redirect(url_for('main.scan_detail', scan_id=scan_id))
+
+
 # -------------------- Queues --------------------
 
 @main_bp.route('/queues')
@@ -1173,7 +1220,12 @@ def queue_detail(queue_id):
     if not queue:
         flash('Queue not found', 'error')
         return redirect(url_for('main.queues'))
-    return render_template('queue_detail.html', queue=queue)
+    
+    # Get samples and projects for the edit links modal
+    samples = db.get_samples_simple_list()
+    projects = db.get_projects_simple_list()
+    
+    return render_template('queue_detail.html', queue=queue, samples=samples, projects=projects)
 
 
 @main_bp.route('/queues/<int:queue_id>/delete', methods=['POST'])
@@ -1200,6 +1252,47 @@ def queue_delete(queue_id):
         flash(f'Error: {str(e)}', 'error')
     
     return redirect(url_for('main.queues'))
+
+
+@main_bp.route('/queues/<int:queue_id>/edit-links', methods=['POST'])
+@login_required
+def queue_edit_links(queue_id):
+    """Edit sample and project links for a queue."""
+    db = get_db_service()
+    queue = db.get_queue(queue_id)
+    
+    if not queue:
+        flash('Queue not found', 'error')
+        return redirect(url_for('main.queues'))
+    
+    try:
+        # Get form values - empty string means "None" (unlink)
+        sample_id_str = request.form.get('sample_id', '')
+        project_id_str = request.form.get('project_id', '')
+        
+        data = {}
+        
+        # Handle sample_id - convert to int or None
+        if sample_id_str == '':
+            data['sample_id'] = None
+        else:
+            data['sample_id'] = int(sample_id_str)
+        
+        # Handle project_id - convert to int or None
+        if project_id_str == '':
+            data['project_id'] = None
+        else:
+            data['project_id'] = int(project_id_str)
+        
+        updated = db.update_queue(queue_id, data)
+        if updated:
+            flash('Queue links updated successfully', 'success')
+        else:
+            flash('Error updating queue links', 'error')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+    
+    return redirect(url_for('main.queue_detail', queue_id=queue_id))
 
 
 # -------------------- Equipment --------------------
@@ -1619,9 +1712,19 @@ def equipment_issue_detail(equipment_id, issue_id):
         flash('Issue not found', 'error')
         return redirect(url_for('main.equipment_issues', equipment_id=equipment_id))
     
+    # Get users for assignee dropdown
+    users, _ = db.get_users(per_page=1000)
+    
+    # Get images for this issue
+    images = db.get_entity_images('equipment_issue', issue_id)
+    
     return render_template('equipment_issue_detail.html',
         equipment=equipment,
         issue=issue,
+        users=users,
+        images=images,
+        entity_type='equipment_issue',
+        entity_id=issue_id,
     )
 
 
@@ -1713,6 +1816,42 @@ def equipment_issue_edit(equipment_id, issue_id):
         action='Edit',
         users=users,
     )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/issues/<int:issue_id>/status', methods=['POST'])
+@login_required
+def equipment_issue_update_status(equipment_id, issue_id):
+    """Update equipment issue status (quick update without full edit)."""
+    db = get_db_service()
+    
+    issue = db.get_equipment_issue(issue_id)
+    if not issue:
+        flash('Issue not found', 'error')
+        return redirect(url_for('main.equipment_issues', equipment_id=equipment_id))
+    
+    data = {
+        'status': request.form.get('status'),
+        'resolution': request.form.get('resolution'),
+    }
+    
+    assignee_id = request.form.get('assignee_id')
+    if assignee_id:
+        data['assignee_id'] = int(assignee_id)
+    else:
+        data['assignee_id'] = None
+    
+    # Handle resolved_at based on status change
+    from datetime import datetime
+    if data['status'] in ['resolved', 'closed'] and issue['status'] not in ['resolved', 'closed']:
+        data['resolved_at'] = datetime.utcnow()
+    
+    try:
+        db.update_equipment_issue(issue_id, data)
+        flash('Issue status updated', 'success')
+    except Exception as e:
+        flash(f'Error updating issue: {str(e)}', 'error')
+    
+    return redirect(url_for('main.equipment_issue_detail', equipment_id=equipment_id, issue_id=issue_id))
 
 
 @main_bp.route('/equipment/issues')
@@ -3785,7 +3924,17 @@ def issue_detail(issue_id):
         return redirect(url_for('main.issues'))
     
     users, _ = db.get_users()  # For assignee dropdown
-    return render_template('issue_detail.html', issue=issue, users=users)
+    
+    # Get images for this issue
+    images = db.get_entity_images('issue', issue_id)
+    
+    return render_template('issue_detail.html', 
+        issue=issue, 
+        users=users,
+        images=images,
+        entity_type='issue',
+        entity_id=issue_id,
+    )
 
 
 @main_bp.route('/issues/new', methods=['GET', 'POST'])
@@ -6209,10 +6358,20 @@ def driver_issue_detail(driver_id, issue_id):
     # Get versions for display
     versions = db.get_driver_versions(driver_id)
     
+    # Get users for assignee dropdown
+    users, _ = db.get_users(per_page=1000)
+    
+    # Get images for this issue
+    images = db.get_entity_images('driver_issue', issue_id)
+    
     return render_template('driver_issue_detail.html',
         driver=driver,
         issue=issue,
         versions=versions,
+        users=users,
+        images=images,
+        entity_type='driver_issue',
+        entity_id=issue_id,
     )
 
 
@@ -6329,6 +6488,42 @@ def driver_issue_edit(driver_id, issue_id):
         users=users,
         versions=versions,
     )
+
+
+@main_bp.route('/drivers/<int:driver_id>/issues/<int:issue_id>/status', methods=['POST'])
+@login_required
+def driver_issue_update_status(driver_id, issue_id):
+    """Update driver issue status (quick update without full edit)."""
+    db = get_db_service()
+    
+    issue = db.get_driver_issue(issue_id)
+    if not issue:
+        flash('Issue not found', 'error')
+        return redirect(url_for('main.driver_issues', driver_id=driver_id))
+    
+    data = {
+        'status': request.form.get('status'),
+        'resolution': request.form.get('resolution'),
+    }
+    
+    assignee_id = request.form.get('assignee_id')
+    if assignee_id:
+        data['assignee_id'] = int(assignee_id)
+    else:
+        data['assignee_id'] = None
+    
+    # Handle resolved_at based on status change
+    from datetime import datetime
+    if data['status'] in ['resolved', 'closed'] and issue['status'] not in ['resolved', 'closed']:
+        data['resolved_at'] = datetime.utcnow()
+    
+    try:
+        db.update_driver_issue(issue_id, data)
+        flash('Issue status updated', 'success')
+    except Exception as e:
+        flash(f'Error updating issue: {str(e)}', 'error')
+    
+    return redirect(url_for('main.driver_issue_detail', driver_id=driver_id, issue_id=issue_id))
 
 
 @main_bp.route('/drivers/issues')
