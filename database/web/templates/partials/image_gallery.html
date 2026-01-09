@@ -2,16 +2,25 @@
 <!-- Include this partial with: { % include 'partials/image_gallery.html' % } -->
 <!-- Required variables: entity_type, entity_id, images (list) -->
 
-<div class="images-section" id="images-section">
+<div class="images-section" id="images-section" tabindex="0">
     <div class="section-header">
         <h2>Images</h2>
         <span class="image-count">({{ images|length if images else 0 }})</span>
-        {% if images %}
-        <!-- Upload button shown when images exist -->
-        <label class="btn btn-secondary btn-small upload-btn-header" for="image-file-input">
-            + Add Images
-        </label>
-        {% endif %}
+        <div class="header-actions">
+            <!-- Paste info with tooltip -->
+            <span class="paste-info-wrapper">
+                <span class="paste-info-icon" title="Press Ctrl+V (or Cmd+V on Mac) to paste an image from your clipboard">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                </span>
+                <span class="paste-label">Paste (Ctrl+V)</span>
+            </span>
+            {% if images %}
+            <!-- Upload button shown when images exist -->
+            <label class="btn btn-secondary btn-small upload-btn-header" for="image-file-input">
+                + Add Images
+            </label>
+            {% endif %}
+        </div>
     </div>
     
     <!-- Hidden file input (used by both drop zone and header button) -->
@@ -58,6 +67,11 @@
                     </div>
                 </div>
                 <div class="image-actions">
+                    <a href="{{ url_for('static', filename='uploads/images/' + image.stored_filename) }}" 
+                       download="{{ image.name or image.filename }}" 
+                       class="btn-icon" title="Download">
+                        ⬇️
+                    </a>
                     <button class="btn-icon" onclick="editImageMetadata({{ image.id }}, '{{ image.name or '' }}', '{{ image.description or '' }}')" title="Edit">
                         ✏️
                     </button>
@@ -81,7 +95,7 @@
                 <div class="drop-zone-content">
                     <div class="drop-icon">📷</div>
                     <p>Drag & drop images here</p>
-                    <p class="drop-hint">or</p>
+                    <p class="drop-hint">or paste from clipboard (Ctrl+V)</p>
                     <label class="btn btn-secondary btn-small upload-btn" for="image-file-input">
                         Choose Files
                     </label>
@@ -107,19 +121,23 @@
 <!-- Edit Image Metadata Modal -->
 <div class="edit-modal" id="edit-image-modal">
     <div class="edit-modal-content">
-        <h3>Edit Image Details</h3>
+        <h3 id="edit-modal-title">Edit Image Details</h3>
+        <div class="edit-modal-preview" id="edit-modal-preview" style="display: none;">
+            <img id="edit-preview-image" src="" alt="Preview">
+        </div>
         <form id="edit-image-form">
             <input type="hidden" id="edit-image-id">
+            <input type="hidden" id="edit-image-is-new">
             <div class="form-group">
                 <label for="edit-image-name">Name</label>
-                <input type="text" id="edit-image-name" placeholder="Image name">
+                <input type="text" id="edit-image-name" placeholder="e.g., 5x microscope image before deposition">
             </div>
             <div class="form-group">
                 <label for="edit-image-description">Description</label>
-                <textarea id="edit-image-description" rows="3" placeholder="Optional description"></textarea>
+                <textarea id="edit-image-description" rows="3" placeholder="Optional description of the image"></textarea>
             </div>
             <div class="form-actions">
-                <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+                <button type="button" class="btn btn-secondary" id="edit-modal-cancel" onclick="closeEditModal()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Save</button>
             </div>
         </form>
@@ -153,9 +171,48 @@
     font-size: 0.9rem;
 }
 
-/* Upload button in header (when images exist) */
-.upload-btn-header {
+/* Header actions container */
+.images-section .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     margin-left: auto;
+}
+
+/* Paste info tooltip */
+.paste-info-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-muted, #666);
+    font-size: 0.85rem;
+}
+
+.paste-info-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: help;
+    color: var(--primary-color, #2563eb);
+}
+
+.paste-info-icon svg {
+    flex-shrink: 0;
+}
+
+.paste-label {
+    color: var(--text-muted, #666);
+}
+
+/* Focus indicator for paste support */
+.images-section:focus {
+    outline: 2px solid var(--primary-color, #2563eb);
+    outline-offset: 2px;
+}
+
+.images-section:focus-visible {
+    outline: 2px solid var(--primary-color, #2563eb);
+    outline-offset: 2px;
 }
 
 /* Visually hidden but still accessible for file input */
@@ -326,11 +383,25 @@
     gap: 1rem;
     position: relative;
     min-height: 100px;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+    padding: 0.5rem;
+    margin: -0.5rem;
+}
+
+/* Drag-over state for populated gallery */
+.image-gallery.drag-over {
+    border-color: var(--primary-color, #2563eb);
+    background-color: rgba(37, 99, 235, 0.05);
 }
 
 /* Empty gallery needs to span full width for drop zone */
 .image-gallery-empty {
     display: block;
+    border: none;
+    padding: 0;
+    margin: 0;
 }
 
 .image-card {
@@ -413,6 +484,8 @@
     border-radius: 4px;
     font-size: 0.9rem;
     transition: background 0.2s ease;
+    text-decoration: none;
+    display: inline-block;
 }
 
 .btn-icon:hover {
@@ -518,6 +591,20 @@
     margin: 0 0 1rem 0;
 }
 
+.edit-modal-preview {
+    margin-bottom: 1rem;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #f0f0f0;
+    max-height: 150px;
+}
+
+.edit-modal-preview img {
+    width: 100%;
+    max-height: 150px;
+    object-fit: contain;
+}
+
 .edit-modal .form-actions {
     display: flex;
     justify-content: flex-end;
@@ -560,6 +647,7 @@ console.error('Image gallery: entity_type and entity_id not detected. Image uplo
 {% endif %}
 
 document.addEventListener('DOMContentLoaded', function() {
+    const imagesSection = document.getElementById('images-section');
     const gallery = document.getElementById('image-gallery');
     const emptyDropZone = document.getElementById('empty-drop-zone');
     const dropOverlay = document.getElementById('gallery-drop-overlay');
@@ -584,6 +672,8 @@ document.addEventListener('DOMContentLoaded', function() {
     gallery.addEventListener('dragenter', function(e) {
         preventDragDefaults(e);
         dragCounter++;
+        // Add visual feedback to gallery
+        gallery.classList.add('drag-over');
         if (dropOverlay) {
             dropOverlay.classList.add('active');
         }
@@ -596,14 +686,18 @@ document.addEventListener('DOMContentLoaded', function() {
     gallery.addEventListener('dragleave', function(e) {
         preventDragDefaults(e);
         dragCounter--;
-        if (dragCounter === 0 && dropOverlay) {
-            dropOverlay.classList.remove('active');
+        if (dragCounter === 0) {
+            gallery.classList.remove('drag-over');
+            if (dropOverlay) {
+                dropOverlay.classList.remove('active');
+            }
         }
     }, false);
     
     gallery.addEventListener('drop', function(e) {
         preventDragDefaults(e);
         dragCounter = 0;
+        gallery.classList.remove('drag-over');
         if (dropOverlay) {
             dropOverlay.classList.remove('active');
         }
@@ -629,6 +723,47 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     fileInput.addEventListener('change', handleFileSelect, false);
+    
+    // ===== CLIPBOARD PASTE SUPPORT =====
+    
+    // Handle paste from clipboard (using clipboardData from event - most reliable method)
+    function handlePasteEvent(e) {
+        const items = e.clipboardData?.items;
+        if (!items) return false;
+        
+        for (const item of items) {
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                const blob = item.getAsFile();
+                if (blob) {
+                    const extension = item.type.split('/')[1] || 'png';
+                    const filename = `pasted_image_${Date.now()}.${extension}`;
+                    const file = new File([blob], filename, { type: item.type });
+                    uploadFile(file);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    // Listen for paste events on document (works when user presses Ctrl+V)
+    document.addEventListener('paste', function(e) {
+        // Check if the images section is visible and in viewport
+        const rect = imagesSection?.getBoundingClientRect();
+        if (!rect) return;
+        
+        // Only handle paste if no text input is focused
+        const activeElement = document.activeElement;
+        const isTextInput = activeElement.tagName === 'INPUT' || 
+                           activeElement.tagName === 'TEXTAREA' || 
+                           activeElement.isContentEditable;
+        
+        if (isTextInput) return;
+        
+        // Handle the paste
+        handlePasteEvent(e);
+    });
 });
 
 function handleDrop(e) {
@@ -681,6 +816,8 @@ function uploadFile(file) {
             if (response.success) {
                 hideUploadError();
                 addImageToGallery(response.image, response.url);
+                // Prompt user to add name and description
+                promptImageDetails(response.image.id, response.url, file.name);
             } else {
                 // Show empty drop zone again on error
                 if (emptyDropZone) emptyDropZone.style.display = 'flex';
@@ -793,6 +930,7 @@ function addImageToGallery(image, url) {
             </div>
         </div>
         <div class="image-actions">
+            <a href="${url}" download="${image.name || image.filename}" class="btn-icon" title="Download">⬇️</a>
             <button class="btn-icon" onclick="editImageMetadata(${image.id}, '${image.name || ''}', '${image.description || ''}')" title="Edit">✏️</button>
             <form action="/images/${image.id}/delete" method="POST" style="display: inline;" onsubmit="return confirm('Delete this image?')">
                 <button type="submit" class="btn-icon btn-danger" title="Delete">🗑️</button>
@@ -831,14 +969,37 @@ function closeImageModal(event) {
 }
 
 function editImageMetadata(imageId, name, description) {
+    document.getElementById('edit-modal-title').textContent = 'Edit Image Details';
+    document.getElementById('edit-modal-preview').style.display = 'none';
     document.getElementById('edit-image-id').value = imageId;
+    document.getElementById('edit-image-is-new').value = '';
     document.getElementById('edit-image-name').value = name;
     document.getElementById('edit-image-description').value = description;
+    document.getElementById('edit-modal-cancel').textContent = 'Cancel';
     document.getElementById('edit-image-modal').classList.add('active');
+    document.getElementById('edit-image-name').focus();
+}
+
+function promptImageDetails(imageId, imageUrl, originalFilename) {
+    document.getElementById('edit-modal-title').textContent = 'Add Image Details';
+    // Show preview of uploaded image
+    const previewDiv = document.getElementById('edit-modal-preview');
+    document.getElementById('edit-preview-image').src = imageUrl;
+    previewDiv.style.display = 'block';
+    
+    document.getElementById('edit-image-id').value = imageId;
+    document.getElementById('edit-image-is-new').value = 'true';
+    document.getElementById('edit-image-name').value = '';
+    document.getElementById('edit-image-name').placeholder = `e.g., 5x microscope image (uploaded as ${originalFilename})`;
+    document.getElementById('edit-image-description').value = '';
+    document.getElementById('edit-modal-cancel').textContent = 'Skip';
+    document.getElementById('edit-image-modal').classList.add('active');
+    document.getElementById('edit-image-name').focus();
 }
 
 function closeEditModal() {
     document.getElementById('edit-image-modal').classList.remove('active');
+    document.getElementById('edit-modal-preview').style.display = 'none';
 }
 
 document.getElementById('edit-image-form')?.addEventListener('submit', function(e) {
