@@ -196,6 +196,7 @@
                 <button class="user-btn">👤 {{ current_user.name or current_user.username }}</button>
                 <div class="user-menu">
                     <a href="{{ url_for('main.profile') }}">Profile</a>
+                    <a href="{{ url_for('main.user_statistics') }}">Statistics</a>
                     <a href="{{ url_for('main.logout') }}">Logout</a>
                 </div>
             </div>

@@ -19,7 +19,7 @@ from database.models import (
     Lab, LabMember, Project, ProjectMember, ItemGuest,
     User, UserPin, Issue, IssueUpdate, EntityImage, Attachment,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
-    DriverIssue, Location, ObjectLocation, MaintenanceTask
+    DriverIssue, Location, ObjectLocation, MaintenanceTask, QrCodeScan
 )
 from database.session import get_session, init_db
 
@@ -5398,6 +5398,43 @@ class DatabaseService:
                 'assigned_issues': assigned_issues,
             }
     
+    # ==================== QR Code Scans ====================
+    
+    def log_qr_scan(self, entity_type: str, entity_id: int, user_id: Optional[int] = None, scanned_url: Optional[str] = None) -> Dict:
+        """Log a QR code scan for analytics.
+        
+        Args:
+            entity_type: The type of entity scanned (sample, equipment, etc.)
+            entity_id: The ID of the entity
+            user_id: Optional user ID if logged in
+            scanned_url: Optional URL that was scanned
+            
+        Returns:
+            Dict with scan record info
+        """
+        with self.session_scope() as session:
+            scan = QrCodeScan(
+                user_id=user_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                scanned_url=scanned_url
+            )
+            session.add(scan)
+            session.flush()
+            return {
+                'id': scan.id,
+                'entity_type': scan.entity_type,
+                'entity_id': scan.entity_id,
+                'scanned_at': scan.scanned_at.isoformat() if scan.scanned_at else None
+            }
+    
+    def get_user_qr_scan_count(self, user_id: int) -> int:
+        """Get the number of QR codes scanned by a user."""
+        with self.session_scope() as session:
+            return session.query(func.count(QrCodeScan.id)).filter(
+                QrCodeScan.user_id == user_id
+            ).scalar() or 0
+    
     # ==================== User Pins ====================
     
     def pin_item(self, user_id: int, entity_type: str, entity_id: int) -> bool:
@@ -6733,6 +6770,279 @@ class DatabaseService:
                 'total': total,
                 'by_type': type_counts,
                 'objects_placed': objects_placed
+            }
+    
+    # ==================== User Statistics ====================
+    
+    def get_user_statistics(self, user_id: int) -> Dict[str, Any]:
+        """Get comprehensive statistics for a user's activity and contributions.
+        
+        Returns counts of items created, issues resolved, and other activity metrics.
+        """
+        with self.session_scope() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                return {}
+            
+            user_email = user.email
+            user_name = user.name or user.username
+            
+            # Creation statistics - count items created by this user
+            samples_created = session.query(func.count(Sample.id)).filter(
+                Sample.created_by == user_name
+            ).scalar() or 0
+            
+            scans_created = session.query(func.count(Scan.id)).filter(
+                Scan.created_by == user_name
+            ).scalar() or 0
+            
+            queues_created = session.query(func.count(Queue.id)).filter(
+                Queue.created_by == user_name
+            ).scalar() or 0
+            
+            procedures_created = session.query(func.count(Procedure.id)).filter(
+                Procedure.created_by == user_name
+            ).scalar() or 0
+            
+            fabrication_runs_created = session.query(func.count(FabricationRun.id)).filter(
+                FabricationRun.created_by == user_name
+            ).scalar() or 0
+            
+            equipment_created = session.query(func.count(Equipment.id)).filter(
+                Equipment.created_by == user_name
+            ).scalar() or 0
+            
+            precursors_created = session.query(func.count(Precursor.id)).filter(
+                Precursor.created_by == user_name
+            ).scalar() or 0
+            
+            instruments_created = session.query(func.count(Instrument.id)).filter(
+                Instrument.created_by == user_name
+            ).scalar() or 0
+            
+            locations_created = session.query(func.count(Location.id)).filter(
+                Location.created_by == user_name
+            ).scalar() or 0
+            
+            templates_created = session.query(func.count(Template.id)).filter(
+                Template.created_by == user_name
+            ).scalar() or 0
+            
+            # Issue statistics
+            issues_created = session.query(func.count(Issue.id)).filter(
+                Issue.reporter_id == user_id
+            ).scalar() or 0
+            
+            issues_assigned = session.query(func.count(Issue.id)).filter(
+                Issue.assignee_id == user_id
+            ).scalar() or 0
+            
+            issues_resolved = session.query(func.count(Issue.id)).filter(
+                Issue.assignee_id == user_id,
+                Issue.status.in_(['resolved', 'closed'])
+            ).scalar() or 0
+            
+            # Equipment issues
+            equipment_issues_created = session.query(func.count(EquipmentIssue.id)).filter(
+                EquipmentIssue.reporter_id == user_id
+            ).scalar() or 0
+            
+            equipment_issues_resolved = session.query(func.count(EquipmentIssue.id)).filter(
+                EquipmentIssue.assignee_id == user_id,
+                EquipmentIssue.status.in_(['resolved', 'closed'])
+            ).scalar() or 0
+            
+            # Image uploads - count images where uploaded_by matches user
+            images_uploaded = session.query(func.count(EntityImage.id)).filter(
+                EntityImage.uploaded_by == user_name
+            ).scalar() or 0
+            
+            # File/attachment uploads
+            files_uploaded = session.query(func.count(Attachment.id)).filter(
+                Attachment.uploaded_by == user_name
+            ).scalar() or 0
+            
+            # Lab memberships
+            lab_count = 0
+            if user_email:
+                lab_count = session.query(func.count(LabMember.id)).filter(
+                    LabMember.email == user_email,
+                    LabMember.is_active == True
+                ).scalar() or 0
+            
+            # Project memberships through lab memberships
+            project_count = 0
+            if user_email:
+                lab_member_ids = session.query(LabMember.id).filter(
+                    LabMember.email == user_email,
+                    LabMember.is_active == True
+                ).all()
+                if lab_member_ids:
+                    project_count = session.query(func.count(ProjectMember.id)).filter(
+                        ProjectMember.lab_member_id.in_([lm[0] for lm in lab_member_ids]),
+                        ProjectMember.is_active == True
+                    ).scalar() or 0
+            
+            # Equipment owned
+            equipment_owned = session.query(func.count(Equipment.id)).filter(
+                Equipment.owner_id == user_id
+            ).scalar() or 0
+            
+            # Pinned items
+            pinned_items = session.query(func.count(UserPin.id)).filter(
+                UserPin.user_id == user_id
+            ).scalar() or 0
+            
+            # QR codes scanned
+            qr_codes_scanned = session.query(func.count(QrCodeScan.id)).filter(
+                QrCodeScan.user_id == user_id
+            ).scalar() or 0
+            
+            # Calculate days active (since account creation)
+            days_active = 0
+            if user.created_at:
+                days_active = (datetime.utcnow() - user.created_at).days
+            
+            # Scan status breakdown
+            scans_completed = session.query(func.count(Scan.id)).filter(
+                Scan.created_by == user_name,
+                Scan.status == 'completed'
+            ).scalar() or 0
+            
+            scans_failed = session.query(func.count(Scan.id)).filter(
+                Scan.created_by == user_name,
+                Scan.status == 'failed'
+            ).scalar() or 0
+            
+            # Fabrication run status breakdown
+            fab_runs_successful = session.query(func.count(FabricationRun.id)).filter(
+                FabricationRun.created_by == user_name,
+                FabricationRun.status == 'successful'
+            ).scalar() or 0
+            
+            fab_runs_failed = session.query(func.count(FabricationRun.id)).filter(
+                FabricationRun.created_by == user_name,
+                FabricationRun.status == 'failed'
+            ).scalar() or 0
+            
+            # Recent activity - items created in last 30 days
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            
+            recent_samples = session.query(func.count(Sample.id)).filter(
+                Sample.created_by == user_name,
+                Sample.created_at >= thirty_days_ago
+            ).scalar() or 0
+            
+            recent_scans = session.query(func.count(Scan.id)).filter(
+                Scan.created_by == user_name,
+                Scan.created_at >= thirty_days_ago
+            ).scalar() or 0
+            
+            recent_fab_runs = session.query(func.count(FabricationRun.id)).filter(
+                FabricationRun.created_by == user_name,
+                FabricationRun.created_at >= thirty_days_ago
+            ).scalar() or 0
+            
+            # Calculate total contributions
+            total_items_created = (
+                samples_created + scans_created + queues_created + 
+                procedures_created + fabrication_runs_created + equipment_created +
+                precursors_created + instruments_created + locations_created + templates_created
+            )
+            
+            total_issues_resolved = issues_resolved + equipment_issues_resolved
+            total_uploads = images_uploaded + files_uploaded
+            
+            # Fun statistics
+            # Calculate approximate "scrolling distance" based on items viewed (rough estimate)
+            total_items = total_items_created + issues_created + total_uploads
+            estimated_pages_visited = total_items * 3  # Assume 3 page views per item created
+            estimated_scroll_feet = estimated_pages_visited * 2  # Assume 2 feet of scrolling per page
+            estimated_scroll_miles = estimated_scroll_feet / 5280  # Convert to miles
+            
+            return {
+                # Account info
+                'account': {
+                    'days_active': days_active,
+                    'member_since': user.created_at.isoformat() if user.created_at else None,
+                    'last_login': user.last_login.isoformat() if user.last_login else None,
+                },
+                
+                # Creation counts
+                'created': {
+                    'samples': samples_created,
+                    'scans': scans_created,
+                    'queues': queues_created,
+                    'procedures': procedures_created,
+                    'fabrication_runs': fabrication_runs_created,
+                    'equipment': equipment_created,
+                    'precursors': precursors_created,
+                    'instruments': instruments_created,
+                    'locations': locations_created,
+                    'templates': templates_created,
+                    'total': total_items_created,
+                },
+                
+                # Issues
+                'issues': {
+                    'created': issues_created,
+                    'assigned': issues_assigned,
+                    'resolved': issues_resolved,
+                    'equipment_created': equipment_issues_created,
+                    'equipment_resolved': equipment_issues_resolved,
+                    'total_resolved': total_issues_resolved,
+                },
+                
+                # Uploads
+                'uploads': {
+                    'images': images_uploaded,
+                    'files': files_uploaded,
+                    'total': total_uploads,
+                },
+                
+                # Memberships
+                'memberships': {
+                    'labs': lab_count,
+                    'projects': project_count,
+                    'equipment_owned': equipment_owned,
+                    'pinned_items': pinned_items,
+                },
+                
+                # QR Codes
+                'qr_codes': {
+                    'scanned': qr_codes_scanned,
+                },
+                
+                # Scan statistics
+                'scans': {
+                    'total': scans_created,
+                    'completed': scans_completed,
+                    'failed': scans_failed,
+                    'success_rate': round((scans_completed / scans_created * 100) if scans_created > 0 else 0, 1),
+                },
+                
+                # Fabrication statistics
+                'fabrication': {
+                    'total': fabrication_runs_created,
+                    'successful': fab_runs_successful,
+                    'failed': fab_runs_failed,
+                    'success_rate': round((fab_runs_successful / fabrication_runs_created * 100) if fabrication_runs_created > 0 else 0, 1),
+                },
+                
+                # Recent activity (last 30 days)
+                'recent': {
+                    'samples': recent_samples,
+                    'scans': recent_scans,
+                    'fabrication_runs': recent_fab_runs,
+                },
+                
+                # Fun stats
+                'fun': {
+                    'estimated_pages_visited': estimated_pages_visited,
+                    'estimated_scroll_miles': round(estimated_scroll_miles, 2),
+                    'coffee_cups_equivalent': total_items_created // 5,  # 1 coffee per 5 items created
+                    'contribution_streak': days_active if total_items_created > 0 else 0,
+                },
             }
 
 

@@ -357,6 +357,7 @@ class User(Base):
     equipment_issues_assigned = relationship("EquipmentIssue", back_populates="assignee", foreign_keys="EquipmentIssue.assignee_id")
     driver_issues_created = relationship("DriverIssue", back_populates="reporter", foreign_keys="DriverIssue.reporter_id")
     driver_issues_assigned = relationship("DriverIssue", back_populates="assignee", foreign_keys="DriverIssue.assignee_id")
+    qr_scans = relationship("QrCodeScan", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', role='{self.role}')>"
@@ -386,6 +387,32 @@ class UserPin(Base):
     
     def __repr__(self):
         return f"<UserPin(user_id={self.user_id}, entity={self.entity_type}:{self.entity_id})>"
+
+
+class QrCodeScan(Base):
+    """
+    Tracks QR code scans by users for analytics and statistics.
+    """
+    __tablename__ = "qr_code_scans"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'sample', 'equipment', 'lab', etc.
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    scanned_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    scanned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="qr_scans")
+    
+    __table_args__ = (
+        Index('idx_qr_scans_user', 'user_id'),
+        Index('idx_qr_scans_entity', 'entity_type', 'entity_id'),
+        Index('idx_qr_scans_timestamp', 'scanned_at'),
+    )
+    
+    def __repr__(self):
+        return f"<QrCodeScan(user_id={self.user_id}, entity={self.entity_type}:{self.entity_id})>"
 
 
 # ============================================================
@@ -492,6 +519,7 @@ class Instrument(TrashableMixin, ArchivableMixin, Base):
     extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Additional metadata
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     template_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('templates.id'), nullable=True)
     equipment_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('equipment.id'), nullable=True)  # Parent equipment
     driver_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('drivers.id'), nullable=True)  # Link to driver code
@@ -795,6 +823,7 @@ class Equipment(TrashableMixin, ArchivableMixin, Base):
     extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     
     # Relationships
     lab: Mapped[Optional["Lab"]] = relationship("Lab", back_populates="equipment")
@@ -956,6 +985,7 @@ class Precursor(TrashableMixin, ArchivableMixin, Base):
     extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Additional metadata
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     template_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('templates.id'), nullable=True)
     
     # Relationships

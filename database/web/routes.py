@@ -4237,6 +4237,16 @@ def profile():
     )
 
 
+@main_bp.route('/profile/statistics')
+@login_required
+def user_statistics():
+    """User statistics page showing activity metrics and contributions."""
+    db = get_db_service()
+    stats = db.get_user_statistics(g.current_user['id'])
+    
+    return render_template('user_statistics.html', stats=stats)
+
+
 @main_bp.route('/change-password', methods=['POST'])
 @login_required
 def change_password():
@@ -6015,6 +6025,13 @@ def api_resolve_qr():
             if getter:
                 entity = getter(entity_id)
                 if entity:
+                    # Log QR code scan for analytics
+                    user_id = g.current_user['id'] if hasattr(g, 'current_user') and g.current_user else None
+                    try:
+                        db.log_qr_scan(entity_type, entity_id, user_id=user_id, scanned_url=url)
+                    except Exception:
+                        pass  # Don't fail the request if logging fails
+                    
                     return jsonify({
                         'success': True,
                         'entity_type': entity_type,
@@ -6028,7 +6045,13 @@ def api_resolve_qr():
                         'error': f'{entity_type.title()} #{entity_id} not found'
                     }), 404
             
-            # If no getter, just return the basic info
+            # If no getter, just return the basic info (also log scan)
+            user_id = g.current_user['id'] if hasattr(g, 'current_user') and g.current_user else None
+            try:
+                db.log_qr_scan(entity_type, entity_id, user_id=user_id, scanned_url=url)
+            except Exception:
+                pass
+            
             return jsonify({
                 'success': True,
                 'entity_type': entity_type,

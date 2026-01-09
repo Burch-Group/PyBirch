@@ -127,6 +127,11 @@
                 <dt>Last Login</dt>
                 <dd>{{ current_user.last_login[:16]|replace('T', ' ') if current_user.last_login else 'Never' }}</dd>
             </dl>
+            <div class="section-actions" style="margin-top: 1rem;">
+                <a href="{{ url_for('main.user_statistics') }}" class="btn btn-secondary">
+                    📊 View Full Statistics
+                </a>
+            </div>
         </div>
     </div>
     
