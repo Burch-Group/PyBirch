@@ -6,9 +6,9 @@
 <div class="detail-page">
     <div class="page-header">
         <div class="breadcrumb">
-            <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / 
-            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
-            <a href="{{ url_for('main.instrument_definition_issues', definition_id=definition.id) }}">Issues</a> /
+            <a href="{{ url_for('main.drivers') }}">Drivers</a> / 
+            <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
+            <a href="{{ url_for('main.driver_issues', definition_id=definition.id) }}">Issues</a> /
             #{{ issue.id }}
         </div>
     </div>
@@ -20,7 +20,7 @@
         </div>
         <div class="detail-actions">
             <span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span>
-            <a href="{{ url_for('main.instrument_definition_issue_edit', definition_id=definition.id, issue_id=issue.id) }}" class="btn btn-secondary">Edit</a>
+            <a href="{{ url_for('main.driver_issue_edit', definition_id=definition.id, issue_id=issue.id) }}" class="btn btn-secondary">Edit</a>
         </div>
     </div>
     
@@ -41,8 +41,8 @@
                 <dt>Category</dt>
                 <dd>{{ issue.category }}</dd>
                 
-                <dt>Instrument Definition</dt>
-                <dd><a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a></dd>
+                <dt>Driver</dt>
+                <dd><a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a></dd>
                 
                 <dt>Status</dt>
                 <dd><span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span></dd>

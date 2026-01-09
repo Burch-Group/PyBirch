@@ -290,8 +290,8 @@ class User(Base):
     owned_equipment = relationship("Equipment", back_populates="owner")
     equipment_issues_created = relationship("EquipmentIssue", back_populates="reporter", foreign_keys="EquipmentIssue.reporter_id")
     equipment_issues_assigned = relationship("EquipmentIssue", back_populates="assignee", foreign_keys="EquipmentIssue.assignee_id")
-    definition_issues_created = relationship("InstrumentDefinitionIssue", back_populates="reporter", foreign_keys="InstrumentDefinitionIssue.reporter_id")
-    definition_issues_assigned = relationship("InstrumentDefinitionIssue", back_populates="assignee", foreign_keys="InstrumentDefinitionIssue.assignee_id")
+    driver_issues_created = relationship("DriverIssue", back_populates="reporter", foreign_keys="DriverIssue.reporter_id")
+    driver_issues_assigned = relationship("DriverIssue", back_populates="assignee", foreign_keys="DriverIssue.assignee_id")
     
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', role='{self.role}')>"
@@ -391,14 +391,14 @@ class Instrument(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     template_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('templates.id'), nullable=True)
     equipment_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('equipment.id'), nullable=True)  # Parent equipment
-    definition_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('instrument_definitions.id'), nullable=True)  # Link to code definition
+    driver_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('drivers.id'), nullable=True)  # Link to driver code
     
     # Relationships
     lab: Mapped[Optional["Lab"]] = relationship("Lab", back_populates="instruments")
     template: Mapped[Optional["Template"]] = relationship("Template", foreign_keys=[template_id])
     equipment: Mapped[Optional["Equipment"]] = relationship("Equipment", back_populates="instruments")
     status_history: Mapped[List["InstrumentStatus"]] = relationship("InstrumentStatus", back_populates="instrument", order_by="InstrumentStatus.updated_at.desc()", cascade="all, delete-orphan")
-    definition: Mapped[Optional["InstrumentDefinition"]] = relationship("InstrumentDefinition")
+    driver: Mapped[Optional["Driver"]] = relationship("Driver")
     computer_bindings: Mapped[List["ComputerBinding"]] = relationship("ComputerBinding", back_populates="instrument", cascade="all, delete-orphan")
     
     def __repr__(self):
@@ -435,16 +435,16 @@ class InstrumentStatus(Base):
 
 
 # ============================================================
-# INSTRUMENT DEFINITIONS - Stored instrument code
+# DRIVERS - Stored instrument code
 # ============================================================
 
-class InstrumentDefinition(Base):
+class Driver(Base):
     """
     Stores executable Python code for PyBirch instruments.
-    This is the 'class definition' - reusable across multiple physical instruments.
+    This is the driver code - reusable across multiple physical instruments.
     Enables browser-based instrument creation and per-computer discovery.
     """
-    __tablename__ = "instrument_definitions"
+    __tablename__ = "drivers"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     
@@ -492,34 +492,34 @@ class InstrumentDefinition(Base):
     
     # Relationships
     lab: Mapped[Optional["Lab"]] = relationship("Lab")
-    versions: Mapped[List["InstrumentDefinitionVersion"]] = relationship(
-        "InstrumentDefinitionVersion", back_populates="definition", 
-        order_by="InstrumentDefinitionVersion.version.desc()", cascade="all, delete-orphan"
+    versions: Mapped[List["DriverVersion"]] = relationship(
+        "DriverVersion", back_populates="driver", 
+        order_by="DriverVersion.version.desc()", cascade="all, delete-orphan"
     )
-    issues: Mapped[List["InstrumentDefinitionIssue"]] = relationship(
-        "InstrumentDefinitionIssue", back_populates="definition",
-        order_by="InstrumentDefinitionIssue.created_at.desc()", cascade="all, delete-orphan"
+    issues: Mapped[List["DriverIssue"]] = relationship(
+        "DriverIssue", back_populates="driver",
+        order_by="DriverIssue.created_at.desc()", cascade="all, delete-orphan"
     )
     
     __table_args__ = (
-        Index('idx_instrument_def_type', 'instrument_type'),
-        Index('idx_instrument_def_lab', 'lab_id'),
-        Index('idx_instrument_def_category', 'category'),
+        Index('idx_driver_type', 'instrument_type'),
+        Index('idx_driver_lab', 'lab_id'),
+        Index('idx_driver_category', 'category'),
     )
     
     def __repr__(self):
-        return f"<InstrumentDefinition(id={self.id}, name='{self.name}', type='{self.instrument_type}')>"
+        return f"<Driver(id={self.id}, name='{self.name}', type='{self.instrument_type}')>"
 
 
-class InstrumentDefinitionVersion(Base):
+class DriverVersion(Base):
     """
-    Version history for instrument definitions.
+    Version history for drivers.
     Allows rollback and audit trail for code changes.
     """
-    __tablename__ = "instrument_definition_versions"
+    __tablename__ = "driver_versions"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    definition_id: Mapped[int] = mapped_column(Integer, ForeignKey('instrument_definitions.id'), nullable=False)
+    driver_id: Mapped[int] = mapped_column(Integer, ForeignKey('drivers.id'), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     source_code: Mapped[str] = mapped_column(Text, nullable=False)
     change_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -527,26 +527,26 @@ class InstrumentDefinitionVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     # Relationships
-    definition: Mapped["InstrumentDefinition"] = relationship("InstrumentDefinition", back_populates="versions")
+    driver: Mapped["Driver"] = relationship("Driver", back_populates="versions")
     
     __table_args__ = (
-        Index('idx_instrument_def_version_def', 'definition_id'),
-        UniqueConstraint('definition_id', 'version', name='uq_definition_version'),
+        Index('idx_driver_version_driver', 'driver_id'),
+        UniqueConstraint('driver_id', 'version', name='uq_driver_version'),
     )
     
     def __repr__(self):
-        return f"<InstrumentDefinitionVersion(id={self.id}, definition_id={self.definition_id}, version={self.version})>"
+        return f"<DriverVersion(id={self.id}, driver_id={self.driver_id}, version={self.version})>"
 
 
-class InstrumentDefinitionIssue(Base):
+class DriverIssue(Base):
     """
-    Issue tracking for instrument definition problems, bugs, feature requests, etc.
+    Issue tracking for driver problems, bugs, feature requests, etc.
     Helps track issues with specific instrument code/drivers.
     """
-    __tablename__ = "instrument_definition_issues"
+    __tablename__ = "driver_issues"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    definition_id: Mapped[int] = mapped_column(Integer, ForeignKey('instrument_definitions.id'), nullable=False)
+    driver_id: Mapped[int] = mapped_column(Integer, ForeignKey('drivers.id'), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     category: Mapped[str] = mapped_column(String(50), default='bug')  # 'bug', 'feature', 'compatibility', 'documentation', 'performance', 'other'
@@ -566,20 +566,20 @@ class InstrumentDefinitionIssue(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    definition: Mapped["InstrumentDefinition"] = relationship("InstrumentDefinition", back_populates="issues")
-    reporter = relationship("User", back_populates="definition_issues_created", foreign_keys=[reporter_id])
-    assignee = relationship("User", back_populates="definition_issues_assigned", foreign_keys=[assignee_id])
+    driver: Mapped["Driver"] = relationship("Driver", back_populates="issues")
+    reporter = relationship("User", back_populates="driver_issues_created", foreign_keys=[reporter_id])
+    assignee = relationship("User", back_populates="driver_issues_assigned", foreign_keys=[assignee_id])
     
     __table_args__ = (
-        Index('idx_instrument_def_issues_definition', 'definition_id'),
-        Index('idx_instrument_def_issues_status', 'status'),
-        Index('idx_instrument_def_issues_priority', 'priority'),
-        Index('idx_instrument_def_issues_reporter', 'reporter_id'),
-        Index('idx_instrument_def_issues_assignee', 'assignee_id'),
+        Index('idx_driver_issues_driver', 'driver_id'),
+        Index('idx_driver_issues_status', 'status'),
+        Index('idx_driver_issues_priority', 'priority'),
+        Index('idx_driver_issues_reporter', 'reporter_id'),
+        Index('idx_driver_issues_assignee', 'assignee_id'),
     )
     
     def __repr__(self):
-        return f"<InstrumentDefinitionIssue(id={self.id}, definition_id={self.definition_id}, title='{self.title}')>"
+        return f"<DriverIssue(id={self.id}, driver_id={self.driver_id}, title='{self.title}')>"
 
 
 class Computer(Base):

@@ -121,17 +121,17 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
             definitions = self._instrument_factory.get_available_definitions()
             
             # Filter by computer binding if enabled
-            allowed_definition_ids = None
+            allowed_driver_ids = None
             if self._filter_by_computer and self.db_service and self._computer_info:
                 computer_name = self._computer_info.get('computer_name', '')
                 if computer_name:
-                    allowed_definition_ids = set(
-                        self.db_service.get_definition_ids_for_computer(
+                    allowed_driver_ids = set(
+                        self.db_service.get_driver_ids_for_computer(
                             computer_name=computer_name,
                             include_public=True  # Always include public definitions
                         )
                     )
-                    logger.debug(f"Auto-discovery: {len(allowed_definition_ids)} definitions for computer '{computer_name}'")
+                    logger.debug(f"Auto-discovery: {len(allowed_driver_ids)} drivers for computer '{computer_name}'")
             
             # Organize by category/type
             self._database_classes = {
@@ -141,7 +141,7 @@ class InstrumentAutoLoadWidget(QtWidgets.QWidget):
             
             for defn in definitions:
                 # Skip if filtering by computer and this definition isn't allowed
-                if allowed_definition_ids is not None and defn.get('id') not in allowed_definition_ids:
+                if allowed_driver_ids is not None and defn.get('id') not in allowed_driver_ids:
                     logger.debug(f"Skipping {defn.get('name')} - not bound to this computer")
                     continue
                 

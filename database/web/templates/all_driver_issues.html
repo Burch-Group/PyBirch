@@ -1,17 +1,17 @@
 {% extends "base.html" %}
 
-{% block title %}All Instrument Definition Issues - PyBirch Database{% endblock %}
+{% block title %}All Driver Issues - PyBirch Database{% endblock %}
 
 {% block content %}
 <div class="list-page">
     <div class="page-header">
         <div class="breadcrumb">
-            <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / All Issues
+            <a href="{{ url_for('main.drivers') }}">Drivers</a> / All Issues
         </div>
     </div>
     
     <div class="page-title-row">
-        <h1>All Instrument Definition Issues</h1>
+        <h1>All Driver Issues</h1>
     </div>
     
     <div class="filters">
@@ -33,7 +33,7 @@
             </select>
             <button type="submit" class="btn btn-secondary">Filter</button>
             {% if status or priority %}
-                <a href="{{ url_for('main.all_instrument_definition_issues') }}" class="btn btn-link">Clear</a>
+                <a href="{{ url_for('main.all_driver_issues') }}" class="btn btn-link">Clear</a>
             {% endif %}
         </form>
     </div>
@@ -44,7 +44,7 @@
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Instrument Definition</th>
+                    <th>Driver</th>
                     <th>Title</th>
                     <th>Category</th>
                     <th>Priority</th>
@@ -57,15 +57,15 @@
             <tbody>
                 {% for issue in issues %}
                 <tr>
-                    <td><a href="{{ url_for('main.instrument_definition_detail', definition_id=issue.definition_id) }}">{{ issue.definition_name }}</a></td>
-                    <td><a href="{{ url_for('main.instrument_definition_issue_detail', definition_id=issue.definition_id, issue_id=issue.id) }}">{{ issue.title }}</a></td>
+                    <td><a href="{{ url_for('main.driver_detail', definition_id=issue.definition_id) }}">{{ issue.definition_name }}</a></td>
+                    <td><a href="{{ url_for('main.driver_issue_detail', definition_id=issue.definition_id, issue_id=issue.id) }}">{{ issue.title }}</a></td>
                     <td>{{ issue.category }}</td>
                     <td><span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span></td>
                     <td><span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span></td>
                     <td>{{ issue.assignee_name or '-' }}</td>
                     <td>{{ issue.created_at[:10] if issue.created_at else '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.instrument_definition_issue_detail', definition_id=issue.definition_id, issue_id=issue.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.driver_issue_detail', definition_id=issue.definition_id, issue_id=issue.id) }}" class="btn btn-sm">View</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -75,11 +75,11 @@
         {% if total_pages > 1 %}
         <div class="pagination">
             {% if page > 1 %}
-                <a href="{{ url_for('main.all_instrument_definition_issues', page=page-1, status=status, priority=priority) }}" class="btn btn-sm">← Previous</a>
+                <a href="{{ url_for('main.all_driver_issues', page=page-1, status=status, priority=priority) }}" class="btn btn-sm">← Previous</a>
             {% endif %}
             <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
             {% if page < total_pages %}
-                <a href="{{ url_for('main.all_instrument_definition_issues', page=page+1, status=status, priority=priority) }}" class="btn btn-sm">Next →</a>
+                <a href="{{ url_for('main.all_driver_issues', page=page+1, status=status, priority=priority) }}" class="btn btn-sm">Next →</a>
             {% endif %}
         </div>
         {% endif %}

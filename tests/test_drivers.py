@@ -1,12 +1,12 @@
 """
-Unit Tests for Instrument Definitions Feature
+Unit Tests for Instrument drivers Feature
 
 Tests cover:
 - InstrumentFactory: dynamic class creation, validation, caching
-- DatabaseService: CRUD for instrument definitions and computer bindings
+- DatabaseService: CRUD for instrument drivers and computer bindings
 - get_computer_info: computer identification utility
 
-Run with: pytest tests/test_instrument_definitions.py -v
+Run with: pytest tests/test_drivers.py -v
 """
 
 import sys
@@ -116,8 +116,8 @@ class WrongClassName(Measurement):
 
 
 @pytest.fixture
-def sample_definition(sample_measurement_code):
-    """A sample instrument definition dictionary."""
+def sample_driver(sample_measurement_code):
+    """A sample instrument driver dictionary."""
     return {
         'id': 1,
         'name': 'TestMeasurementInstrument',
@@ -142,6 +142,18 @@ def db_service():
     yield service
 
 
+@pytest.fixture
+def sample_lab(db_service):
+    """Create a sample lab for testing."""
+    lab = db_service.create_lab({
+        'name': 'Test Lab',
+        'code': 'TEST',
+        'university': 'Test University',
+        'department': 'Test Department',
+    })
+    return lab
+
+
 # =============================================================================
 # InstrumentFactory Tests
 # =============================================================================
@@ -149,108 +161,108 @@ def db_service():
 class TestInstrumentFactory:
     """Tests for InstrumentFactory."""
     
-    def test_create_class_from_definition_measurement(self, sample_definition):
-        """Test creating a measurement class from definition."""
+    def test_create_class_from_driver_measurement(self, sample_driver):
+        """Test creating a measurement class from driver."""
         from pybirch.Instruments.factory import InstrumentFactory
         
         # Clear cache first
         InstrumentFactory.invalidate_cache()
         
-        instrument_class = InstrumentFactory.create_class_from_definition(sample_definition)
+        instrument_class = InstrumentFactory.create_class_from_driver(sample_driver)
         
         assert instrument_class is not None
         assert instrument_class.__name__ == 'TestMeasurementInstrument'
-        assert hasattr(instrument_class, '_definition_id')
-        assert instrument_class._definition_id == 1
+        assert hasattr(instrument_class, '_driver_id')
+        assert instrument_class._driver_id == 1
         
-    def test_create_class_from_definition_movement(self, sample_movement_code):
-        """Test creating a movement class from definition."""
+    def test_create_class_from_driver_movement(self, sample_movement_code):
+        """Test creating a movement class from driver."""
         from pybirch.Instruments.factory import InstrumentFactory
         
         InstrumentFactory.invalidate_cache()
         
-        definition = {
+        driver = {
             'id': 2,
             'name': 'TestMovementInstrument',
             'source_code': sample_movement_code,
             'version': 1,
         }
         
-        instrument_class = InstrumentFactory.create_class_from_definition(definition)
+        instrument_class = InstrumentFactory.create_class_from_driver(driver)
         
         assert instrument_class is not None
         assert instrument_class.__name__ == 'TestMovementInstrument'
     
-    def test_create_instance(self, sample_definition):
-        """Test creating an instrument instance from definition."""
+    def test_create_instance(self, sample_driver):
+        """Test creating an instrument instance from driver."""
         from pybirch.Instruments.factory import InstrumentFactory
         
         InstrumentFactory.invalidate_cache()
         
         instance = InstrumentFactory.create_instance(
-            sample_definition,
+            sample_driver,
             name="My Test Instrument"
         )
         
         assert instance is not None
         assert instance.name == "My Test Instrument"
-        assert hasattr(instance, '_definition_id')
+        assert hasattr(instance, '_driver_id')
         
-    def test_create_instance_with_adapter(self, sample_definition):
+    def test_create_instance_with_adapter(self, sample_driver):
         """Test creating an instance with adapter address."""
         from pybirch.Instruments.factory import InstrumentFactory
         
         InstrumentFactory.invalidate_cache()
         
         instance = InstrumentFactory.create_instance(
-            sample_definition,
+            sample_driver,
             adapter="GPIB0::8::INSTR"
         )
         
         assert instance.adapter == "GPIB0::8::INSTR"
     
-    def test_class_cache(self, sample_definition):
+    def test_class_cache(self, sample_driver):
         """Test that class caching works correctly."""
         from pybirch.Instruments.factory import InstrumentFactory
         
         InstrumentFactory.invalidate_cache()
         
         # First creation
-        class1 = InstrumentFactory.create_class_from_definition(sample_definition)
+        class1 = InstrumentFactory.create_class_from_driver(sample_driver)
         
         # Second creation should return cached class
-        class2 = InstrumentFactory.create_class_from_definition(sample_definition)
+        class2 = InstrumentFactory.create_class_from_driver(sample_driver)
         
         assert class1 is class2  # Same object (cached)
         
-    def test_cache_invalidation_by_version(self, sample_definition):
+    def test_cache_invalidation_by_version(self, sample_driver):
         """Test that cache is invalidated when version changes."""
         from pybirch.Instruments.factory import InstrumentFactory
         
         InstrumentFactory.invalidate_cache()
         
         # First creation
-        class1 = InstrumentFactory.create_class_from_definition(sample_definition)
+        class1 = InstrumentFactory.create_class_from_driver(sample_driver)
         
         # Update version
-        sample_definition['version'] = 2
+        sample_driver['version'] = 2
         
         # Should create new class due to version change
-        class2 = InstrumentFactory.create_class_from_definition(sample_definition)
+        class2 = InstrumentFactory.create_class_from_driver(sample_driver)
         
         # Different objects (cache invalidated by version change)
         # Note: They might be equal in content but cache should detect version change
         assert InstrumentFactory._version_cache.get(1) == 2
     
-    def test_invalidate_cache_specific(self, sample_definition, sample_movement_code):
+    def test_invalidate_cache_specific(self, sample_driver, sample_movement_code):
         """Test invalidating specific cache entry."""
         from pybirch.Instruments.factory import InstrumentFactory
         
         InstrumentFactory.invalidate_cache()
         
         # Create two classes
-        InstrumentFactory.create_class_from_definition(sample_definition)
-        InstrumentFactory.create_class_from_definition({
+        InstrumentFactory.create_class_from_driver(sample_driver)
+        InstrumentFactory.create_class_from_driver({
             'id': 2,
             'name': 'TestMovementInstrument',
             'source_code': sample_movement_code,
@@ -261,20 +273,20 @@ class TestInstrumentFactory:
         assert 2 in InstrumentFactory._class_cache
         
         # Invalidate only first
-        InstrumentFactory.invalidate_cache(definition_id=1)
+        InstrumentFactory.invalidate_cache(driver_id=1)
         
         assert 1 not in InstrumentFactory._class_cache
         assert 2 in InstrumentFactory._class_cache
     
-    def test_invalidate_cache_all(self, sample_definition, sample_movement_code):
+    def test_invalidate_cache_all(self, sample_driver, sample_movement_code):
         """Test invalidating entire cache."""
         from pybirch.Instruments.factory import InstrumentFactory
         
         InstrumentFactory.invalidate_cache()
         
         # Create two classes
-        InstrumentFactory.create_class_from_definition(sample_definition)
-        InstrumentFactory.create_class_from_definition({
+        InstrumentFactory.create_class_from_driver(sample_driver)
+        InstrumentFactory.create_class_from_driver({
             'id': 2,
             'name': 'TestMovementInstrument',
             'source_code': sample_movement_code,
@@ -287,58 +299,58 @@ class TestInstrumentFactory:
         assert len(InstrumentFactory._class_cache) == 0
         assert len(InstrumentFactory._version_cache) == 0
     
-    def test_create_class_empty_definition(self):
-        """Test error handling for empty definition."""
+    def test_create_class_empty_driver(self):
+        """Test error handling for empty driver."""
         from pybirch.Instruments.factory import InstrumentFactory
         
-        with pytest.raises(ValueError, match="Definition cannot be empty"):
-            InstrumentFactory.create_class_from_definition(None)
+        with pytest.raises(ValueError, match="driver cannot be empty"):
+            InstrumentFactory.create_class_from_driver(None)
     
     def test_create_class_missing_name(self, sample_measurement_code):
         """Test error handling for missing name."""
         from pybirch.Instruments.factory import InstrumentFactory
         
-        definition = {
+        driver = {
             'source_code': sample_measurement_code,
         }
         
         with pytest.raises(ValueError, match="must have 'name' field"):
-            InstrumentFactory.create_class_from_definition(definition)
+            InstrumentFactory.create_class_from_driver(driver)
     
     def test_create_class_missing_source_code(self):
         """Test error handling for missing source code."""
         from pybirch.Instruments.factory import InstrumentFactory
         
-        definition = {
+        driver = {
             'name': 'TestInstrument',
         }
         
         with pytest.raises(ValueError, match="must have 'source_code' field"):
-            InstrumentFactory.create_class_from_definition(definition)
+            InstrumentFactory.create_class_from_driver(driver)
     
     def test_create_class_syntax_error(self, invalid_syntax_code):
         """Test error handling for syntax errors."""
         from pybirch.Instruments.factory import InstrumentFactory
         
-        definition = {
+        driver = {
             'name': 'BrokenInstrument',
             'source_code': invalid_syntax_code,
         }
         
         with pytest.raises(SyntaxError):
-            InstrumentFactory.create_class_from_definition(definition)
+            InstrumentFactory.create_class_from_driver(driver)
     
     def test_create_class_wrong_class_name(self, missing_class_code):
         """Test error handling for wrong class name."""
         from pybirch.Instruments.factory import InstrumentFactory
         
-        definition = {
+        driver = {
             'name': 'ExpectedClassName',
             'source_code': missing_class_code,
         }
         
         with pytest.raises(ValueError, match="No class found in source code"):
-            InstrumentFactory.create_class_from_definition(definition)
+            InstrumentFactory.create_class_from_driver(driver)
 
 
 class TestInstrumentFactoryValidation:
@@ -446,14 +458,14 @@ class TestGetComputerInfo:
 
 
 # =============================================================================
-# DatabaseService Instrument Definition Tests
+# DatabaseService Instrument driver Tests
 # =============================================================================
 
-class TestDatabaseServiceDefinitions:
-    """Tests for DatabaseService instrument definition CRUD."""
+class TestDatabaseServiceDrivers:
+    """Tests for DatabaseService instrument driver CRUD."""
     
-    def test_create_instrument_definition(self, db_service, sample_measurement_code):
-        """Test creating an instrument definition."""
+    def test_create_driver(self, db_service, sample_measurement_code):
+        """Test creating an instrument driver."""
         data = {
             'name': 'MyTestInstrument',
             'display_name': 'My Test Instrument',
@@ -465,7 +477,7 @@ class TestDatabaseServiceDefinitions:
             'created_by': 'test_user',
         }
         
-        result = db_service.create_instrument_definition(data)
+        result = db_service.create_driver(data)
         
         assert result is not None
         assert result['id'] is not None
@@ -473,10 +485,10 @@ class TestDatabaseServiceDefinitions:
         assert result['display_name'] == 'My Test Instrument'
         assert result['version'] == 1
     
-    def test_get_instrument_definition(self, db_service, sample_measurement_code):
-        """Test retrieving an instrument definition."""
+    def test_get_driver(self, db_service, sample_measurement_code):
+        """Test retrieving an instrument driver."""
         # Create first
-        created = db_service.create_instrument_definition({
+        created = db_service.create_driver({
             'name': 'GetTestInstrument',
             'display_name': 'Get Test',
             'instrument_type': 'measurement',
@@ -485,15 +497,15 @@ class TestDatabaseServiceDefinitions:
         })
         
         # Retrieve
-        result = db_service.get_instrument_definition(created['id'])
+        result = db_service.get_driver(created['id'])
         
         assert result is not None
         assert result['id'] == created['id']
         assert result['name'] == 'GetTestInstrument'
     
-    def test_get_instrument_definition_by_name(self, db_service, sample_measurement_code):
-        """Test retrieving definition by name."""
-        db_service.create_instrument_definition({
+    def test_get_driver_by_name(self, db_service, sample_measurement_code):
+        """Test retrieving driver by name."""
+        db_service.create_driver({
             'name': 'NamedInstrument',
             'display_name': 'Named Test',
             'instrument_type': 'measurement',
@@ -501,22 +513,22 @@ class TestDatabaseServiceDefinitions:
             'base_class': 'Measurement',
         })
         
-        result = db_service.get_instrument_definition_by_name('NamedInstrument')
+        result = db_service.get_driver_by_name('NamedInstrument')
         
         assert result is not None
         assert result['name'] == 'NamedInstrument'
     
-    def test_get_instrument_definitions_list(self, db_service, sample_measurement_code, sample_movement_code):
-        """Test retrieving list of definitions."""
+    def test_get_drivers_list(self, db_service, sample_measurement_code, sample_movement_code):
+        """Test retrieving list of drivers."""
         # Create multiple
-        db_service.create_instrument_definition({
+        db_service.create_driver({
             'name': 'ListInstrument1',
             'display_name': 'List Test 1',
             'instrument_type': 'measurement',
             'source_code': sample_measurement_code,
             'base_class': 'Measurement',
         })
-        db_service.create_instrument_definition({
+        db_service.create_driver({
             'name': 'ListInstrument2',
             'display_name': 'List Test 2',
             'instrument_type': 'movement',
@@ -525,20 +537,20 @@ class TestDatabaseServiceDefinitions:
         })
         
         # Get all
-        results = db_service.get_instrument_definitions()
+        results = db_service.get_drivers()
         
         assert len(results) >= 2
     
-    def test_get_instrument_definitions_filter_by_type(self, db_service, sample_measurement_code, sample_movement_code):
-        """Test filtering definitions by type."""
-        db_service.create_instrument_definition({
+    def test_get_drivers_filter_by_type(self, db_service, sample_measurement_code, sample_movement_code):
+        """Test filtering drivers by type."""
+        db_service.create_driver({
             'name': 'FilterMeasurement',
             'display_name': 'Filter Meas',
             'instrument_type': 'measurement',
             'source_code': sample_measurement_code,
             'base_class': 'Measurement',
         })
-        db_service.create_instrument_definition({
+        db_service.create_driver({
             'name': 'FilterMovement',
             'display_name': 'Filter Mov',
             'instrument_type': 'movement',
@@ -547,8 +559,8 @@ class TestDatabaseServiceDefinitions:
         })
         
         # Filter by type
-        measurements = db_service.get_instrument_definitions(instrument_type='measurement')
-        movements = db_service.get_instrument_definitions(instrument_type='movement')
+        measurements = db_service.get_drivers(instrument_type='measurement')
+        movements = db_service.get_drivers(instrument_type='movement')
         
         measurement_names = [d['name'] for d in measurements]
         movement_names = [d['name'] for d in movements]
@@ -557,10 +569,10 @@ class TestDatabaseServiceDefinitions:
         assert 'FilterMovement' not in measurement_names
         assert 'FilterMovement' in movement_names
     
-    def test_update_instrument_definition(self, db_service, sample_measurement_code):
-        """Test updating an instrument definition."""
+    def test_update_driver(self, db_service, sample_measurement_code):
+        """Test updating an instrument driver."""
         # Create
-        created = db_service.create_instrument_definition({
+        created = db_service.create_driver({
             'name': 'UpdateInstrument',
             'display_name': 'Original Name',
             'instrument_type': 'measurement',
@@ -569,7 +581,7 @@ class TestDatabaseServiceDefinitions:
         })
         
         # Update without source change - version stays the same
-        updated = db_service.update_instrument_definition(
+        updated = db_service.update_driver(
             created['id'],
             {'display_name': 'Updated Name', 'description': 'New description'},
             change_summary='Updated display name',
@@ -580,10 +592,10 @@ class TestDatabaseServiceDefinitions:
         assert updated['description'] == 'New description'
         assert updated['version'] == 1  # Version NOT incremented without source change
     
-    def test_update_instrument_definition_source_code(self, db_service, sample_measurement_code):
+    def test_update_driver_source_code(self, db_service, sample_measurement_code):
         """Test that updating source code increments version."""
         # Create
-        created = db_service.create_instrument_definition({
+        created = db_service.create_driver({
             'name': 'VersionUpdateInstrument',
             'display_name': 'Version Test',
             'instrument_type': 'measurement',
@@ -593,7 +605,7 @@ class TestDatabaseServiceDefinitions:
         
         # Update with source code change
         new_source = sample_measurement_code + "\n# Modified version"
-        updated = db_service.update_instrument_definition(
+        updated = db_service.update_driver(
             created['id'],
             {'source_code': new_source},
             change_summary='Changed source code',
@@ -601,10 +613,10 @@ class TestDatabaseServiceDefinitions:
         
         assert updated['version'] == 2  # Version incremented on source change
     
-    def test_delete_instrument_definition(self, db_service, sample_measurement_code):
-        """Test deleting an instrument definition."""
+    def test_delete_driver(self, db_service, sample_measurement_code):
+        """Test deleting an instrument driver."""
         # Create
-        created = db_service.create_instrument_definition({
+        created = db_service.create_driver({
             'name': 'DeleteInstrument',
             'display_name': 'Delete Test',
             'instrument_type': 'measurement',
@@ -613,18 +625,18 @@ class TestDatabaseServiceDefinitions:
         })
         
         # Delete
-        result = db_service.delete_instrument_definition(created['id'])
+        result = db_service.delete_driver(created['id'])
         
         assert result is True
         
         # Verify deleted
-        retrieved = db_service.get_instrument_definition(created['id'])
+        retrieved = db_service.get_driver(created['id'])
         assert retrieved is None
     
-    def test_get_instrument_definition_versions(self, db_service, sample_measurement_code):
+    def test_get_driver_versions(self, db_service, sample_measurement_code):
         """Test retrieving version history."""
         # Create
-        created = db_service.create_instrument_definition({
+        created = db_service.create_driver({
             'name': 'VersionedInstrument',
             'display_name': 'Version Test',
             'instrument_type': 'measurement',
@@ -633,19 +645,19 @@ class TestDatabaseServiceDefinitions:
         })
         
         # Update source code to create new versions
-        db_service.update_instrument_definition(
+        db_service.update_driver(
             created['id'],
             {'source_code': sample_measurement_code + '\n# Version 2'},
             change_summary='First update'
         )
-        db_service.update_instrument_definition(
+        db_service.update_driver(
             created['id'],
             {'source_code': sample_measurement_code + '\n# Version 3'},
             change_summary='Second update'
         )
         
         # Get versions - should have initial + 2 updates = 3 versions
-        versions = db_service.get_instrument_definition_versions(created['id'])
+        versions = db_service.get_driver_versions(created['id'])
         
         assert len(versions) >= 3
 
@@ -658,10 +670,10 @@ class TestDatabaseServiceBindings:
     """Tests for DatabaseService computer binding CRUD."""
     
     @pytest.fixture
-    def instrument_for_binding(self, db_service, sample_measurement_code):
+    def instrument_for_binding(self, db_service, sample_measurement_code, sample_lab):
         """Create an instrument to bind to."""
-        # Create definition first
-        definition = db_service.create_instrument_definition({
+        # Create driver first
+        driver = db_service.create_driver({
             'name': 'BindingTestInstrument',
             'display_name': 'Binding Test',
             'instrument_type': 'measurement',
@@ -670,12 +682,13 @@ class TestDatabaseServiceBindings:
         })
         
         # Create instrument instance
-        instrument = db_service.create_instrument_for_definition(
-            definition['id'],
+        instrument = db_service.create_instrument_for_driver(
+            driver['id'],
             {
                 'name': 'Test Device #1',
                 'adapter': 'GPIB0::8::INSTR',
                 'serial_number': 'SN12345',
+                'lab_id': sample_lab['id'],
             }
         )
         
@@ -748,10 +761,10 @@ class TestDatabaseServiceBindings:
         
         assert result is True
     
-    def test_get_definition_ids_for_computer(self, db_service, sample_measurement_code):
-        """Test getting definition IDs bound to a computer."""
-        # Create definition
-        definition = db_service.create_instrument_definition({
+    def test_get_driver_ids_for_computer(self, db_service, sample_measurement_code, sample_lab):
+        """Test getting driver IDs bound to a computer."""
+        # Create driver
+        driver = db_service.create_driver({
             'name': 'ComputerFilterInstrument',
             'display_name': 'Computer Filter Test',
             'instrument_type': 'measurement',
@@ -761,17 +774,17 @@ class TestDatabaseServiceBindings:
         })
         
         # Create instrument
-        instrument = db_service.create_instrument_for_definition(
-            definition['id'],
-            {'name': 'Filter Device'}
+        instrument = db_service.create_instrument_for_driver(
+            driver['id'],
+            {'name': 'Filter Device', 'lab_id': sample_lab['id']}
         )
         
-        # Initially, computer should not see this definition
-        ids_before = db_service.get_definition_ids_for_computer(
+        # Initially, computer should not see this driver
+        ids_before = db_service.get_driver_ids_for_computer(
             computer_name='FILTER-PC',
             include_public=False
         )
-        assert definition['id'] not in ids_before
+        assert driver['id'] not in ids_before
         
         # Bind to computer
         db_service.bind_instrument_to_computer(
@@ -779,17 +792,17 @@ class TestDatabaseServiceBindings:
             computer_name='FILTER-PC',
         )
         
-        # Now computer should see the definition
-        ids_after = db_service.get_definition_ids_for_computer(
+        # Now computer should see the driver
+        ids_after = db_service.get_driver_ids_for_computer(
             computer_name='FILTER-PC',
             include_public=False
         )
-        assert definition['id'] in ids_after
+        assert driver['id'] in ids_after
     
-    def test_get_definition_ids_includes_public(self, db_service, sample_measurement_code):
-        """Test that public definitions are included."""
-        # Create public definition
-        public_def = db_service.create_instrument_definition({
+    def test_get_driver_ids_includes_public(self, db_service, sample_measurement_code):
+        """Test that public drivers are included."""
+        # Create public driver
+        public_def = db_service.create_driver({
             'name': 'PublicInstrument',
             'display_name': 'Public Test',
             'instrument_type': 'measurement',
@@ -799,7 +812,7 @@ class TestDatabaseServiceBindings:
         })
         
         # Get IDs for any computer with include_public=True
-        ids = db_service.get_definition_ids_for_computer(
+        ids = db_service.get_driver_ids_for_computer(
             computer_name='ANY-PC',
             include_public=True
         )
@@ -814,10 +827,10 @@ class TestDatabaseServiceBindings:
 class TestDatabaseServiceInstances:
     """Tests for DatabaseService instrument instance operations."""
     
-    def test_create_instrument_for_definition(self, db_service, sample_measurement_code):
-        """Test creating an instrument instance for a definition."""
-        # Create definition
-        definition = db_service.create_instrument_definition({
+    def test_create_instrument_for_driver(self, db_service, sample_measurement_code, sample_lab):
+        """Test creating an instrument instance for a driver."""
+        # Create driver
+        driver = db_service.create_driver({
             'name': 'InstanceTestInstrument',
             'display_name': 'Instance Test',
             'instrument_type': 'measurement',
@@ -827,26 +840,26 @@ class TestDatabaseServiceInstances:
         })
         
         # Create instance
-        instrument = db_service.create_instrument_for_definition(
-            definition['id'],
+        instrument = db_service.create_instrument_for_driver(
+            driver['id'],
             {
                 'name': 'Instance #1',
                 'adapter': 'GPIB0::4::INSTR',
                 'serial_number': 'ABC123',
-                'location': 'Room 101',
+                'lab_id': sample_lab['id'],
             }
         )
         
         assert instrument is not None
         assert instrument['name'] == 'Instance #1'
-        assert instrument['definition_id'] == definition['id']
+        assert instrument['driver_id'] == driver['id']
         assert instrument['pybirch_class'] == 'InstanceTestInstrument'
-        assert instrument['manufacturer'] == 'TestCorp'  # Inherited from definition
+        assert instrument['manufacturer'] == 'TestCorp'  # Inherited from driver
     
-    def test_get_instruments_by_definition(self, db_service, sample_measurement_code):
-        """Test getting all instruments for a definition."""
-        # Create definition
-        definition = db_service.create_instrument_definition({
+    def test_get_instruments_by_driver(self, db_service, sample_measurement_code, sample_lab):
+        """Test getting all instruments for a driver."""
+        # Create driver
+        driver = db_service.create_driver({
             'name': 'MultiInstanceInstrument',
             'display_name': 'Multi Instance Test',
             'instrument_type': 'measurement',
@@ -855,18 +868,18 @@ class TestDatabaseServiceInstances:
         })
         
         # Create multiple instances
-        db_service.create_instrument_for_definition(
-            definition['id'],
-            {'name': 'Device A', 'adapter': 'GPIB0::1::INSTR'}
+        db_service.create_instrument_for_driver(
+            driver['id'],
+            {'name': 'Device A', 'adapter': 'GPIB0::1::INSTR', 'lab_id': sample_lab['id']}
         )
-        db_service.create_instrument_for_definition(
-            definition['id'],
-            {'name': 'Device B', 'adapter': 'GPIB0::2::INSTR'}
+        db_service.create_instrument_for_driver(
+            driver['id'],
+            {'name': 'Device B', 'adapter': 'GPIB0::2::INSTR', 'lab_id': sample_lab['id']}
         )
         
-        # Get all instruments for this definition
-        instruments = db_service.get_instruments_by_definition(
-            definition['id'],
+        # Get all instruments for this driver
+        instruments = db_service.get_instruments_by_driver(
+            driver['id'],
             include_bindings=False
         )
         
@@ -875,10 +888,10 @@ class TestDatabaseServiceInstances:
         assert 'Device A' in names
         assert 'Device B' in names
     
-    def test_get_instruments_by_definition_with_bindings(self, db_service, sample_measurement_code):
+    def test_get_instruments_by_driver_with_bindings(self, db_service, sample_measurement_code, sample_lab):
         """Test getting instruments with their bindings."""
-        # Create definition
-        definition = db_service.create_instrument_definition({
+        # Create driver
+        driver = db_service.create_driver({
             'name': 'BindingListInstrument',
             'display_name': 'Binding List Test',
             'instrument_type': 'measurement',
@@ -887,9 +900,9 @@ class TestDatabaseServiceInstances:
         })
         
         # Create instrument
-        instrument = db_service.create_instrument_for_definition(
-            definition['id'],
-            {'name': 'Bound Device'}
+        instrument = db_service.create_instrument_for_driver(
+            driver['id'],
+            {'name': 'Bound Device', 'lab_id': sample_lab['id']}
         )
         
         # Add bindings
@@ -903,8 +916,8 @@ class TestDatabaseServiceInstances:
         )
         
         # Get instruments with bindings
-        instruments = db_service.get_instruments_by_definition(
-            definition['id'],
+        instruments = db_service.get_instruments_by_driver(
+            driver['id'],
             include_bindings=True
         )
         
@@ -917,17 +930,17 @@ class TestDatabaseServiceInstances:
 # Integration Tests
 # =============================================================================
 
-class TestInstrumentDefinitionIntegration:
+class TestDriverIntegration:
     """Integration tests for the full workflow."""
     
-    def test_full_workflow(self, db_service, sample_measurement_code):
-        """Test complete workflow: create definition -> create instance -> bind -> discover."""
+    def test_full_workflow(self, db_service, sample_measurement_code, sample_lab):
+        """Test complete workflow: create driver -> create instance -> bind -> discover."""
         from pybirch.Instruments.factory import InstrumentFactory
         
         InstrumentFactory.invalidate_cache()
         
-        # 1. Create definition (name must match class name in source code)
-        definition = db_service.create_instrument_definition({
+        # 1. Create driver (name must match class name in source code)
+        driver = db_service.create_driver({
             'name': 'TestMeasurementInstrument',  # Must match class in sample_measurement_code
             'display_name': 'Workflow Test',
             'description': 'Integration test instrument',
@@ -937,18 +950,19 @@ class TestInstrumentDefinitionIntegration:
             'is_public': False,
         })
         
-        assert definition['id'] is not None
+        assert driver['id'] is not None
         
         # 2. Create instrument instance
-        instrument = db_service.create_instrument_for_definition(
-            definition['id'],
+        instrument = db_service.create_instrument_for_driver(
+            driver['id'],
             {
                 'name': 'Lab Voltmeter #1',
                 'serial_number': 'WF-001',
+                'lab_id': sample_lab['id'],
             }
         )
         
-        assert instrument['definition_id'] == definition['id']
+        assert instrument['driver_id'] == driver['id']
         
         # 3. Bind to computer (adapter is stored on the binding, not the instrument)
         binding = db_service.bind_instrument_to_computer(
@@ -962,22 +976,22 @@ class TestInstrumentDefinitionIntegration:
         assert binding['adapter'] == 'GPIB0::8::INSTR'
         
         # 4. Verify discovery
-        definition_ids = db_service.get_definition_ids_for_computer(
+        driver_ids = db_service.get_driver_ids_for_computer(
             computer_name='WORKFLOW-PC',
             include_public=False
         )
         
-        assert definition['id'] in definition_ids
+        assert driver['id'] in driver_ids
         
-        # 5. Create class from definition
-        definition_data = db_service.get_instrument_definition(definition['id'])
-        instrument_class = InstrumentFactory.create_class_from_definition(definition_data)
+        # 5. Create class from driver
+        driver_data = db_service.get_driver(driver['id'])
+        instrument_class = InstrumentFactory.create_class_from_driver(driver_data)
         
         assert instrument_class.__name__ == 'TestMeasurementInstrument'
         
         # 6. Create instance using adapter from binding
         instance = InstrumentFactory.create_instance(
-            definition_data,
+            driver_data,
             adapter=binding['adapter'],
             name=instrument['name']
         )

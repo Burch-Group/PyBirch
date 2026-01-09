@@ -2,7 +2,7 @@
 Migrate Existing Instruments to Database
 ========================================
 Extracts instrument class definitions from Python files and inserts
-them into the database as InstrumentDefinition records.
+them into the database as Driver records.
 
 Usage:
     python scripts/migrate_instruments_to_database.py --db database/pybirch.db
@@ -285,14 +285,14 @@ def migrate(db_path: str, instruments_dir: str, dry_run: bool = False, filter_ba
     
     for defn in definitions:
         # Check if already exists
-        existing = db.get_instrument_definition_by_name(defn['name'])
+        existing = db.get_driver_by_name(defn['name'])
         if existing:
             print(f"  ⊘ {defn['name']} - already exists (id={existing['id']})")
             skipped += 1
             continue
         
         try:
-            result = db.create_instrument_definition(defn)
+            result = db.create_driver(defn)
             print(f"  ✓ {defn['name']} - inserted (id={result['id']})")
             inserted += 1
         except Exception as e:

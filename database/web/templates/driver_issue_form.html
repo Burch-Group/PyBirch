@@ -6,9 +6,9 @@
 <div class="form-page">
     <div class="page-header">
         <div class="breadcrumb">
-            <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / 
-            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
-            <a href="{{ url_for('main.instrument_definition_issues', definition_id=definition.id) }}">Issues</a> /
+            <a href="{{ url_for('main.drivers') }}">Drivers</a> / 
+            <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
+            <a href="{{ url_for('main.driver_issues', definition_id=definition.id) }}">Issues</a> /
             {{ action }}
         </div>
     </div>
@@ -160,7 +160,7 @@
         {% endif %}
         
         <div class="form-actions">
-            <a href="{{ url_for('main.instrument_definition_issues', definition_id=definition.id) }}" class="btn btn-link">Cancel</a>
+            <a href="{{ url_for('main.driver_issues', definition_id=definition.id) }}" class="btn btn-link">Cancel</a>
             <button type="submit" class="btn btn-primary">{{ action }} Issue</button>
         </div>
     </form>

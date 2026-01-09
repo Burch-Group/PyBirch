@@ -7,15 +7,15 @@
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="{{ url_for('main.index') }}">Dashboard</a></li>
-            <li class="breadcrumb-item"><a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a></li>
-            <li class="breadcrumb-item"><a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('main.drivers') }}">Drivers</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a></li>
             <li class="breadcrumb-item active">Link Instrument</li>
         </ol>
     </nav>
 
     <div class="page-header">
         <h1>Link Existing Instrument</h1>
-        <p class="text-muted">Link an existing instrument to the <strong>{{ definition.display_name }}</strong> definition.</p>
+        <p class="text-muted">Link an existing instrument to the <strong>{{ definition.display_name }}</strong> driver.</p>
     </div>
 
     {% if instruments %}
@@ -51,16 +51,16 @@
             </div>
             <div class="card-footer">
                 <button type="submit" class="btn btn-primary">Link Selected Instrument</button>
-                <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}" class="btn btn-secondary">Cancel</a>
+                <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}" class="btn btn-secondary">Cancel</a>
             </div>
         </div>
     </form>
     {% else %}
     <div class="empty-state card">
         <div class="card-body text-center">
-            <p class="mb-3">No instruments available to link. All instruments already have a definition assigned.</p>
-            <a href="{{ url_for('main.instrument_definition_new_instance', definition_id=definition.id) }}" class="btn btn-primary">Create New Instance</a>
-            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}" class="btn btn-secondary">Go Back</a>
+            <p class="mb-3">No instruments available to link. All instruments already have a driver assigned.</p>
+            <a href="{{ url_for('main.driver_new_instance', definition_id=definition.id) }}" class="btn btn-primary">Create New Instance</a>
+            <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}" class="btn btn-secondary">Go Back</a>
         </div>
     </div>
     {% endif %}

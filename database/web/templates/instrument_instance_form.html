@@ -84,8 +84,8 @@
 {% block content %}
 <div class="form-container">
     <div class="breadcrumb">
-        <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / 
-        <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
+        <a href="{{ url_for('main.drivers') }}">Drivers</a> / 
+        <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
         New Instance
     </div>
     
@@ -142,7 +142,7 @@
         </div>
         
         <div class="form-actions">
-            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}" class="btn btn-secondary">Cancel</a>
+            <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}" class="btn btn-secondary">Cancel</a>
             <button type="submit" class="btn btn-primary">Create Instance</button>
         </div>
     </form>

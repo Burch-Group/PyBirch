@@ -1313,24 +1313,24 @@ def global_search():
         return api_error(str(e), code="QUERY_ERROR", status=500)
 
 
-# ==================== Instrument Definitions ====================
+# ==================== Drivers ====================
 
-@api_v1_bp.route('/instrument-definitions', methods=['GET'])
+@api_v1_bp.route('/drivers', methods=['GET'])
 @api_auth_optional
-def list_instrument_definitions():
-    """List instrument definitions with optional filtering.
+def list_drivers():
+    """List drivers with optional filtering.
     
     Query Parameters:
         type: Filter by 'movement' or 'measurement'
         category: Filter by category (e.g., 'Lock-In Amplifier')
         lab_id: Filter by lab ID
         search: Search in name, display_name, description
-        include_public: Include public definitions (default: true)
-        include_builtin: Include built-in definitions (default: true)
+        include_public: Include public drivers (default: true)
+        include_builtin: Include built-in drivers (default: true)
     """
     try:
         db = get_db_service()
-        definitions = db.get_instrument_definitions(
+        drivers = db.get_drivers(
             instrument_type=request.args.get('type'),
             category=request.args.get('category'),
             lab_id=request.args.get('lab_id', type=int),
@@ -1339,45 +1339,45 @@ def list_instrument_definitions():
             search=request.args.get('search'),
         )
         return api_response({
-            'items': definitions,
-            'total': len(definitions)
+            'items': drivers,
+            'total': len(drivers)
         })
     except Exception as e:
         return api_error(str(e), code="QUERY_ERROR", status=500)
 
 
-@api_v1_bp.route('/instrument-definitions/<int:definition_id>', methods=['GET'])
+@api_v1_bp.route('/drivers/<int:driver_id>', methods=['GET'])
 @api_auth_optional
-def get_instrument_definition(definition_id):
-    """Get a single instrument definition by ID."""
+def get_driver(driver_id):
+    """Get a single driver by ID."""
     try:
         db = get_db_service()
-        definition = db.get_instrument_definition(definition_id)
-        if not definition:
-            return api_error("Instrument definition not found", code="NOT_FOUND", status=404)
-        return api_response(definition)
+        driver = db.get_driver(driver_id)
+        if not driver:
+            return api_error("Driver not found", code="NOT_FOUND", status=404)
+        return api_response(driver)
     except Exception as e:
         return api_error(str(e), code="QUERY_ERROR", status=500)
 
 
-@api_v1_bp.route('/instrument-definitions/by-name/<string:name>', methods=['GET'])
+@api_v1_bp.route('/drivers/by-name/<string:name>', methods=['GET'])
 @api_auth_optional
-def get_instrument_definition_by_name(name):
-    """Get an instrument definition by class name."""
+def get_driver_by_name(name):
+    """Get a driver by class name."""
     try:
         db = get_db_service()
-        definition = db.get_instrument_definition_by_name(name)
-        if not definition:
-            return api_error("Instrument definition not found", code="NOT_FOUND", status=404)
-        return api_response(definition)
+        driver = db.get_driver_by_name(name)
+        if not driver:
+            return api_error("Driver not found", code="NOT_FOUND", status=404)
+        return api_response(driver)
     except Exception as e:
         return api_error(str(e), code="QUERY_ERROR", status=500)
 
 
-@api_v1_bp.route('/instrument-definitions', methods=['POST'])
+@api_v1_bp.route('/drivers', methods=['POST'])
 @api_auth_required
-def create_instrument_definition():
-    """Create a new instrument definition.
+def create_driver():
+    """Create a new driver.
     
     Required fields:
         - name: Class name (must be unique)
@@ -1416,16 +1416,16 @@ def create_instrument_definition():
             )
         
         db = get_db_service()
-        definition = db.create_instrument_definition(data)
-        return api_response(definition, status=201)
+        driver = db.create_driver(data)
+        return api_response(driver, status=201)
     except Exception as e:
         return api_error(str(e), code="CREATE_ERROR", status=500)
 
 
-@api_v1_bp.route('/instrument-definitions/<int:definition_id>', methods=['PATCH', 'PUT'])
+@api_v1_bp.route('/drivers/<int:driver_id>', methods=['PATCH', 'PUT'])
 @api_auth_required
-def update_instrument_definition(definition_id):
-    """Update an instrument definition.
+def update_driver(driver_id):
+    """Update a driver.
     
     If source_code is changed, creates a new version.
     
@@ -1446,60 +1446,60 @@ def update_instrument_definition(definition_id):
             )
         
         db = get_db_service()
-        definition = db.update_instrument_definition(
-            definition_id, 
+        driver = db.update_driver(
+            driver_id, 
             data,
             change_summary=request.args.get('change_summary'),
             updated_by=request.args.get('updated_by'),
         )
-        if not definition:
-            return api_error("Instrument definition not found", code="NOT_FOUND", status=404)
-        return api_response(definition)
+        if not driver:
+            return api_error("Driver not found", code="NOT_FOUND", status=404)
+        return api_response(driver)
     except Exception as e:
         return api_error(str(e), code="UPDATE_ERROR", status=500)
 
 
-@api_v1_bp.route('/instrument-definitions/<int:definition_id>', methods=['DELETE'])
+@api_v1_bp.route('/drivers/<int:driver_id>', methods=['DELETE'])
 @api_auth_required
-def delete_instrument_definition(definition_id):
-    """Delete an instrument definition and all its versions."""
+def delete_driver(driver_id):
+    """Delete a driver and all its versions."""
     try:
         db = get_db_service()
-        success = db.delete_instrument_definition(definition_id)
+        success = db.delete_driver(driver_id)
         if not success:
-            return api_error("Instrument definition not found", code="NOT_FOUND", status=404)
+            return api_error("Driver not found", code="NOT_FOUND", status=404)
         return api_response({"deleted": True})
     except Exception as e:
         return api_error(str(e), code="DELETE_ERROR", status=500)
 
 
-@api_v1_bp.route('/instrument-definitions/<int:definition_id>/versions', methods=['GET'])
+@api_v1_bp.route('/drivers/<int:driver_id>/versions', methods=['GET'])
 @api_auth_optional
-def get_instrument_definition_versions(definition_id):
-    """Get version history for an instrument definition."""
+def get_driver_versions(driver_id):
+    """Get version history for a driver."""
     try:
         db = get_db_service()
         
-        # First verify the definition exists
-        definition = db.get_instrument_definition(definition_id)
-        if not definition:
-            return api_error("Instrument definition not found", code="NOT_FOUND", status=404)
+        # First verify the driver exists
+        driver = db.get_driver(driver_id)
+        if not driver:
+            return api_error("Driver not found", code="NOT_FOUND", status=404)
         
-        versions = db.get_instrument_definition_versions(definition_id)
+        versions = db.get_driver_versions(driver_id)
         return api_response({
             'items': versions,
             'total': len(versions),
-            'definition_id': definition_id,
-            'definition_name': definition['name']
+            'driver_id': driver_id,
+            'driver_name': driver['name']
         })
     except Exception as e:
         return api_error(str(e), code="QUERY_ERROR", status=500)
 
 
-@api_v1_bp.route('/instrument-definitions/<int:definition_id>/validate', methods=['POST'])
+@api_v1_bp.route('/drivers/<int:driver_id>/validate', methods=['POST'])
 @api_auth_optional
-def validate_instrument_definition(definition_id):
-    """Validate an instrument definition's source code.
+def validate_driver(driver_id):
+    """Validate a driver's source code.
     
     Attempts to compile and instantiate the class to check for errors.
     
@@ -1510,16 +1510,16 @@ def validate_instrument_definition(definition_id):
     """
     try:
         db = get_db_service()
-        definition = db.get_instrument_definition(definition_id)
-        if not definition:
-            return api_error("Instrument definition not found", code="NOT_FOUND", status=404)
+        driver = db.get_driver(driver_id)
+        if not driver:
+            return api_error("Driver not found", code="NOT_FOUND", status=404)
         
         errors = []
         warnings = []
         
         # Try to compile the source code
         try:
-            compile(definition['source_code'], f"<{definition['name']}>", 'exec')
+            compile(driver['source_code'], f"<{driver['name']}>", 'exec')
         except SyntaxError as e:
             errors.append({
                 'type': 'SyntaxError',
@@ -1537,12 +1537,12 @@ def validate_instrument_definition(definition_id):
         try:
             from pybirch.Instruments.factory import InstrumentFactory
             factory = InstrumentFactory(db)
-            cls = factory.create_class_from_definition(definition)
+            cls = factory.create_class_from_driver(driver)
             
             if cls is None:
                 errors.append({
                     'type': 'ClassCreationError',
-                    'message': 'Failed to create class from definition'
+                    'message': 'Failed to create class from driver'
                 })
         except Exception as e:
             errors.append({
@@ -1559,9 +1559,9 @@ def validate_instrument_definition(definition_id):
         return api_error(str(e), code="VALIDATION_ERROR", status=500)
 
 
-@api_v1_bp.route('/instrument-definitions/validate-code', methods=['POST'])
+@api_v1_bp.route('/drivers/validate-code', methods=['POST'])
 @api_auth_optional
-def validate_instrument_code():
+def validate_driver_code():
     """Validate source code without saving.
     
     Request body:
@@ -1603,7 +1603,7 @@ def validate_instrument_code():
                 'warnings': warnings
             })
         
-        # Parse the AST to find class definitions
+        # Parse the AST to find class drivers
         import ast
         try:
             tree = ast.parse(source_code)

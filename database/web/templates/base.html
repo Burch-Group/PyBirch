@@ -241,9 +241,9 @@
                 <img src="{{ url_for('static', filename='images/instruments.svg') }}" class="nav-icon" alt="">
                 <span>Instruments</span>
             </a>
-            <a href="{{ url_for('main.instrument_definitions') }}" class="nav-drawer-link {% if request.endpoint and 'instrument_definition' in request.endpoint %}active{% endif %}">
+            <a href="{{ url_for('main.drivers') }}" class="nav-drawer-link {% if request.endpoint and 'driver' in request.endpoint %}active{% endif %}">
                 <img src="{{ url_for('static', filename='images/instrument_definitions.svg') }}" class="nav-icon" alt="">
-                <span>Instrument Definitions</span>
+                <span>Drivers</span>
             </a>
             <a href="{{ url_for('main.computers') }}" class="nav-drawer-link {% if request.endpoint and 'computer' in request.endpoint and 'binding' not in request.endpoint %}active{% endif %}">
                 <img src="{{ url_for('static', filename='images/computers.svg') }}" class="nav-icon" alt="">

@@ -1,7 +1,7 @@
 """
 Instrument Factory
 ==================
-Factory for creating instrument instances from database definitions.
+Factory for creating instrument instances from database drivers.
 
 This module provides dynamic class creation from database-stored source code,
 enabling browser-based instrument creation and per-computer discovery.
@@ -9,12 +9,12 @@ enabling browser-based instrument creation and per-computer discovery.
 Usage:
     from pybirch.Instruments.factory import InstrumentFactory
     
-    # Create class from definition
-    definition = db_service.get_instrument_definition(definition_id)
-    instrument_class = InstrumentFactory.create_class_from_definition(definition)
+    # Create class from driver
+    driver = db_service.get_driver(driver_id)
+    instrument_class = InstrumentFactory.create_class_from_driver(driver)
     
     # Create instance with adapter
-    instance = InstrumentFactory.create_instance(definition, adapter='GPIB::8::INSTR')
+    instance = InstrumentFactory.create_instance(driver, adapter='GPIB::8::INSTR')
 """
 
 import numpy as np
@@ -27,77 +27,77 @@ logger = logging.getLogger(__name__)
 
 
 class InstrumentFactory:
-    """Factory for creating instrument instances from database definitions.
+    """Factory for creating instrument instances from database drivers.
     
     Can be used as a class with classmethods for one-off operations, or
     instantiated with a DatabaseService for database-backed operations.
     """
     
-    # Class-level cache of compiled classes by definition ID
+    # Class-level cache of compiled classes by driver ID
     _class_cache: Dict[int, type] = {}
     
-    # Class-level cache of definition versions for invalidation
+    # Class-level cache of driver versions for invalidation
     _version_cache: Dict[int, int] = {}
     
     def __init__(self, db_service=None):
         """Initialize the factory with optional database service.
         
         Args:
-            db_service: DatabaseService instance for loading definitions
+            db_service: DatabaseService instance for loading drivers
         """
         self.db_service = db_service
     
-    def get_available_definitions(self) -> List[Dict]:
-        """Get all available instrument definitions from the database.
+    def get_available_drivers(self) -> List[Dict]:
+        """Get all available instrument drivers from the database.
         
         Returns:
-            List of definition dictionaries
+            List of driver dictionaries
         """
         if not self.db_service:
             logger.warning("No database service configured for InstrumentFactory")
             return []
         
         try:
-            definitions = self.db_service.get_instrument_definitions()
-            return definitions if definitions else []
+            drivers = self.db_service.get_drivers()
+            return drivers if drivers else []
         except Exception as e:
-            logger.error(f"Failed to get instrument definitions: {e}")
+            logger.error(f"Failed to get drivers: {e}")
             return []
     
-    def get_definition_by_id(self, definition_id: int) -> Optional[Dict]:
-        """Get a specific instrument definition by ID.
+    def get_driver_by_id(self, driver_id: int) -> Optional[Dict]:
+        """Get a specific instrument driver by ID.
         
         Args:
-            definition_id: The definition ID
+            driver_id: The driver ID
             
         Returns:
-            Definition dictionary or None
+            driver dictionary or None
         """
         if not self.db_service:
             return None
         
         try:
-            return self.db_service.get_instrument_definition(definition_id)
+            return self.db_service.get_driver(driver_id)
         except Exception as e:
-            logger.error(f"Failed to get definition {definition_id}: {e}")
+            logger.error(f"Failed to get driver {driver_id}: {e}")
             return None
     
-    def get_definition_by_name(self, name: str) -> Optional[Dict]:
-        """Get a specific instrument definition by class name.
+    def get_driver_by_name_or_class(self, name: str) -> Optional[Dict]:
+        """Get a specific instrument driver by class name.
         
         Args:
             name: The class name
             
         Returns:
-            Definition dictionary or None
+            driver dictionary or None
         """
         if not self.db_service:
             return None
         
         try:
-            return self.db_service.get_instrument_definition_by_name(name)
+            return self.db_service.get_driver_by_name(name)
         except Exception as e:
-            logger.error(f"Failed to get definition '{name}': {e}")
+            logger.error(f"Failed to get driver '{name}': {e}")
             return None
     
     @classmethod
@@ -178,12 +178,12 @@ class InstrumentFactory:
         return namespace
     
     @classmethod
-    def create_class_from_definition(cls, definition: Dict) -> type:
-        """Dynamically create a Python class from database definition.
+    def create_class_from_driver(cls, driver: Dict) -> type:
+        """Dynamically create a Python class from database driver.
         
         Args:
-            definition: InstrumentDefinition record as dictionary with:
-                - id: Definition ID
+            driver: Driver record as dictionary with:
+                - id: driver ID
                 - name: Class name
                 - source_code: Python source code
                 - base_class: Base class name
@@ -193,28 +193,28 @@ class InstrumentFactory:
             The dynamically created instrument class
         
         Raises:
-            ValueError: If definition is invalid
+            ValueError: If driver is invalid
             SyntaxError: If source code has syntax errors
             NameError: If base class not found
         """
-        if not definition:
-            raise ValueError("Definition cannot be empty")
+        if not driver:
+            raise ValueError("driver cannot be empty")
         
-        definition_id = definition.get('id')
-        class_name = definition.get('name')
-        source_code = definition.get('source_code')
-        version = definition.get('version', 1)
+        driver_id = driver.get('id')
+        class_name = driver.get('name')
+        source_code = driver.get('source_code')
+        version = driver.get('version', 1)
         
         if not class_name:
-            raise ValueError("Definition must have 'name' field")
+            raise ValueError("driver must have 'name' field")
         if not source_code:
-            raise ValueError("Definition must have 'source_code' field")
+            raise ValueError("driver must have 'source_code' field")
         
         # Check cache
-        if definition_id:
-            cached_version = cls._version_cache.get(definition_id)
-            if cached_version == version and definition_id in cls._class_cache:
-                return cls._class_cache[definition_id]
+        if driver_id:
+            cached_version = cls._version_cache.get(driver_id)
+            if cached_version == version and driver_id in cls._class_cache:
+                return cls._class_cache[driver_id]
         
         # Create namespace with imports and base classes
         namespace = cls.create_namespace()
@@ -251,28 +251,28 @@ class InstrumentFactory:
             raise ValueError(f"'{class_name}' is not a class")
         
         # Store metadata on the class
-        instrument_class._definition_id = definition_id
-        instrument_class._definition_version = version
+        instrument_class._driver_id = driver_id
+        instrument_class._driver_version = version
         
         # Cache it
-        if definition_id:
-            cls._class_cache[definition_id] = instrument_class
-            cls._version_cache[definition_id] = version
+        if driver_id:
+            cls._class_cache[driver_id] = instrument_class
+            cls._version_cache[driver_id] = version
         
         return instrument_class
     
     @classmethod
     def create_instance(
         cls,
-        definition: Dict,
+        driver: Dict,
         adapter: str = '',
         name: Optional[str] = None,
         **kwargs
     ) -> Any:
-        """Create an instrument instance from a definition.
+        """Create an instrument instance from a driver.
         
         Args:
-            definition: InstrumentDefinition record as dictionary
+            driver: Driver record as dictionary
             adapter: VISA address or connection string
             name: Optional name override (uses display_name by default)
             **kwargs: Additional arguments passed to constructor
@@ -280,10 +280,10 @@ class InstrumentFactory:
         Returns:
             Instrument instance
         """
-        instrument_class = cls.create_class_from_definition(definition)
+        instrument_class = cls.create_class_from_driver(driver)
         
         # Determine name to use
-        instance_name = name or definition.get('display_name') or definition.get('name')
+        instance_name = name or driver.get('display_name') or driver.get('name')
         
         # Create instance
         try:
@@ -300,22 +300,22 @@ class InstrumentFactory:
         if adapter:
             instance.adapter = adapter
         
-        # Store reference to definition
-        instance._definition_id = definition.get('id')
-        instance._definition_version = definition.get('version', 1)
+        # Store reference to driver
+        instance._driver_id = driver.get('id')
+        instance._driver_version = driver.get('version', 1)
         
         return instance
     
     @classmethod
-    def invalidate_cache(cls, definition_id: Optional[int] = None):
+    def invalidate_cache(cls, driver_id: Optional[int] = None):
         """Invalidate the class cache.
         
         Args:
-            definition_id: Specific definition to invalidate, or None for all
+            driver_id: Specific driver to invalidate, or None for all
         """
-        if definition_id:
-            cls._class_cache.pop(definition_id, None)
-            cls._version_cache.pop(definition_id, None)
+        if driver_id:
+            cls._class_cache.pop(driver_id, None)
+            cls._version_cache.pop(driver_id, None)
         else:
             cls._class_cache.clear()
             cls._version_cache.clear()

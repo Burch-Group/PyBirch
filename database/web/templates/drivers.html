@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Instrument Definitions - PyBirch Database{% endblock %}
+{% block title %}Drivers - PyBirch Database{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -44,8 +44,8 @@
 {% block content %}
 <div class="list-page">
     <div class="page-header">
-        <h1>Instrument Definitions</h1>
-        <a href="{{ url_for('main.instrument_definition_new') }}" class="btn btn-primary">+ New Definition</a>
+        <h1>Drivers</h1>
+        <a href="{{ url_for('main.driver_new') }}" class="btn btn-primary">+ New Driver</a>
     </div>
     
     <div class="filters">
@@ -65,7 +65,7 @@
             </select>
             <button type="submit" class="btn btn-secondary">Filter</button>
             {% if search or instrument_type or category %}
-                <a href="{{ url_for('main.instrument_definitions') }}" class="btn btn-link">Clear</a>
+                <a href="{{ url_for('main.drivers') }}" class="btn btn-link">Clear</a>
             {% endif %}
         </form>
     </div>
@@ -89,15 +89,15 @@
                 {% for item in definitions %}
                 <tr>
                     <td><code>{{ item.name }}</code></td>
-                    <td><a href="{{ url_for('main.instrument_definition_detail', definition_id=item.id) }}">{{ item.display_name }}</a></td>
+                    <td><a href="{{ url_for('main.driver_detail', definition_id=item.id) }}">{{ item.display_name }}</a></td>
                     <td><span class="definition-type {{ item.instrument_type }}">{{ item.instrument_type }}</span></td>
                     <td>{{ item.category or '-' }}</td>
                     <td><span class="base-class">{{ item.base_class }}</span></td>
                     <td>v{{ item.version }}</td>
                     <td>
-                        <a href="{{ url_for('main.instrument_definition_detail', definition_id=item.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ url_for('main.instrument_definition_edit', definition_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
-                        <a href="{{ url_for('main.instrument_definition_duplicate', definition_id=item.id) }}" class="btn btn-sm btn-secondary">Duplicate</a>
+                        <a href="{{ url_for('main.driver_detail', definition_id=item.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.driver_edit', definition_id=item.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                        <a href="{{ url_for('main.driver_duplicate', definition_id=item.id) }}" class="btn btn-sm btn-secondary">Duplicate</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -105,8 +105,8 @@
         </table>
     {% else %}
         <div class="empty-state">
-            <p>No instrument definitions found.</p>
-            <a href="{{ url_for('main.instrument_definition_new') }}" class="btn btn-primary">Create your first definition</a>
+            <p>No drivers found.</p>
+            <a href="{{ url_for('main.driver_new') }}" class="btn btn-primary">Create your first driver</a>
         </div>
     {% endif %}
 </div>

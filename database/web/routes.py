@@ -4920,15 +4920,15 @@ def instrument_new():
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
         lab_id = int(lab_id) if lab_id else None
-        definition_id = request.form.get('definition_id')
-        definition_id = int(definition_id) if definition_id else None
+        driver_id = request.form.get('driver_id')
+        driver_id = int(driver_id) if driver_id else None
         equipment_id = request.form.get('equipment_id')
         equipment_id = int(equipment_id) if equipment_id else None
         
         data = {
             'name': request.form.get('name'),
             'instrument_type': request.form.get('instrument_type'),
-            'definition_id': definition_id,
+            'driver_id': driver_id,
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
@@ -4946,7 +4946,7 @@ def instrument_new():
             flash(f'Error creating instrument: {str(e)}', 'error')
     
     labs = db.get_labs_simple_list()
-    definitions = db.get_instrument_definitions()
+    drivers = db.get_drivers()
     equipment_list = db.get_equipment_simple_list() if hasattr(db, 'get_equipment_simple_list') else []
     default_lab_id = None
     if g.current_user:
@@ -4957,7 +4957,7 @@ def instrument_new():
         instrument=None,
         action='New',
         labs=labs,
-        definitions=definitions,
+        drivers=drivers,
         equipment_list=equipment_list,
         default_lab_id=default_lab_id,
     )
@@ -4977,15 +4977,15 @@ def instrument_edit(instrument_id):
     if request.method == 'POST':
         lab_id = request.form.get('lab_id')
         lab_id = int(lab_id) if lab_id else None
-        definition_id = request.form.get('definition_id')
-        definition_id = int(definition_id) if definition_id else None
+        driver_id = request.form.get('driver_id')
+        driver_id = int(driver_id) if driver_id else None
         equipment_id = request.form.get('equipment_id')
         equipment_id = int(equipment_id) if equipment_id else None
         
         data = {
             'name': request.form.get('name'),
             'instrument_type': request.form.get('instrument_type'),
-            'definition_id': definition_id,
+            'driver_id': driver_id,
             'manufacturer': request.form.get('manufacturer'),
             'model': request.form.get('model'),
             'serial_number': request.form.get('serial_number'),
@@ -5002,14 +5002,14 @@ def instrument_edit(instrument_id):
             flash(f'Error updating instrument: {str(e)}', 'error')
     
     labs = db.get_labs_simple_list()
-    definitions = db.get_instrument_definitions()
+    drivers = db.get_drivers()
     equipment_list = db.get_equipment_simple_list() if hasattr(db, 'get_equipment_simple_list') else []
     
     return render_template('instrument_form.html',
         instrument=instrument,
         action='Edit',
         labs=labs,
-        definitions=definitions,
+        drivers=drivers,
         equipment_list=equipment_list,
         default_lab_id=None,
     )
@@ -5083,28 +5083,28 @@ def instrument_duplicate(instrument_id):
     )
 
 
-# -------------------- Instrument Definitions --------------------
+# -------------------- Drivers --------------------
 
-@main_bp.route('/instrument-definitions')
-def instrument_definitions():
-    """Instrument definitions list page."""
+@main_bp.route('/drivers')
+def drivers():
+    """Drivers list page."""
     search = request.args.get('search', '')
     instrument_type = request.args.get('type', '')
     category = request.args.get('category', '')
     
     db = get_db_service()
-    definitions = db.get_instrument_definitions(
+    drivers = db.get_drivers(
         instrument_type=instrument_type if instrument_type else None,
         category=category if category else None,
         search=search if search else None,
     )
     
     # Get unique categories for filter dropdown
-    categories = sorted(set(d['category'] for d in definitions if d.get('category')))
+    categories = sorted(set(d['category'] for d in drivers if d.get('category')))
     
-    return render_template('instrument_definitions.html',
-        definitions=definitions,
-        total=len(definitions),
+    return render_template('drivers.html',
+        drivers=drivers,
+        total=len(drivers),
         search=search,
         instrument_type=instrument_type,
         category=category,
@@ -5112,32 +5112,32 @@ def instrument_definitions():
     )
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>')
-def instrument_definition_detail(definition_id):
-    """Instrument definition detail page."""
+@main_bp.route('/drivers/<int:driver_id>')
+def driver_detail(driver_id):
+    """Driver detail page."""
     db = get_db_service()
-    definition = db.get_instrument_definition(definition_id)
-    if not definition:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+    driver = db.get_driver(driver_id)
+    if not driver:
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
     # Get version history
-    versions = db.get_instrument_definition_versions(definition_id)
+    versions = db.get_driver_versions(driver_id)
     
-    # Get instrument instances using this definition (with their computer bindings)
-    instruments = db.get_instruments_by_definition(definition_id, include_bindings=True)
+    # Get instrument instances using this driver (with their computer bindings)
+    instruments = db.get_instruments_by_driver(driver_id, include_bindings=True)
     
-    return render_template('instrument_definition_detail.html', 
-        definition=definition, 
+    return render_template('driver_detail.html', 
+        driver=driver, 
         versions=versions,
         instruments=instruments,
     )
 
 
-@main_bp.route('/instrument-definitions/new', methods=['GET', 'POST'])
+@main_bp.route('/drivers/new', methods=['GET', 'POST'])
 @login_required
-def instrument_definition_new():
-    """Create new instrument definition page."""
+def driver_new():
+    """Create new driver page."""
     db = get_db_service()
     
     if request.method == 'POST':
@@ -5179,22 +5179,22 @@ def instrument_definition_new():
         if errors:
             for error in errors:
                 flash(error, 'error')
-            return render_template('instrument_definition_form.html',
-                definition=data,
-                form_action=url_for('main.instrument_definition_new'),
-                form_title='New Instrument Definition',
+            return render_template('driver_form.html',
+                driver=data,
+                form_action=url_for('main.driver_new'),
+                form_title='New Driver',
             )
         
         try:
-            definition = db.create_instrument_definition(data)
-            flash(f'Instrument definition "{definition["display_name"]}" created successfully', 'success')
-            return redirect(url_for('main.instrument_definition_detail', definition_id=definition['id']))
+            driver = db.create_driver(data)
+            flash(f'Driver "{driver["display_name"]}" created successfully', 'success')
+            return redirect(url_for('main.driver_detail', driver_id=driver['id']))
         except Exception as e:
-            flash(f'Error creating instrument definition: {str(e)}', 'error')
-            return render_template('instrument_definition_form.html',
-                definition=data,
-                form_action=url_for('main.instrument_definition_new'),
-                form_title='New Instrument Definition',
+            flash(f'Error creating driver: {str(e)}', 'error')
+            return render_template('driver_form.html',
+                driver=data,
+                form_action=url_for('main.driver_new'),
+                form_title='New Driver',
             )
     
     # GET request - show empty form with template
@@ -5227,23 +5227,23 @@ class MyInstrument(Measurement):
         super().close()
 '''
     
-    return render_template('instrument_definition_form.html',
-        definition={'source_code': template_source, 'base_class': 'Measurement'},
-        form_action=url_for('main.instrument_definition_new'),
-        form_title='New Instrument Definition',
+    return render_template('driver_form.html',
+        driver={'source_code': template_source, 'base_class': 'Measurement'},
+        form_action=url_for('main.driver_new'),
+        form_title='New Driver',
     )
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/edit', methods=['GET', 'POST'])
+@main_bp.route('/drivers/<int:driver_id>/edit', methods=['GET', 'POST'])
 @login_required
-def instrument_definition_edit(definition_id):
-    """Edit instrument definition page."""
+def driver_edit(driver_id):
+    """Edit driver page."""
     db = get_db_service()
-    definition = db.get_instrument_definition(definition_id)
+    driver = db.get_driver(driver_id)
     
-    if not definition:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+    if not driver:
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
     if request.method == 'POST':
         data = {
@@ -5278,69 +5278,69 @@ def instrument_definition_edit(definition_id):
         if errors:
             for error in errors:
                 flash(error, 'error')
-            # Merge data back into definition for re-rendering
-            definition.update(data)
-            return render_template('instrument_definition_form.html',
-                definition=definition,
-                form_action=url_for('main.instrument_definition_edit', definition_id=definition_id),
-                form_title=f'Edit {definition["display_name"]}',
+            # Merge data back into driver for re-rendering
+            driver.update(data)
+            return render_template('driver_form.html',
+                driver=driver,
+                form_action=url_for('main.driver_edit', driver_id=driver_id),
+                form_title=f'Edit {driver["display_name"]}',
             )
         
         try:
-            updated = db.update_instrument_definition(
-                definition_id,
+            updated = db.update_driver(
+                driver_id,
                 data,
                 change_summary=change_summary,
                 updated_by=g.current_user.get('username') if g.current_user else None,
             )
-            flash(f'Instrument definition "{updated["display_name"]}" updated successfully', 'success')
-            return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+            flash(f'Driver "{updated["display_name"]}" updated successfully', 'success')
+            return redirect(url_for('main.driver_detail', driver_id=driver_id))
         except Exception as e:
-            flash(f'Error updating instrument definition: {str(e)}', 'error')
-            definition.update(data)
-            return render_template('instrument_definition_form.html',
-                definition=definition,
-                form_action=url_for('main.instrument_definition_edit', definition_id=definition_id),
-                form_title=f'Edit {definition["display_name"]}',
+            flash(f'Error updating driver: {str(e)}', 'error')
+            driver.update(data)
+            return render_template('driver_form.html',
+                driver=driver,
+                form_action=url_for('main.driver_edit', driver_id=driver_id),
+                form_title=f'Edit {driver["display_name"]}',
             )
     
-    return render_template('instrument_definition_form.html',
-        definition=definition,
-        form_action=url_for('main.instrument_definition_edit', definition_id=definition_id),
-        form_title=f'Edit {definition["display_name"]}',
+    return render_template('driver_form.html',
+        driver=driver,
+        form_action=url_for('main.driver_edit', driver_id=driver_id),
+        form_title=f'Edit {driver["display_name"]}',
     )
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/delete', methods=['POST'])
+@main_bp.route('/drivers/<int:driver_id>/delete', methods=['POST'])
 @login_required
-def instrument_definition_delete(definition_id):
-    """Delete an instrument definition."""
+def driver_delete(driver_id):
+    """Delete a driver."""
     db = get_db_service()
-    definition = db.get_instrument_definition(definition_id)
+    driver = db.get_driver(driver_id)
     
-    if not definition:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+    if not driver:
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
     try:
-        db.delete_instrument_definition(definition_id)
-        flash(f'Instrument definition "{definition["display_name"]}" deleted', 'success')
+        db.delete_driver(driver_id)
+        flash(f'Driver "{driver["display_name"]}" deleted', 'success')
     except Exception as e:
-        flash(f'Error deleting instrument definition: {str(e)}', 'error')
+        flash(f'Error deleting driver: {str(e)}', 'error')
     
-    return redirect(url_for('main.instrument_definitions'))
+    return redirect(url_for('main.drivers'))
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/duplicate', methods=['GET', 'POST'])
+@main_bp.route('/drivers/<int:driver_id>/duplicate', methods=['GET', 'POST'])
 @login_required
-def instrument_definition_duplicate(definition_id):
-    """Duplicate an instrument definition."""
+def driver_duplicate(driver_id):
+    """Duplicate a driver."""
     db = get_db_service()
-    original = db.get_instrument_definition(definition_id)
+    original = db.get_driver(driver_id)
     
     if not original:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
     if request.method == 'POST':
         data = {
@@ -5358,60 +5358,60 @@ def instrument_definition_duplicate(definition_id):
         }
         
         try:
-            definition = db.create_instrument_definition(data)
-            flash(f'Instrument definition "{definition["display_name"]}" created from duplicate', 'success')
-            return redirect(url_for('main.instrument_definition_detail', definition_id=definition['id']))
+            driver = db.create_driver(data)
+            flash(f'Driver "{driver["display_name"]}" created from duplicate', 'success')
+            return redirect(url_for('main.driver_detail', driver_id=driver['id']))
         except Exception as e:
-            flash(f'Error creating instrument definition: {str(e)}', 'error')
+            flash(f'Error creating driver: {str(e)}', 'error')
     
     # Pre-fill form with original data but new name
     duplicated = original.copy()
     duplicated['name'] = f"{original['name']}_copy"
     duplicated['display_name'] = f"{original['display_name']} (Copy)"
     
-    return render_template('instrument_definition_form.html',
-        definition=duplicated,
-        form_action=url_for('main.instrument_definition_duplicate', definition_id=definition_id),
+    return render_template('driver_form.html',
+        driver=duplicated,
+        form_action=url_for('main.driver_duplicate', driver_id=driver_id),
         form_title=f'Duplicate {original["display_name"]}',
     )
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/versions/<int:version>')
-def instrument_definition_version(definition_id, version):
-    """View a specific version of an instrument definition."""
+@main_bp.route('/drivers/<int:driver_id>/versions/<int:version>')
+def driver_version(driver_id, version):
+    """View a specific version of a driver."""
     db = get_db_service()
-    definition = db.get_instrument_definition(definition_id)
+    driver = db.get_driver(driver_id)
     
-    if not definition:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+    if not driver:
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
-    versions = db.get_instrument_definition_versions(definition_id)
+    versions = db.get_driver_versions(driver_id)
     version_data = next((v for v in versions if v['version'] == version), None)
     
     if not version_data:
         flash(f'Version {version} not found', 'error')
-        return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+        return redirect(url_for('main.driver_detail', driver_id=driver_id))
     
-    return render_template('instrument_definition_version.html',
-        definition=definition,
+    return render_template('driver_version.html',
+        driver=driver,
         version_data=version_data,
         all_versions=versions,
     )
 
 
-# -------------------- Instrument Instances (for Definitions) --------------------
+# -------------------- Instrument Instances (for Drivers) --------------------
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/instruments/new', methods=['GET', 'POST'])
+@main_bp.route('/drivers/<int:driver_id>/instruments/new', methods=['GET', 'POST'])
 @login_required
-def instrument_definition_new_instance(definition_id):
-    """Create a new instrument instance from a definition."""
+def driver_new_instance(driver_id):
+    """Create a new instrument instance from a driver."""
     db = get_db_service()
-    definition = db.get_instrument_definition(definition_id)
+    driver = db.get_driver(driver_id)
     
-    if not definition:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+    if not driver:
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
     if request.method == 'POST':
         data = {
@@ -5430,18 +5430,18 @@ def instrument_definition_new_instance(definition_id):
             flash('Instrument name is required', 'error')
             labs = db.get_labs_simple_list()
             return render_template('instrument_instance_form.html',
-                definition=definition,
+                driver=driver,
                 instrument=data,
                 labs=labs,
-                form_action=url_for('main.instrument_definition_new_instance', definition_id=definition_id),
-                form_title=f'New {definition["display_name"]} Instance',
+                form_action=url_for('main.driver_new_instance', driver_id=driver_id),
+                form_title=f'New {driver["display_name"]} Instance',
             )
         
         try:
-            instrument = db.create_instrument_for_definition(definition_id, data)
+            instrument = db.create_instrument_for_driver(driver_id, data)
             if instrument:
                 flash(f'Instrument "{instrument["name"]}" created successfully', 'success')
-                return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+                return redirect(url_for('main.driver_detail', driver_id=driver_id))
             else:
                 flash('Failed to create instrument', 'error')
         except Exception as e:
@@ -5450,24 +5450,24 @@ def instrument_definition_new_instance(definition_id):
     # GET - show form
     labs = db.get_labs_simple_list()
     return render_template('instrument_instance_form.html',
-        definition=definition,
+        driver=driver,
         instrument={},
         labs=labs,
-        form_action=url_for('main.instrument_definition_new_instance', definition_id=definition_id),
-        form_title=f'New {definition["display_name"]} Instance',
+        form_action=url_for('main.driver_new_instance', driver_id=driver_id),
+        form_title=f'New {driver["display_name"]} Instance',
     )
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/instruments/<int:instrument_id>/delete', methods=['POST'])
+@main_bp.route('/drivers/<int:driver_id>/instruments/<int:instrument_id>/delete', methods=['POST'])
 @login_required
-def instrument_definition_delete_instance(definition_id, instrument_id):
+def driver_delete_instance(driver_id, instrument_id):
     """Delete an instrument instance."""
     db = get_db_service()
     instrument = db.get_instrument(instrument_id)
     
     if not instrument:
         flash('Instrument not found', 'error')
-        return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+        return redirect(url_for('main.driver_detail', driver_id=driver_id))
     
     try:
         db.delete_instrument(instrument_id)
@@ -5475,19 +5475,19 @@ def instrument_definition_delete_instance(definition_id, instrument_id):
     except Exception as e:
         flash(f'Error deleting instrument: {str(e)}', 'error')
     
-    return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+    return redirect(url_for('main.driver_detail', driver_id=driver_id))
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/link-instrument', methods=['GET', 'POST'])
+@main_bp.route('/drivers/<int:driver_id>/link-instrument', methods=['GET', 'POST'])
 @login_required
-def instrument_definition_link_instrument(definition_id):
-    """Link an existing instrument to this definition."""
+def driver_link_instrument(driver_id):
+    """Link an existing instrument to this driver."""
     db = get_db_service()
-    definition = db.get_instrument_definition(definition_id)
+    driver = db.get_driver(driver_id)
     
-    if not definition:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+    if not driver:
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
     if request.method == 'POST':
         instrument_id = request.form.get('instrument_id')
@@ -5495,60 +5495,60 @@ def instrument_definition_link_instrument(definition_id):
             flash('Please select an instrument to link', 'error')
         else:
             try:
-                result = db.link_instrument_to_definition(int(instrument_id), definition_id)
+                result = db.link_instrument_to_driver(int(instrument_id), driver_id)
                 if result:
-                    flash(f'Instrument "{result["name"]}" linked to {definition["display_name"]}', 'success')
+                    flash(f'Instrument "{result["name"]}" linked to {driver["display_name"]}', 'success')
                 else:
                     flash('Failed to link instrument', 'error')
             except Exception as e:
                 flash(f'Error linking instrument: {str(e)}', 'error')
         
-        return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+        return redirect(url_for('main.driver_detail', driver_id=driver_id))
     
     # GET - show available instruments
-    unlinked_instruments = db.get_instruments_without_definition()
+    unlinked_instruments = db.get_instruments_without_driver()
     
-    return render_template('instrument_definition_link.html',
-        definition=definition,
+    return render_template('driver_link.html',
+        driver=driver,
         instruments=unlinked_instruments,
     )
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/instruments/<int:instrument_id>/unlink', methods=['POST'])
+@main_bp.route('/drivers/<int:driver_id>/instruments/<int:instrument_id>/unlink', methods=['POST'])
 @login_required
-def instrument_definition_unlink_instrument(definition_id, instrument_id):
-    """Unlink an instrument from this definition."""
+def driver_unlink_instrument(driver_id, instrument_id):
+    """Unlink an instrument from this driver."""
     db = get_db_service()
     
     try:
-        result = db.unlink_instrument_from_definition(instrument_id)
+        result = db.unlink_instrument_from_driver(instrument_id)
         if result:
-            flash(f'Instrument "{result["name"]}" unlinked from definition', 'success')
+            flash(f'Instrument "{result["name"]}" unlinked from driver', 'success')
         else:
             flash('Instrument not found', 'error')
     except Exception as e:
         flash(f'Error unlinking instrument: {str(e)}', 'error')
     
-    return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+    return redirect(url_for('main.driver_detail', driver_id=driver_id))
 
 
-# -------------------- Instrument Definition Issues --------------------
+# -------------------- Driver Issues --------------------
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/issues')
-def instrument_definition_issues(definition_id):
-    """List issues for a specific instrument definition."""
+@main_bp.route('/drivers/<int:driver_id>/issues')
+def driver_issues(driver_id):
+    """List issues for a specific driver."""
     page = request.args.get('page', 1, type=int)
     status = request.args.get('status', '')
     priority = request.args.get('priority', '')
     
     db = get_db_service()
-    definition = db.get_instrument_definition(definition_id)
-    if not definition:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+    driver = db.get_driver(driver_id)
+    if not driver:
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
-    issues, total = db.get_instrument_definition_issues(
-        definition_id=definition_id,
+    issues, total = db.get_driver_issues(
+        driver_id=driver_id,
         status=status if status else None,
         priority=priority if priority else None,
         page=page
@@ -5556,8 +5556,8 @@ def instrument_definition_issues(definition_id):
     
     total_pages = (total + 19) // 20
     
-    return render_template('instrument_definition_issues.html',
-        definition=definition,
+    return render_template('driver_issues.html',
+        driver=driver,
         issues=issues,
         page=page,
         total_pages=total_pages,
@@ -5567,45 +5567,45 @@ def instrument_definition_issues(definition_id):
     )
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/issues/<int:issue_id>')
-def instrument_definition_issue_detail(definition_id, issue_id):
-    """View a specific instrument definition issue."""
+@main_bp.route('/drivers/<int:driver_id>/issues/<int:issue_id>')
+def driver_issue_detail(driver_id, issue_id):
+    """View a specific driver issue."""
     db = get_db_service()
-    definition = db.get_instrument_definition(definition_id)
-    if not definition:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+    driver = db.get_driver(driver_id)
+    if not driver:
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
-    issue = db.get_instrument_definition_issue(issue_id)
+    issue = db.get_driver_issue(issue_id)
     if not issue:
         flash('Issue not found', 'error')
-        return redirect(url_for('main.instrument_definition_issues', definition_id=definition_id))
+        return redirect(url_for('main.driver_issues', driver_id=driver_id))
     
     # Get versions for display
-    versions = db.get_instrument_definition_versions(definition_id)
+    versions = db.get_driver_versions(driver_id)
     
-    return render_template('instrument_definition_issue_detail.html',
-        definition=definition,
+    return render_template('driver_issue_detail.html',
+        driver=driver,
         issue=issue,
         versions=versions,
     )
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/issues/new', methods=['GET', 'POST'])
+@main_bp.route('/drivers/<int:driver_id>/issues/new', methods=['GET', 'POST'])
 @login_required
-def instrument_definition_issue_new(definition_id):
-    """Create a new issue for an instrument definition."""
+def driver_issue_new(driver_id):
+    """Create a new issue for a driver."""
     db = get_db_service()
-    definition = db.get_instrument_definition(definition_id)
-    if not definition:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+    driver = db.get_driver(driver_id)
+    if not driver:
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
     if request.method == 'POST':
         assignee_id = request.form.get('assignee_id')
         affected_version = request.form.get('affected_version')
         data = {
-            'definition_id': definition_id,
+            'driver_id': driver_id,
             'title': request.form.get('title'),
             'description': request.form.get('description'),
             'priority': request.form.get('priority', 'medium'),
@@ -5623,9 +5623,9 @@ def instrument_definition_issue_new(definition_id):
             data['reporter_id'] = g.current_user.get('id')
         
         try:
-            issue = db.create_instrument_definition_issue(data)
+            issue = db.create_driver_issue(data)
             flash(f'Issue "{issue["title"]}" reported successfully', 'success')
-            return redirect(url_for('main.instrument_definition_issue_detail', definition_id=definition_id, issue_id=issue['id']))
+            return redirect(url_for('main.driver_issue_detail', driver_id=driver_id, issue_id=issue['id']))
         except Exception as e:
             flash(f'Error reporting issue: {str(e)}', 'error')
     
@@ -5633,10 +5633,10 @@ def instrument_definition_issue_new(definition_id):
     users, _ = db.get_users(per_page=1000)
     
     # Get versions for dropdown
-    versions = db.get_instrument_definition_versions(definition_id)
+    versions = db.get_driver_versions(driver_id)
     
-    return render_template('instrument_definition_issue_form.html',
-        definition=definition,
+    return render_template('driver_issue_form.html',
+        driver=driver,
         issue=None,
         action='Report',
         users=users,
@@ -5644,20 +5644,20 @@ def instrument_definition_issue_new(definition_id):
     )
 
 
-@main_bp.route('/instrument-definitions/<int:definition_id>/issues/<int:issue_id>/edit', methods=['GET', 'POST'])
+@main_bp.route('/drivers/<int:driver_id>/issues/<int:issue_id>/edit', methods=['GET', 'POST'])
 @login_required
-def instrument_definition_issue_edit(definition_id, issue_id):
-    """Edit an instrument definition issue."""
+def driver_issue_edit(driver_id, issue_id):
+    """Edit a driver issue."""
     db = get_db_service()
-    definition = db.get_instrument_definition(definition_id)
-    if not definition:
-        flash('Instrument definition not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+    driver = db.get_driver(driver_id)
+    if not driver:
+        flash('Driver not found', 'error')
+        return redirect(url_for('main.drivers'))
     
-    issue = db.get_instrument_definition_issue(issue_id)
+    issue = db.get_driver_issue(issue_id)
     if not issue:
         flash('Issue not found', 'error')
-        return redirect(url_for('main.instrument_definition_issues', definition_id=definition_id))
+        return redirect(url_for('main.driver_issues', driver_id=driver_id))
     
     if request.method == 'POST':
         assignee_id = request.form.get('assignee_id')
@@ -5685,9 +5685,9 @@ def instrument_definition_issue_edit(definition_id, issue_id):
             data['resolved_at'] = datetime.utcnow()
         
         try:
-            db.update_instrument_definition_issue(issue_id, data)
+            db.update_driver_issue(issue_id, data)
             flash('Issue updated successfully', 'success')
-            return redirect(url_for('main.instrument_definition_issue_detail', definition_id=definition_id, issue_id=issue_id))
+            return redirect(url_for('main.driver_issue_detail', driver_id=driver_id, issue_id=issue_id))
         except Exception as e:
             flash(f'Error updating issue: {str(e)}', 'error')
     
@@ -5695,10 +5695,10 @@ def instrument_definition_issue_edit(definition_id, issue_id):
     users, _ = db.get_users(per_page=1000)
     
     # Get versions for dropdown
-    versions = db.get_instrument_definition_versions(definition_id)
+    versions = db.get_driver_versions(driver_id)
     
-    return render_template('instrument_definition_issue_form.html',
-        definition=definition,
+    return render_template('driver_issue_form.html',
+        driver=driver,
         issue=issue,
         action='Update',
         users=users,
@@ -5706,15 +5706,15 @@ def instrument_definition_issue_edit(definition_id, issue_id):
     )
 
 
-@main_bp.route('/instrument-definitions/issues')
-def all_instrument_definition_issues():
-    """List all instrument definition issues across all definitions."""
+@main_bp.route('/drivers/issues')
+def all_driver_issues():
+    """List all driver issues across all drivers."""
     page = request.args.get('page', 1, type=int)
     status = request.args.get('status', '')
     priority = request.args.get('priority', '')
     
     db = get_db_service()
-    issues, total = db.get_instrument_definition_issues(
+    issues, total = db.get_driver_issues(
         status=status if status else None,
         priority=priority if priority else None,
         page=page
@@ -5722,7 +5722,7 @@ def all_instrument_definition_issues():
     
     total_pages = (total + 19) // 20
     
-    return render_template('all_instrument_definition_issues.html',
+    return render_template('all_driver_issues.html',
         issues=issues,
         page=page,
         total_pages=total_pages,
@@ -5743,12 +5743,12 @@ def instrument_binding_new(instrument_id):
     
     if not instrument:
         flash('Instrument not found', 'error')
-        return redirect(url_for('main.instrument_definitions'))
+        return redirect(url_for('main.drivers'))
     
-    # Get definition for redirect
-    definition_id = None
-    if instrument.get('definition_id'):
-        definition_id = instrument['definition_id']
+    # Get driver for redirect
+    driver_id = None
+    if instrument.get('driver_id'):
+        driver_id = instrument['driver_id']
     
     if request.method == 'POST':
         data = {
@@ -5777,8 +5777,8 @@ def instrument_binding_new(instrument_id):
                     nickname=data.get('nickname'),
                 )
                 flash(f'Binding to {data["computer_name"]} created successfully', 'success')
-                if definition_id:
-                    return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+                if driver_id:
+                    return redirect(url_for('main.driver_detail', driver_id=driver_id))
                 return redirect(url_for('main.instruments'))
             except Exception as e:
                 flash(f'Error creating binding: {str(e)}', 'error')
@@ -5798,7 +5798,7 @@ def instrument_binding_new(instrument_id):
     
     return render_template('computer_binding_form.html',
         instrument=instrument,
-        definition_id=definition_id,
+        driver_id=driver_id,
         binding={
             'computer_name': current_computer_name,
             'computer_id': computer_info.get('computer_id', ''),
@@ -5818,7 +5818,7 @@ def instrument_binding_delete(instrument_id, binding_id):
     
     # Get instrument for redirect info
     instrument = db.get_instrument(instrument_id)
-    definition_id = instrument.get('definition_id') if instrument else None
+    driver_id = instrument.get('driver_id') if instrument else None
     
     try:
         db.delete_computer_binding(binding_id)
@@ -5826,8 +5826,8 @@ def instrument_binding_delete(instrument_id, binding_id):
     except Exception as e:
         flash(f'Error deleting binding: {str(e)}', 'error')
     
-    if definition_id:
-        return redirect(url_for('main.instrument_definition_detail', definition_id=definition_id))
+    if driver_id:
+        return redirect(url_for('main.driver_detail', driver_id=driver_id))
     return redirect(url_for('main.instruments'))
 
 
@@ -5847,7 +5847,7 @@ def instrument_binding_edit(instrument_id, binding_id):
         flash('Binding not found', 'error')
         return redirect(url_for('main.instrument_detail', instrument_id=instrument_id))
     
-    definition_id = instrument.get('definition_id')
+    driver_id = instrument.get('driver_id')
     
     if request.method == 'POST':
         data = {
@@ -5882,7 +5882,7 @@ def instrument_binding_edit(instrument_id, binding_id):
     
     return render_template('computer_binding_form.html',
         instrument=instrument,
-        definition_id=definition_id,
+        driver_id=driver_id,
         binding=binding,
         computer=existing_computer,
         form_action=url_for('main.instrument_binding_edit', instrument_id=instrument_id, binding_id=binding_id),
@@ -5942,7 +5942,7 @@ def computer_binding_edit(computer_id, binding_id):
     
     return render_template('computer_binding_form.html',
         instrument=instrument,
-        definition_id=instrument.get('definition_id'),
+        driver_id=instrument.get('driver_id'),
         binding=binding,
         computer=computer,
         form_action=url_for('main.computer_binding_edit', computer_id=computer_id, binding_id=binding_id),

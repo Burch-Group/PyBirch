@@ -117,8 +117,8 @@
         {% if return_url %}
         <a href="{{ return_url }}">← Back</a>
         {% elif definition_id %}
-        <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / 
-        <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition_id) }}">Back</a> / 
+        <a href="{{ url_for('main.drivers') }}">Drivers</a> / 
+        <a href="{{ url_for('main.driver_detail', definition_id=definition_id) }}">Back</a> / 
         {% else %}
         <a href="{{ url_for('main.instruments') }}">Instruments</a> / 
         {% endif %}
@@ -214,7 +214,7 @@
             {% if return_url %}
             <a href="{{ return_url }}" class="btn btn-secondary">Cancel</a>
             {% elif definition_id %}
-            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition_id) }}" class="btn btn-secondary">Cancel</a>
+            <a href="{{ url_for('main.driver_detail', definition_id=definition_id) }}" class="btn btn-secondary">Cancel</a>
             {% else %}
             <a href="{{ url_for('main.instruments') }}" class="btn btn-secondary">Cancel</a>
             {% endif %}

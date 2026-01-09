@@ -19,7 +19,7 @@ from database.models import (
     Lab, LabMember, Project, ProjectMember, ItemGuest,
     User, UserPin, Issue, EntityImage,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
-    InstrumentDefinitionIssue, Location, ObjectLocation
+    DriverIssue, Location, ObjectLocation
 )
 from database.session import get_session, init_db
 
@@ -117,12 +117,12 @@ class DatabaseService:
             }
             
             # Import models not in main imports for stats
-            from database.models import InstrumentDefinition, Computer
+            from database.models import Driver, Computer
             
-            stats['instrument_definitions'] = {
-                'total': session.query(func.count(InstrumentDefinition.id)).scalar() or 0,
-                'movement': session.query(func.count(InstrumentDefinition.id)).filter(InstrumentDefinition.instrument_type == 'movement').scalar() or 0,
-                'measurement': session.query(func.count(InstrumentDefinition.id)).filter(InstrumentDefinition.instrument_type == 'measurement').scalar() or 0,
+            stats['drivers'] = {
+                'total': session.query(func.count(Driver.id)).scalar() or 0,
+                'movement': session.query(func.count(Driver.id)).filter(Driver.instrument_type == 'movement').scalar() or 0,
+                'measurement': session.query(func.count(Driver.id)).filter(Driver.instrument_type == 'measurement').scalar() or 0,
             }
             
             stats['computers'] = {
@@ -1547,7 +1547,7 @@ class DatabaseService:
         """
         with self.session_scope() as session:
             instrument = session.query(Instrument).filter(Instrument.name == name).first()
-            return self._instrument_to_dict(instrument) if instrument else None
+            return self._instrument_to_dict(instrument, session=session) if instrument else None
 
     # ==================== Instruments (PyBirch-compatible devices) ====================
     
@@ -1565,7 +1565,7 @@ class DatabaseService:
         
         with self.session_scope() as session:
             query = session.query(Instrument).options(
-                joinedload(Instrument.definition)
+                joinedload(Instrument.driver)
             )
             
             if search:
@@ -1592,7 +1592,7 @@ class DatabaseService:
             offset = (page - 1) * per_page
             instruments = query.order_by(Instrument.name).offset(offset).limit(per_page).all()
             
-            return [self._instrument_to_dict(i) for i in instruments], total
+            return [self._instrument_to_dict(i, session=session) for i in instruments], total
     
     def get_instrument(self, instrument_id: int) -> Optional[Dict]:
         """Get a single instrument by ID."""
@@ -1601,10 +1601,10 @@ class DatabaseService:
         
         with self.session_scope() as session:
             instrument = session.query(Instrument).options(
-                joinedload(Instrument.definition),
+                joinedload(Instrument.driver),
                 joinedload(Instrument.computer_bindings).joinedload(ComputerBinding.computer)
             ).filter(Instrument.id == instrument_id).first()
-            return self._instrument_to_dict(instrument, include_computer_bindings=True) if instrument else None
+            return self._instrument_to_dict(instrument, include_computer_bindings=True, session=session) if instrument else None
     
     def create_instrument(self, data: Dict[str, Any]) -> Dict:
         """Create new instrument."""
@@ -1614,10 +1614,10 @@ class DatabaseService:
             instrument = Instrument(**data)
             session.add(instrument)
             session.flush()
-            # Re-query to get the definition relationship loaded
-            if instrument.definition_id:
+            # Re-query to get the driver relationship loaded
+            if instrument.driver_id:
                 session.refresh(instrument)
-            return self._instrument_to_dict(instrument)
+            return self._instrument_to_dict(instrument, session=session)
     
     def update_instrument(self, instrument_id: int, data: Dict) -> Optional[Dict]:
         """Update an existing instrument."""
@@ -1627,16 +1627,16 @@ class DatabaseService:
                 return None
             
             for field in ['name', 'instrument_type', 'pybirch_class', 'manufacturer', 'model',
-                          'serial_number', 'location', 'status', 'specifications',
-                          'lab_id', 'equipment_id', 'definition_id']:
+                          'serial_number', 'status', 'specifications',
+                          'lab_id', 'equipment_id', 'driver_id']:
                 if field in data:
                     setattr(instrument, field, data[field])
             
             session.flush()
-            # Refresh to get updated definition relationship
-            if instrument.definition_id:
+            # Refresh to get updated driver relationship
+            if instrument.driver_id:
                 session.refresh(instrument)
-            return self._instrument_to_dict(instrument)
+            return self._instrument_to_dict(instrument, session=session)
     
     def delete_instrument(self, instrument_id: int) -> bool:
         """Delete an instrument by ID."""
@@ -1647,15 +1647,15 @@ class DatabaseService:
             session.delete(instrument)
             return True
     
-    def get_instruments_by_definition(
+    def get_instruments_by_driver(
         self,
-        definition_id: int,
+        driver_id: int,
         include_bindings: bool = True,
     ) -> List[Dict]:
-        """Get all instrument instances using a specific definition.
+        """Get all instrument instances using a specific driver.
         
         Args:
-            definition_id: ID of the InstrumentDefinition
+            driver_id: ID of the Driver
             include_bindings: If True, include computer bindings for each instrument
         
         Returns:
@@ -1666,14 +1666,14 @@ class DatabaseService:
         
         with self.session_scope() as session:
             instruments = session.query(Instrument).options(
-                joinedload(Instrument.definition)
+                joinedload(Instrument.driver)
             ).filter(
-                Instrument.definition_id == definition_id
+                Instrument.driver_id == driver_id
             ).order_by(Instrument.name).all()
             
             result = []
             for instrument in instruments:
-                inst_dict = self._instrument_to_dict(instrument)
+                inst_dict = self._instrument_to_dict(instrument, session=session)
                 
                 if include_bindings:
                     # Get computer bindings for this instrument with computer info
@@ -1690,38 +1690,38 @@ class DatabaseService:
             
             return result
     
-    def get_instruments_without_definition(self) -> List[Dict]:
-        """Get all instruments that don't have a definition linked.
+    def get_instruments_without_driver(self) -> List[Dict]:
+        """Get all instruments that don't have a driver linked.
         
         Returns:
-            List of instruments without definition_id set
+            List of instruments without driver set
         """
         from sqlalchemy.orm import joinedload
         
         with self.session_scope() as session:
             instruments = session.query(Instrument).options(
-                joinedload(Instrument.definition)
+                joinedload(Instrument.driver)
             ).filter(
-                Instrument.definition_id.is_(None)
+                Instrument.driver_id.is_(None)
             ).order_by(Instrument.name).all()
             
-            return [self._instrument_to_dict(i) for i in instruments]
+            return [self._instrument_to_dict(i, session=session) for i in instruments]
     
-    def link_instrument_to_definition(
+    def link_instrument_to_driver(
         self,
         instrument_id: int,
-        definition_id: int,
+        driver_id: int,
     ) -> Optional[Dict]:
-        """Link an existing instrument to a definition.
+        """Link an existing instrument to a driver.
         
         Args:
             instrument_id: ID of the instrument to link
-            definition_id: ID of the definition to link to
+            driver_id: ID of the driver to link to
         
         Returns:
             Updated instrument as dictionary, or None if not found
         """
-        from database.models import InstrumentDefinition
+        from database.models import Driver
         
         with self.session_scope() as session:
             instrument = session.query(Instrument).filter(
@@ -1731,30 +1731,30 @@ class DatabaseService:
             if not instrument:
                 return None
             
-            # Verify definition exists
-            definition = session.query(InstrumentDefinition).filter(
-                InstrumentDefinition.id == definition_id
+            # Verify driver exists
+            driver = session.query(Driver).filter(
+                Driver.id == driver_id
             ).first()
             
-            if not definition:
+            if not driver:
                 return None
             
             # Update the instrument
-            instrument.definition_id = definition_id
+            instrument.driver_id = driver_id
             # Also set pybirch_class to match for backwards compatibility
-            instrument.pybirch_class = definition.name
+            instrument.pybirch_class = driver.name
             # Optionally sync instrument_type
-            instrument.instrument_type = definition.instrument_type
+            instrument.instrument_type = driver.instrument_type
             
             session.flush()
             session.refresh(instrument)
-            return self._instrument_to_dict(instrument)
+            return self._instrument_to_dict(instrument, session=session)
     
-    def unlink_instrument_from_definition(
+    def unlink_instrument_from_driver(
         self,
         instrument_id: int,
     ) -> Optional[Dict]:
-        """Unlink an instrument from its definition.
+        """Unlink an instrument from its driver.
         
         Args:
             instrument_id: ID of the instrument to unlink
@@ -1770,72 +1770,106 @@ class DatabaseService:
             if not instrument:
                 return None
             
-            instrument.definition_id = None
+            instrument.driver_id = None
             session.flush()
-            return self._instrument_to_dict(instrument)
+            return self._instrument_to_dict(instrument, session=session)
     
-    def create_instrument_for_definition(
+    def create_instrument_for_driver(
         self,
-        definition_id: int,
+        driver_id: int,
         data: Dict[str, Any],
     ) -> Optional[Dict]:
-        """Create a new instrument instance linked to a definition.
+        """Create a new instrument instance linked to a driver.
         
         Args:
-            definition_id: ID of the InstrumentDefinition to link
+            driver_id: ID of the Driver to link
             data: Instrument data including:
                 - name: Display name for this instance (required)
                 - serial_number: Physical device serial (optional)
-                - location: Physical location (optional)
+                - location_id: Location ID to place instrument (optional)
                 - manufacturer, model: Device info (optional)
         
         Returns:
-            Created instrument as dictionary, or None if definition not found
+            Created instrument as dictionary, or None if driver not found
         """
-        from database.models import InstrumentDefinition
+        from database.models import Driver, ObjectLocation
         
         with self.session_scope() as session:
-            # Verify definition exists
-            definition = session.query(InstrumentDefinition).filter(
-                InstrumentDefinition.id == definition_id
+            # Verify driver exists
+            driver = session.query(Driver).filter(
+                Driver.id == driver_id
             ).first()
             
-            if not definition:
+            if not driver:
                 return None
             
-            # Create instrument linked to definition
+            # Create instrument linked to driver
             instrument = Instrument(
                 name=data['name'],
-                instrument_type=definition.instrument_type,
-                pybirch_class=definition.name,
-                manufacturer=data.get('manufacturer') or definition.manufacturer,
+                instrument_type=driver.instrument_type,
+                pybirch_class=driver.name,
+                manufacturer=data.get('manufacturer') or driver.manufacturer,
                 model=data.get('model'),
                 serial_number=data.get('serial_number'),
-                location=data.get('location'),
                 status=data.get('status', 'available'),
                 lab_id=data.get('lab_id'),
-                definition_id=definition_id,
+                driver_id=driver_id,
             )
             
             session.add(instrument)
             session.flush()
+            
+            # Link to location if provided
+            location_id = data.get('location_id')
+            if location_id:
+                obj_loc = ObjectLocation(
+                    location_id=location_id,
+                    object_type='instrument',
+                    object_id=instrument.id,
+                    notes=data.get('location_notes'),
+                    placed_by=data.get('created_by'),
+                    is_current=True
+                )
+                session.add(obj_loc)
+                session.flush()
+            
             session.refresh(instrument)
             
-            return self._instrument_to_dict(instrument)
+            return self._instrument_to_dict(instrument, session=session)
     
-    def _instrument_to_dict(self, instrument: Instrument, include_computer_bindings: bool = False) -> Dict:
+    def _instrument_to_dict(self, instrument: Instrument, include_computer_bindings: bool = False, session=None) -> Dict:
         """Convert Instrument model to dictionary."""
-        # Get definition info if linked
-        definition_name = None
-        definition_display_name = None
-        if instrument.definition_id and instrument.definition:
-            definition_name = instrument.definition.name
-            definition_display_name = instrument.definition.display_name
+        from database.models import ObjectLocation, Location
+        
+        # Get driver info if linked
+        driver_name = None
+        driver_display_name = None
+        if instrument.driver_id and instrument.driver:
+            driver_name = instrument.driver.name
+            driver_display_name = instrument.driver.display_name
         
         # Get lab info if linked
         lab_info = None
         if instrument.lab_id and instrument.lab:
             lab_info = {'id': instrument.lab.id, 'name': instrument.lab.name}
+        
+        # Get current location if any
+        location_info = None
+        if session:
+            obj_loc = session.query(ObjectLocation).filter(
+                ObjectLocation.object_type == 'instrument',
+                ObjectLocation.object_id == instrument.id,
+                ObjectLocation.is_current == True
+            ).first()
+            if obj_loc:
+                loc = session.query(Location).filter(Location.id == obj_loc.location_id).first()
+                if loc:
+                    location_info = {
+                        'id': loc.id,
+                        'name': loc.name,
+                        'location_type': loc.location_type,
+                        'notes': obj_loc.notes
+                    }
         
         result = {
             'id': instrument.id,
@@ -1850,9 +1884,10 @@ class DatabaseService:
             'lab_id': instrument.lab_id,
             'lab': lab_info,
             'equipment_id': instrument.equipment_id,
-            'definition_id': instrument.definition_id,
-            'definition_name': definition_name,
-            'definition_display_name': definition_display_name,
+            'driver_id': instrument.driver_id,
+            'driver_name': driver_name,
+            'driver_display_name': driver_display_name,
+            'location': location_info,
             'created_at': instrument.created_at.isoformat() if instrument.created_at else None,
         }
         
@@ -1881,13 +1916,13 @@ class DatabaseService:
         
         return result
 
-    # ==================== Instrument Definitions (Stored Code) ====================
+    # ==================== Drivers (Stored Code) ====================
     
-    def create_instrument_definition(self, data: Dict[str, Any]) -> Dict:
-        """Create a new instrument definition.
+    def create_driver(self, data: Dict[str, Any]) -> Dict:
+        """Create a new driver.
         
         Args:
-            data: Dictionary with definition fields:
+            data: Dictionary with driver fields:
                 - name: Class name (required, unique)
                 - display_name: Human-readable name (required)
                 - instrument_type: 'movement' or 'measurement' (required)
@@ -1896,12 +1931,12 @@ class DatabaseService:
                 - description, category, manufacturer, etc. (optional)
         
         Returns:
-            Created definition as dictionary
+            Created driver as dictionary
         """
-        from database.models import InstrumentDefinition, InstrumentDefinitionVersion
+        from database.models import Driver, DriverVersion
         
         with self.session_scope() as session:
-            definition = InstrumentDefinition(
+            driver = Driver(
                 name=data['name'],
                 display_name=data['display_name'],
                 description=data.get('description'),
@@ -1923,12 +1958,12 @@ class DatabaseService:
                 is_approved=data.get('is_approved', True),
                 created_by=data.get('created_by'),
             )
-            session.add(definition)
+            session.add(driver)
             session.flush()
             
             # Create initial version
-            version = InstrumentDefinitionVersion(
-                definition_id=definition.id,
+            version = DriverVersion(
+                driver_id=driver.id,
                 version=1,
                 source_code=data['source_code'],
                 change_summary='Initial version',
@@ -1937,9 +1972,9 @@ class DatabaseService:
             session.add(version)
             session.flush()
             
-            return self._instrument_definition_to_dict(definition)
+            return self._driver_to_dict(driver)
     
-    def get_instrument_definitions(
+    def get_drivers(
         self,
         instrument_type: Optional[str] = None,
         category: Optional[str] = None,
@@ -1948,39 +1983,39 @@ class DatabaseService:
         include_builtin: bool = True,
         search: Optional[str] = None,
     ) -> List[Dict]:
-        """Get instrument definitions.
+        """Get drivers.
         
         Args:
             instrument_type: Filter by 'movement' or 'measurement'
             category: Filter by category (e.g., 'Lock-In Amplifier')
             lab_id: Filter by lab (also includes public/builtin if flags set)
-            include_public: Include public definitions from other labs
-            include_builtin: Include built-in PyBirch definitions
+            include_public: Include public drivers from other labs
+            include_builtin: Include built-in PyBirch drivers
             search: Search in name, display_name, description
         
         Returns:
-            List of definitions as dictionaries
+            List of drivers as dictionaries
         """
-        from database.models import InstrumentDefinition
+        from database.models import Driver
         
         with self.session_scope() as session:
-            query = session.query(InstrumentDefinition)
+            query = session.query(Driver)
             
             # Apply type filter
             if instrument_type:
-                query = query.filter(InstrumentDefinition.instrument_type == instrument_type)
+                query = query.filter(Driver.instrument_type == instrument_type)
             
             # Apply category filter
             if category:
-                query = query.filter(InstrumentDefinition.category == category)
+                query = query.filter(Driver.category == category)
             
             # Apply lab/visibility filter
             if lab_id is not None:
-                filters = [InstrumentDefinition.lab_id == lab_id]
+                filters = [Driver.lab_id == lab_id]
                 if include_public:
-                    filters.append(InstrumentDefinition.is_public == True)
+                    filters.append(Driver.is_public == True)
                 if include_builtin:
-                    filters.append(InstrumentDefinition.is_builtin == True)
+                    filters.append(Driver.is_builtin == True)
                 query = query.filter(or_(*filters))
             
             # Apply search filter
@@ -1988,70 +2023,70 @@ class DatabaseService:
                 search_term = f"%{search}%"
                 query = query.filter(
                     or_(
-                        InstrumentDefinition.name.ilike(search_term),
-                        InstrumentDefinition.display_name.ilike(search_term),
-                        InstrumentDefinition.description.ilike(search_term),
+                        Driver.name.ilike(search_term),
+                        Driver.display_name.ilike(search_term),
+                        Driver.description.ilike(search_term),
                     )
                 )
             
-            # Only approved definitions
-            query = query.filter(InstrumentDefinition.is_approved == True)
+            # Only approved drivers
+            query = query.filter(Driver.is_approved == True)
             
-            definitions = query.order_by(InstrumentDefinition.display_name).all()
-            return [self._instrument_definition_to_dict(d) for d in definitions]
+            drivers = query.order_by(Driver.display_name).all()
+            return [self._driver_to_dict(d) for d in drivers]
     
-    def get_instrument_definition(self, definition_id: int) -> Optional[Dict]:
-        """Get a single instrument definition by ID."""
-        from database.models import InstrumentDefinition
+    def get_driver(self, driver_id: int) -> Optional[Dict]:
+        """Get a single driver by ID."""
+        from database.models import Driver
         
         with self.session_scope() as session:
-            definition = session.query(InstrumentDefinition).filter(
-                InstrumentDefinition.id == definition_id
+            driver = session.query(Driver).filter(
+                Driver.id == driver_id
             ).first()
-            return self._instrument_definition_to_dict(definition) if definition else None
+            return self._driver_to_dict(driver) if driver else None
     
-    def get_instrument_definition_by_name(self, name: str) -> Optional[Dict]:
-        """Get an instrument definition by class name."""
-        from database.models import InstrumentDefinition
+    def get_driver_by_name(self, name: str) -> Optional[Dict]:
+        """Get a driver by class name."""
+        from database.models import Driver
         
         with self.session_scope() as session:
-            definition = session.query(InstrumentDefinition).filter(
-                InstrumentDefinition.name == name
+            driver = session.query(Driver).filter(
+                Driver.name == name
             ).first()
-            return self._instrument_definition_to_dict(definition) if definition else None
+            return self._driver_to_dict(driver) if driver else None
     
-    def update_instrument_definition(
+    def update_driver(
         self, 
-        definition_id: int, 
+        driver_id: int, 
         data: Dict[str, Any],
         change_summary: Optional[str] = None,
         updated_by: Optional[str] = None,
     ) -> Optional[Dict]:
-        """Update an instrument definition.
+        """Update a driver.
         
         If source_code is changed, creates a new version.
         
         Args:
-            definition_id: ID of definition to update
+            driver_id: ID of driver to update
             data: Fields to update
             change_summary: Description of changes (for version history)
             updated_by: Username making the change
         
         Returns:
-            Updated definition as dictionary
+            Updated driver as dictionary
         """
-        from database.models import InstrumentDefinition, InstrumentDefinitionVersion
+        from database.models import Driver, DriverVersion
         
         with self.session_scope() as session:
-            definition = session.query(InstrumentDefinition).filter(
-                InstrumentDefinition.id == definition_id
+            driver = session.query(Driver).filter(
+                Driver.id == driver_id
             ).first()
             
-            if not definition:
+            if not driver:
                 return None
             
             # Check if source code changed
-            old_source = definition.source_code
+            old_source = driver.source_code
             new_source = data.get('source_code', old_source)
             source_changed = new_source != old_source
             
@@ -2065,15 +2100,15 @@ class DatabaseService:
             
             for field in updatable_fields:
                 if field in data:
-                    setattr(definition, field, data[field])
+                    setattr(driver, field, data[field])
             
             # If source code changed, create new version
             if source_changed:
-                definition.version += 1
+                driver.version += 1
                 
-                version = InstrumentDefinitionVersion(
-                    definition_id=definition.id,
-                    version=definition.version,
+                version = DriverVersion(
+                    driver_id=driver.id,
+                    version=driver.version,
                     source_code=new_source,
                     change_summary=change_summary or 'Updated',
                     created_by=updated_by,
@@ -2081,35 +2116,35 @@ class DatabaseService:
                 session.add(version)
             
             session.flush()
-            return self._instrument_definition_to_dict(definition)
+            return self._driver_to_dict(driver)
     
-    def delete_instrument_definition(self, definition_id: int) -> bool:
-        """Delete an instrument definition and all its versions."""
-        from database.models import InstrumentDefinition
+    def delete_driver(self, driver_id: int) -> bool:
+        """Delete a driver and all its versions."""
+        from database.models import Driver
         
         with self.session_scope() as session:
-            definition = session.query(InstrumentDefinition).filter(
-                InstrumentDefinition.id == definition_id
+            driver = session.query(Driver).filter(
+                Driver.id == driver_id
             ).first()
             
-            if not definition:
+            if not driver:
                 return False
             
-            session.delete(definition)
+            session.delete(driver)
             return True
     
-    def get_instrument_definition_versions(self, definition_id: int) -> List[Dict]:
-        """Get version history for an instrument definition."""
-        from database.models import InstrumentDefinitionVersion
+    def get_driver_versions(self, driver_id: int) -> List[Dict]:
+        """Get version history for a driver."""
+        from database.models import DriverVersion
         
         with self.session_scope() as session:
-            versions = session.query(InstrumentDefinitionVersion).filter(
-                InstrumentDefinitionVersion.definition_id == definition_id
-            ).order_by(InstrumentDefinitionVersion.version.desc()).all()
+            versions = session.query(DriverVersion).filter(
+                DriverVersion.driver_id == driver_id
+            ).order_by(DriverVersion.version.desc()).all()
             
             return [{
                 'id': v.id,
-                'definition_id': v.definition_id,
+                'driver_id': v.driver_id,
                 'version': v.version,
                 'source_code': v.source_code,
                 'change_summary': v.change_summary,
@@ -2117,36 +2152,36 @@ class DatabaseService:
                 'created_at': v.created_at.isoformat() if v.created_at else None,
             } for v in versions]
     
-    def _instrument_definition_to_dict(self, definition) -> Dict:
-        """Convert InstrumentDefinition model to dictionary."""
-        if not definition:
+    def _driver_to_dict(self, driver) -> Dict:
+        """Convert Driver model to dictionary."""
+        if not driver:
             return {}
         return {
-            'id': definition.id,
-            'name': definition.name,
-            'display_name': definition.display_name,
-            'description': definition.description,
-            'instrument_type': definition.instrument_type,
-            'category': definition.category,
-            'manufacturer': definition.manufacturer,
-            'source_code': definition.source_code,
-            'base_class': definition.base_class,
-            'dependencies': definition.dependencies,
-            'settings_schema': definition.settings_schema,
-            'default_settings': definition.default_settings,
-            'data_columns': definition.data_columns,
-            'data_units': definition.data_units,
-            'position_column': definition.position_column,
-            'position_units': definition.position_units,
-            'lab_id': definition.lab_id,
-            'version': definition.version,
-            'is_public': definition.is_public,
-            'is_builtin': definition.is_builtin,
-            'is_approved': definition.is_approved,
-            'status': definition.status or 'operational',
-            'created_by': definition.created_by,
-            'created_at': definition.created_at.isoformat() if definition.created_at else None,
-            'updated_at': definition.updated_at.isoformat() if definition.updated_at else None,
+            'id': driver.id,
+            'name': driver.name,
+            'display_name': driver.display_name,
+            'description': driver.description,
+            'instrument_type': driver.instrument_type,
+            'category': driver.category,
+            'manufacturer': driver.manufacturer,
+            'source_code': driver.source_code,
+            'base_class': driver.base_class,
+            'dependencies': driver.dependencies,
+            'settings_schema': driver.settings_schema,
+            'default_settings': driver.default_settings,
+            'data_columns': driver.data_columns,
+            'data_units': driver.data_units,
+            'position_column': driver.position_column,
+            'position_units': driver.position_units,
+            'lab_id': driver.lab_id,
+            'version': driver.version,
+            'is_public': driver.is_public,
+            'is_builtin': driver.is_builtin,
+            'is_approved': driver.is_approved,
+            'status': driver.status or 'operational',
+            'created_by': driver.created_by,
+            'created_at': driver.created_at.isoformat() if driver.created_at else None,
+            'updated_at': driver.updated_at.isoformat() if driver.updated_at else None,
         }
     
     # ==================== Computer Bindings ====================
@@ -2184,6 +2219,14 @@ class DatabaseService:
         from datetime import datetime
         
         with self.session_scope() as session:
+            # Get the instrument to get its lab_id
+            instrument = session.query(Instrument).filter(
+                Instrument.id == instrument_id
+            ).first()
+            
+            if not instrument:
+                raise ValueError(f"Instrument {instrument_id} not found")
+            
             # Get or create Computer record
             computer = session.query(Computer).filter(
                 Computer.computer_name == computer_name
@@ -2196,11 +2239,12 @@ class DatabaseService:
                 if nickname is not None:
                     computer.nickname = nickname
             else:
-                # Create new computer
+                # Create new computer using the instrument's lab_id
                 computer = Computer(
                     computer_name=computer_name,
                     computer_id=computer_id,
                     nickname=nickname,
+                    lab_id=instrument.lab_id,
                 )
                 session.add(computer)
                 session.flush()
@@ -2256,7 +2300,7 @@ class DatabaseService:
         Returns:
             List of bindings with instrument details
         """
-        from database.models import ComputerBinding, Instrument, InstrumentDefinition
+        from database.models import ComputerBinding, Instrument, Driver
         from sqlalchemy.orm import joinedload
         
         with self.session_scope() as session:
@@ -2275,15 +2319,15 @@ class DatabaseService:
             result = []
             for binding in bindings:
                 binding_dict = self._computer_binding_to_dict(binding)
-                binding_dict['instrument'] = self._instrument_to_dict(binding.instrument)
+                binding_dict['instrument'] = self._instrument_to_dict(binding.instrument, session=session)
                 
-                # Include definition if available
-                if binding.instrument.definition_id:
-                    definition = session.query(InstrumentDefinition).filter(
-                        InstrumentDefinition.id == binding.instrument.definition_id
+                # Include driver if available
+                if binding.instrument.driver_id:
+                    driver = session.query(Driver).filter(
+                        Driver.id == binding.instrument.driver_id
                     ).first()
-                    if definition:
-                        binding_dict['instrument']['definition'] = self._instrument_definition_to_dict(definition)
+                    if driver:
+                        binding_dict['instrument']['driver'] = self._driver_to_dict(driver)
                 
                 result.append(binding_dict)
             
@@ -2409,46 +2453,46 @@ class DatabaseService:
             
             return self._computer_binding_to_dict(binding)
     
-    def get_definition_ids_for_computer(
+    def get_driver_ids_for_computer(
         self,
         computer_name: str,
         include_public: bool = True,
     ) -> List[int]:
-        """Get instrument definition IDs that are bound to a specific computer.
+        """Get instrument driver IDs that are bound to a specific computer.
         
-        This method finds all InstrumentDefinition IDs where at least one
-        Instrument instance using that definition is bound to the given computer.
+        This method finds all Driver IDs where at least one
+        Instrument instance using that driver is bound to the given computer.
         
         Args:
             computer_name: The hostname of the computer
-            include_public: If True, also include all public (is_public=True) definitions
+            include_public: If True, also include all public (is_public=True) drivers
         
         Returns:
-            List of InstrumentDefinition IDs available on this computer
+            List of Driver IDs available on this computer
         """
-        from database.models import ComputerBinding, Instrument, InstrumentDefinition
+        from database.models import ComputerBinding, Instrument, Driver
         from sqlalchemy import distinct
         
         with self.session_scope() as session:
-            # Get definition IDs from instruments bound to this computer
-            bound_definition_ids = session.query(distinct(Instrument.definition_id)).join(
+            # Get driver IDs from instruments bound to this computer
+            bound_driver_ids = session.query(distinct(Instrument.driver_id)).join(
                 ComputerBinding,
                 ComputerBinding.instrument_id == Instrument.id
             ).filter(
                 ComputerBinding.computer_name == computer_name,
-                Instrument.definition_id.isnot(None)
+                Instrument.driver_id.isnot(None)
             ).all()
             
-            definition_ids = {row[0] for row in bound_definition_ids}
+            driver_ids = {row[0] for row in bound_driver_ids}
             
-            # Optionally include all public definitions
+            # Optionally include all public drivers
             if include_public:
-                public_ids = session.query(InstrumentDefinition.id).filter(
-                    InstrumentDefinition.is_public == True
+                public_ids = session.query(Driver.id).filter(
+                    Driver.is_public == True
                 ).all()
-                definition_ids.update(row[0] for row in public_ids)
+                driver_ids.update(row[0] for row in public_ids)
             
-            return list(definition_ids)
+            return list(driver_ids)
     
     def _computer_binding_to_dict(self, binding, computer=None) -> Dict:
         """Convert ComputerBinding model to dictionary.
@@ -2740,7 +2784,7 @@ class DatabaseService:
         Returns:
             Computer dict with 'bindings' list, or None if not found
         """
-        from database.models import Computer, ComputerBinding, Instrument, InstrumentDefinition
+        from database.models import Computer, ComputerBinding, Instrument, Driver
         from sqlalchemy.orm import joinedload
         
         with self.session_scope() as session:
@@ -2755,7 +2799,7 @@ class DatabaseService:
             
             # Get bindings with instrument info
             bindings = session.query(ComputerBinding).options(
-                joinedload(ComputerBinding.instrument).joinedload(Instrument.definition)
+                joinedload(ComputerBinding.instrument).joinedload(Instrument.driver)
             ).filter(
                 ComputerBinding.computer_id_fk == computer_db_id
             ).all()
@@ -2775,8 +2819,8 @@ class DatabaseService:
                     binding_dict['instrument_name'] = b.instrument.name
                     binding_dict['instrument_status'] = b.instrument.status
                     binding_dict['pybirch_class'] = b.instrument.pybirch_class
-                    if b.instrument.definition:
-                        binding_dict['definition_name'] = b.instrument.definition.name
+                    if b.Instrument.driver:
+                        binding_dict['driver_name'] = b.Instrument.driver.name
                 result['bindings'].append(binding_dict)
             
             return result
@@ -3076,11 +3120,11 @@ class DatabaseService:
             'updated_at': issue.updated_at.isoformat() if issue.updated_at else None,
         }
 
-    # ==================== Instrument Definition Issues ====================
+    # ==================== Driver Issues ====================
     
-    def get_instrument_definition_issues(
+    def get_driver_issues(
         self,
-        definition_id: Optional[int] = None,
+        driver_id: Optional[int] = None,
         status: Optional[str] = None,
         priority: Optional[str] = None,
         category: Optional[str] = None,
@@ -3089,52 +3133,52 @@ class DatabaseService:
         page: int = 1,
         per_page: int = 20
     ) -> Tuple[List[Dict], int]:
-        """Get paginated list of instrument definition issues."""
+        """Get paginated list of driver issues."""
         with self.session_scope() as session:
-            query = session.query(InstrumentDefinitionIssue)
+            query = session.query(DriverIssue)
             
-            if definition_id:
-                query = query.filter(InstrumentDefinitionIssue.definition_id == definition_id)
+            if driver_id:
+                query = query.filter(DriverIssue.driver_id == driver_id)
             
             if status:
-                query = query.filter(InstrumentDefinitionIssue.status == status)
+                query = query.filter(DriverIssue.status == status)
             
             if priority:
-                query = query.filter(InstrumentDefinitionIssue.priority == priority)
+                query = query.filter(DriverIssue.priority == priority)
             
             if category:
-                query = query.filter(InstrumentDefinitionIssue.category == category)
+                query = query.filter(DriverIssue.category == category)
             
             if assignee_id:
-                query = query.filter(InstrumentDefinitionIssue.assignee_id == assignee_id)
+                query = query.filter(DriverIssue.assignee_id == assignee_id)
             
             if reporter_id:
-                query = query.filter(InstrumentDefinitionIssue.reporter_id == reporter_id)
+                query = query.filter(DriverIssue.reporter_id == reporter_id)
             
             total = query.count()
             offset = (page - 1) * per_page
-            issues = query.order_by(InstrumentDefinitionIssue.created_at.desc()).offset(offset).limit(per_page).all()
+            issues = query.order_by(DriverIssue.created_at.desc()).offset(offset).limit(per_page).all()
             
-            return [self._instrument_definition_issue_to_dict(i) for i in issues], total
+            return [self._driver_issue_to_dict(i) for i in issues], total
     
-    def get_instrument_definition_issue(self, issue_id: int) -> Optional[Dict]:
-        """Get a single instrument definition issue by ID."""
+    def get_driver_issue(self, issue_id: int) -> Optional[Dict]:
+        """Get a single driver issue by ID."""
         with self.session_scope() as session:
-            issue = session.query(InstrumentDefinitionIssue).filter(InstrumentDefinitionIssue.id == issue_id).first()
-            return self._instrument_definition_issue_to_dict(issue) if issue else None
+            issue = session.query(DriverIssue).filter(DriverIssue.id == issue_id).first()
+            return self._driver_issue_to_dict(issue) if issue else None
     
-    def create_instrument_definition_issue(self, data: Dict[str, Any]) -> Dict:
-        """Create new instrument definition issue."""
+    def create_driver_issue(self, data: Dict[str, Any]) -> Dict:
+        """Create new driver issue."""
         with self.session_scope() as session:
-            issue = InstrumentDefinitionIssue(**data)
+            issue = DriverIssue(**data)
             session.add(issue)
             session.flush()
-            return self._instrument_definition_issue_to_dict(issue)
+            return self._driver_issue_to_dict(issue)
     
-    def update_instrument_definition_issue(self, issue_id: int, data: Dict) -> Optional[Dict]:
-        """Update an existing instrument definition issue."""
+    def update_driver_issue(self, issue_id: int, data: Dict) -> Optional[Dict]:
+        """Update an existing driver issue."""
         with self.session_scope() as session:
-            issue = session.query(InstrumentDefinitionIssue).filter(InstrumentDefinitionIssue.id == issue_id).first()
+            issue = session.query(DriverIssue).filter(DriverIssue.id == issue_id).first()
             if not issue:
                 return None
             
@@ -3146,23 +3190,23 @@ class DatabaseService:
                     setattr(issue, field, data[field])
             
             session.flush()
-            return self._instrument_definition_issue_to_dict(issue)
+            return self._driver_issue_to_dict(issue)
     
-    def _instrument_definition_issue_to_dict(self, issue: InstrumentDefinitionIssue) -> Dict:
-        """Convert InstrumentDefinitionIssue model to dictionary."""
+    def _driver_issue_to_dict(self, issue: DriverIssue) -> Dict:
+        """Convert DriverIssue model to dictionary."""
         reporter_name = None
         if issue.reporter:
             reporter_name = issue.reporter.name or issue.reporter.username
         assignee_name = None
         if issue.assignee:
             assignee_name = issue.assignee.name or issue.assignee.username
-        definition_name = None
-        if issue.definition:
-            definition_name = issue.definition.display_name or issue.definition.name
+        driver_name = None
+        if issue.driver:
+            driver_name = issue.driver.display_name or issue.driver.name
         return {
             'id': issue.id,
-            'definition_id': issue.definition_id,
-            'definition_name': definition_name,
+            'driver_id': issue.driver_id,
+            'driver_name': driver_name,
             'title': issue.title,
             'description': issue.description,
             'category': issue.category,
@@ -5914,12 +5958,11 @@ class DatabaseService:
             for i in instrument_list:
                 fields = {
                     'name': i.name, 'manufacturer': i.manufacturer, 'model': i.model,
-                    'serial_number': i.serial_number, 'location': i.location,
+                    'serial_number': i.serial_number, 'status': i.status,
                     'instrument_type': i.instrument_type, 'pybirch_class': i.pybirch_class,
-                    'adapter': i.adapter
                 }
                 if matches_all_terms(fields):
-                    inst_dict = self._instrument_to_dict(i)
+                    inst_dict = self._instrument_to_dict(i, session=session)
                     inst_dict['match_context'] = get_match_context(fields)
                     results['instruments'].append(inst_dict)
                     if len(results['instruments']) >= limit:
@@ -5930,9 +5973,8 @@ class DatabaseService:
             for e in equipment_list:
                 fields = {
                     'name': e.name, 'manufacturer': e.manufacturer, 'model': e.model,
-                    'serial_number': e.serial_number, 'location': e.location,
+                    'serial_number': e.serial_number, 'status': e.status,
                     'equipment_type': e.equipment_type, 'description': e.description or '',
-                    'room': e.room or ''
                 }
                 if matches_all_terms(fields):
                     eq_dict = self._equipment_to_dict(e)

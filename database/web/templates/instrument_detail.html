@@ -139,14 +139,14 @@
                 <dt>Type</dt>
                 <dd>{{ instrument.instrument_type or '-' }}</dd>
                 
-                <dt>Instrument Definition</dt>
+                <dt>Driver</dt>
                 <dd>
                     {% if instrument.definition_id %}
-                    <a href="{{ url_for('main.instrument_definition_detail', definition_id=instrument.definition_id) }}">
-                        {{ instrument.definition_display_name or instrument.definition_name or ('Definition #' ~ instrument.definition_id) }}
+                    <a href="{{ url_for('main.driver_detail', definition_id=instrument.definition_id) }}">
+                        {{ instrument.definition_display_name or instrument.definition_name or ('Driver #' ~ instrument.definition_id) }}
                     </a>
                     {% else %}
-                    <span class="text-muted">No definition linked</span>
+                    <span class="text-muted">No driver linked</span>
                     {% endif %}
                 </dd>
                 

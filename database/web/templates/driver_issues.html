@@ -6,15 +6,15 @@
 <div class="list-page">
     <div class="page-header">
         <div class="breadcrumb">
-            <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / 
-            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
+            <a href="{{ url_for('main.drivers') }}">Drivers</a> / 
+            <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> / 
             Issues
         </div>
     </div>
     
     <div class="page-title-row">
         <h1>Issues for {{ definition.display_name }}</h1>
-        <a href="{{ url_for('main.instrument_definition_issue_new', definition_id=definition.id) }}" class="btn btn-primary">+ Report Issue</a>
+        <a href="{{ url_for('main.driver_issue_new', definition_id=definition.id) }}" class="btn btn-primary">+ Report Issue</a>
     </div>
     
     <div class="filters">
@@ -36,7 +36,7 @@
             </select>
             <button type="submit" class="btn btn-secondary">Filter</button>
             {% if status or priority %}
-                <a href="{{ url_for('main.instrument_definition_issues', definition_id=definition.id) }}" class="btn btn-link">Clear</a>
+                <a href="{{ url_for('main.driver_issues', definition_id=definition.id) }}" class="btn btn-link">Clear</a>
             {% endif %}
         </form>
     </div>
@@ -60,7 +60,7 @@
             <tbody>
                 {% for issue in issues %}
                 <tr>
-                    <td><a href="{{ url_for('main.instrument_definition_issue_detail', definition_id=definition.id, issue_id=issue.id) }}">{{ issue.title }}</a></td>
+                    <td><a href="{{ url_for('main.driver_issue_detail', definition_id=definition.id, issue_id=issue.id) }}">{{ issue.title }}</a></td>
                     <td>{{ issue.category }}</td>
                     <td><span class="priority-badge priority-{{ issue.priority }}">{{ issue.priority }}</span></td>
                     <td><span class="status-badge status-{{ issue.status }}">{{ issue.status }}</span></td>
@@ -68,8 +68,8 @@
                     <td>{% if issue.affected_version %}v{{ issue.affected_version }}{% else %}-{% endif %}</td>
                     <td>{{ issue.created_at[:10] if issue.created_at else '-' }}</td>
                     <td>
-                        <a href="{{ url_for('main.instrument_definition_issue_detail', definition_id=definition.id, issue_id=issue.id) }}" class="btn btn-sm">View</a>
-                        <a href="{{ url_for('main.instrument_definition_issue_edit', definition_id=definition.id, issue_id=issue.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+                        <a href="{{ url_for('main.driver_issue_detail', definition_id=definition.id, issue_id=issue.id) }}" class="btn btn-sm">View</a>
+                        <a href="{{ url_for('main.driver_issue_edit', definition_id=definition.id, issue_id=issue.id) }}" class="btn btn-sm btn-secondary">Edit</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -79,18 +79,18 @@
         {% if total_pages > 1 %}
         <div class="pagination">
             {% if page > 1 %}
-                <a href="{{ url_for('main.instrument_definition_issues', definition_id=definition.id, page=page-1, status=status, priority=priority) }}" class="btn btn-sm">← Previous</a>
+                <a href="{{ url_for('main.driver_issues', definition_id=definition.id, page=page-1, status=status, priority=priority) }}" class="btn btn-sm">← Previous</a>
             {% endif %}
             <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
             {% if page < total_pages %}
-                <a href="{{ url_for('main.instrument_definition_issues', definition_id=definition.id, page=page+1, status=status, priority=priority) }}" class="btn btn-sm">Next →</a>
+                <a href="{{ url_for('main.driver_issues', definition_id=definition.id, page=page+1, status=status, priority=priority) }}" class="btn btn-sm">Next →</a>
             {% endif %}
         </div>
         {% endif %}
     {% else %}
         <div class="empty-state">
-            <p>No issues found for this instrument definition.</p>
-            <a href="{{ url_for('main.instrument_definition_issue_new', definition_id=definition.id) }}" class="btn btn-primary">Report an Issue</a>
+            <p>No issues found for this driver.</p>
+            <a href="{{ url_for('main.driver_issue_new', definition_id=definition.id) }}" class="btn btn-primary">Report an Issue</a>
         </div>
     {% endif %}
 </div>

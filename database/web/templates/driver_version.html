@@ -68,8 +68,8 @@
 {% block content %}
 <div class="detail-page">
     <div class="breadcrumb">
-        <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> /
-        <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> /
+        <a href="{{ url_for('main.drivers') }}">Drivers</a> /
+        <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">{{ definition.display_name }}</a> /
         Version {{ version_data.version }}
     </div>
     
@@ -91,7 +91,7 @@
             <label>View version:</label>
             <select class="version-select" onchange="window.location.href=this.value">
                 {% for v in all_versions %}
-                <option value="{{ url_for('main.instrument_definition_version', definition_id=definition.id, version=v.version) }}"
+                <option value="{{ url_for('main.driver_version', definition_id=definition.id, version=v.version) }}"
                         {% if v.version == version_data.version %}selected{% endif %}>
                     v{{ v.version }}{% if v.version == definition.version %} (current){% endif %}
                 </option>
@@ -106,7 +106,7 @@
         <div>
             <strong>This is not the current version.</strong>
             The current version is v{{ definition.version }}.
-            <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}">View current version</a>
+            <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}">View current version</a>
         </div>
     </div>
     {% endif %}
@@ -119,7 +119,7 @@
     </div>
     
     <div style="margin-top: 24px;">
-        <a href="{{ url_for('main.instrument_definition_detail', definition_id=definition.id) }}" class="btn btn-secondary">← Back to Definition</a>
+        <a href="{{ url_for('main.driver_detail', definition_id=definition.id) }}" class="btn btn-secondary">← Back to Driver</a>
     </div>
 </div>
 

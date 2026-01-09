@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ definition.display_name }} - Instrument Definition - PyBirch Database{% endblock %}
+{% block title %}{{ definition.display_name }} - Driver - PyBirch Database{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
@@ -244,7 +244,7 @@
 {% block content %}
 <div class="detail-page">
     <div class="breadcrumb">
-        <a href="{{ url_for('main.instrument_definitions') }}">Instrument Definitions</a> / {{ definition.display_name }}
+        <a href="{{ url_for('main.drivers') }}">Drivers</a> / {{ definition.display_name }}
     </div>
     
     <div class="definition-header">
@@ -253,9 +253,9 @@
             <div class="definition-class-name">Class: <code>{{ definition.name }}</code></div>
         </div>
         <div class="action-buttons">
-            <a href="{{ url_for('main.instrument_definition_issues', definition_id=definition.id) }}" class="btn btn-secondary">Issues</a>
-            <a href="{{ url_for('main.instrument_definition_edit', definition_id=definition.id) }}" class="btn btn-primary">Edit</a>
-            <a href="{{ url_for('main.instrument_definition_duplicate', definition_id=definition.id) }}" class="btn btn-secondary">Duplicate</a>
+            <a href="{{ url_for('main.driver_issues', definition_id=definition.id) }}" class="btn btn-secondary">Issues</a>
+            <a href="{{ url_for('main.driver_edit', definition_id=definition.id) }}" class="btn btn-primary">Edit</a>
+            <a href="{{ url_for('main.driver_duplicate', definition_id=definition.id) }}" class="btn btn-secondary">Duplicate</a>
         </div>
     </div>
     
@@ -332,7 +332,7 @@
                         {% if v.created_by %} by {{ v.created_by }}{% endif %}
                     </span>
                 </div>
-                <a href="{{ url_for('main.instrument_definition_version', definition_id=definition.id, version=v.version) }}" class="btn btn-sm">View</a>
+                <a href="{{ url_for('main.driver_version', definition_id=definition.id, version=v.version) }}" class="btn btn-sm">View</a>
             </div>
             {% endfor %}
         </div>
@@ -345,8 +345,8 @@
             <h3>Instrument Instances ({{ instruments|length if instruments else 0 }})</h3>
             {% if current_user %}
             <div class="btn-group">
-                <a href="{{ url_for('main.instrument_definition_new_instance', definition_id=definition.id) }}" class="btn btn-primary">+ Create New</a>
-                <a href="{{ url_for('main.instrument_definition_link_instrument', definition_id=definition.id) }}" class="btn btn-secondary">Link Existing</a>
+                <a href="{{ url_for('main.driver_new_instance', definition_id=definition.id) }}" class="btn btn-primary">+ Create New</a>
+                <a href="{{ url_for('main.driver_link_instrument', definition_id=definition.id) }}" class="btn btn-secondary">Link Existing</a>
             </div>
             {% endif %}
         </div>
@@ -366,10 +366,10 @@
                     <div class="action-buttons">
                         {% if current_user %}
                         <a href="{{ url_for('main.instrument_binding_new', instrument_id=inst.id) }}" class="btn btn-sm btn-secondary">+ Add Binding</a>
-                        <form method="POST" action="{{ url_for('main.instrument_definition_unlink_instrument', definition_id=definition.id, instrument_id=inst.id) }}" style="display: inline;" onsubmit="return confirm('Unlink this instrument from the definition? The instrument will not be deleted.');">
+                        <form method="POST" action="{{ url_for('main.driver_unlink_instrument', definition_id=definition.id, instrument_id=inst.id) }}" style="display: inline;" onsubmit="return confirm('Unlink this instrument from the driver? The instrument will not be deleted.');">
                             <button type="submit" class="btn btn-sm btn-outline-warning">Unlink</button>
                         </form>
-                        <form method="POST" action="{{ url_for('main.instrument_definition_delete_instance', definition_id=definition.id, instrument_id=inst.id) }}" style="display: inline;" onsubmit="return confirm('Delete this instrument instance?');">
+                        <form method="POST" action="{{ url_for('main.driver_delete_instance', definition_id=definition.id, instrument_id=inst.id) }}" style="display: inline;" onsubmit="return confirm('Delete this instrument instance?');">
                             <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                         </form>
                         {% endif %}
@@ -432,10 +432,10 @@
         {% else %}
         <div class="empty-state">
             <p>No instrument instances yet.</p>
-            <p>Create an instance to represent a physical device using this instrument definition, or link an existing instrument.</p>
+            <p>Create an instance to represent a physical device using this driver, or link an existing instrument.</p>
             {% if current_user %}
-            <a href="{{ url_for('main.instrument_definition_new_instance', definition_id=definition.id) }}" class="btn btn-primary">Create New Instance</a>
-            <a href="{{ url_for('main.instrument_definition_link_instrument', definition_id=definition.id) }}" class="btn btn-secondary">Link Existing Instrument</a>
+            <a href="{{ url_for('main.driver_new_instance', definition_id=definition.id) }}" class="btn btn-primary">Create New Instance</a>
+            <a href="{{ url_for('main.driver_link_instrument', definition_id=definition.id) }}" class="btn btn-secondary">Link Existing Instrument</a>
             {% endif %}
         </div>
         {% endif %}
@@ -444,9 +444,9 @@
     {% if current_user %}
     <div class="danger-zone">
         <h3>Danger Zone</h3>
-        <p>Deleting this instrument definition will also delete all version history. This action cannot be undone.</p>
-        <form method="POST" action="{{ url_for('main.instrument_definition_delete', definition_id=definition.id) }}" onsubmit="return confirm('Are you sure you want to delete this instrument definition? This cannot be undone.');">
-            <button type="submit" class="btn btn-danger">Delete Definition</button>
+        <p>Deleting this driver will also delete all version history. This action cannot be undone.</p>
+        <form method="POST" action="{{ url_for('main.driver_delete', definition_id=definition.id) }}" onsubmit="return confirm('Are you sure you want to delete this driver? This cannot be undone.');">
+            <button type="submit" class="btn btn-danger">Delete Driver</button>
         </form>
     </div>
     {% endif %}
