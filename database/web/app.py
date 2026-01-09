@@ -117,7 +117,11 @@ def create_app(db_path: Optional[str] = None, enable_socketio: bool = True) -> F
             proj = next((p for p in filter_projects if p.get('id') == filter_project_id), None)
             filter_project_name = proj.get('name') if proj else None
         
-        has_active_filter = bool(filter_lab_id or filter_project_id)
+        # Get visibility filters
+        show_archived = session.get('show_archived', False)
+        show_trashed = session.get('show_trashed', False)
+        
+        has_active_filter = bool(filter_lab_id or filter_project_id or show_archived or show_trashed)
         
         return {
             'app_name': 'PyBirch Database',
@@ -127,6 +131,8 @@ def create_app(db_path: Optional[str] = None, enable_socketio: bool = True) -> F
             'filter_project_id': filter_project_id,
             'filter_lab_name': filter_lab_name,
             'filter_project_name': filter_project_name,
+            'show_archived': show_archived,
+            'show_trashed': show_trashed,
             'has_active_filter': has_active_filter,
         }
     

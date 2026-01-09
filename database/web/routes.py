@@ -152,10 +152,14 @@ def set_site_filters():
     """Set site-wide lab and project filters stored in session."""
     lab_id = request.form.get('lab_id')
     project_id = request.form.get('project_id')
+    show_archived = request.form.get('show_archived')
+    show_trashed = request.form.get('show_trashed')
     
     # Store in session
     session['filter_lab_id'] = int(lab_id) if lab_id else None
     session['filter_project_id'] = int(project_id) if project_id else None
+    session['show_archived'] = bool(show_archived)
+    session['show_trashed'] = bool(show_trashed)
     
     # Redirect back to the referring page or index
     return redirect(request.referrer or url_for('main.index'))
@@ -166,6 +170,8 @@ def clear_site_filters():
     """Clear site-wide lab and project filters."""
     session.pop('filter_lab_id', None)
     session.pop('filter_project_id', None)
+    session.pop('show_archived', None)
+    session.pop('show_trashed', None)
     
     # Redirect back to the referring page or index
     return redirect(request.referrer or url_for('main.index'))
@@ -4996,6 +5002,88 @@ def api_update_entity_image(image_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/images/<entity_type>/<int:entity_id>/upload-base64', methods=['POST'])
+@api_login_required
+def api_upload_entity_image_base64(entity_type, entity_id):
+    """Upload an image from base64 data (e.g., from chart capture)."""
+    import os
+    import uuid
+    import base64
+    
+    data = request.get_json()
+    if not data or 'image_data' not in data:
+        return jsonify({'success': False, 'error': 'No image data provided'}), 400
+    
+    image_data = data['image_data']
+    name = data.get('name', 'Visualization')
+    description = data.get('description', '')
+    
+    # Parse base64 data URL
+    # Format: data:image/png;base64,iVBORw0KGgo...
+    try:
+        if ',' in image_data:
+            header, encoded = image_data.split(',', 1)
+            # Extract mime type
+            if 'image/png' in header:
+                ext = 'png'
+                mime_type = 'image/png'
+            elif 'image/jpeg' in header or 'image/jpg' in header:
+                ext = 'jpg'
+                mime_type = 'image/jpeg'
+            elif 'image/webp' in header:
+                ext = 'webp'
+                mime_type = 'image/webp'
+            else:
+                ext = 'png'
+                mime_type = 'image/png'
+        else:
+            encoded = image_data
+            ext = 'png'
+            mime_type = 'image/png'
+        
+        # Decode base64
+        image_bytes = base64.b64decode(encoded)
+        
+        # Generate filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        original_filename = f"{safe_name}_{timestamp}.{ext}"
+        stored_filename = f"{uuid.uuid4().hex}_{original_filename}"
+        
+        # Save file
+        upload_folder = os.path.join(current_app.root_path, 'static', 'uploads', 'images')
+        os.makedirs(upload_folder, exist_ok=True)
+        filepath = os.path.join(upload_folder, stored_filename)
+        
+        with open(filepath, 'wb') as f:
+            f.write(image_bytes)
+        
+        file_size = len(image_bytes)
+        
+        db = get_db_service()
+        image = db.create_entity_image({
+            'entity_type': entity_type,
+            'entity_id': entity_id,
+            'filename': original_filename,
+            'stored_filename': stored_filename,
+            'file_size_bytes': file_size,
+            'mime_type': mime_type,
+            'name': name,
+            'description': description,
+            'uploaded_by': g.current_user.get('username') if g.current_user else None,
+        })
+        
+        return jsonify({
+            'success': True,
+            'image': image,
+            'url': f"/static/uploads/images/{stored_filename}"
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # -------------------- Instruments --------------------
 
 @main_bp.route('/instruments')
@@ -6368,8 +6456,13 @@ def trash():
     
     # Get trashed items
     items = []
+    total = 0
+    total_pages = 1
     if entity_type:
-        items = trash_svc.get_trashed_items(entity_type, page=page, per_page=per_page)
+        result = trash_svc.get_trashed_items(entity_type, page=page, per_page=per_page)
+        items = result.get('items', [])
+        total = result.get('total', 0)
+        total_pages = (total + per_page - 1) // per_page if total > 0 else 1
     
     # Get stats for sidebar
     stats = trash_svc.get_trash_stats()
@@ -6378,7 +6471,9 @@ def trash():
         items=items,
         stats=stats,
         entity_type=entity_type,
-        page=page
+        page=page,
+        total=total,
+        total_pages=total_pages
     )
 
 
@@ -6445,3 +6540,81 @@ def api_trash_cleanup():
     trash_svc = get_trash_service()
     result = trash_svc.cleanup_expired_trash()
     return jsonify(result)
+
+# ==================== Archive Management ====================
+
+from database.archive_service import ArchiveService
+
+def get_archive_service():
+    """Get archive service instance."""
+    return ArchiveService()
+
+
+@main_bp.route('/archive')
+@login_required
+def archive():
+    """Archive management page - view and manage archived items."""
+    archive_svc = get_archive_service()
+    
+    # Get filter parameters
+    entity_type = request.args.get('type', '')
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    
+    # Get archived items
+    result = archive_svc.get_archived_items(
+        entity_type=entity_type if entity_type else None,
+        page=page,
+        per_page=per_page
+    )
+    
+    # Get stats for sidebar
+    stats = archive_svc.get_archive_stats()
+    
+    return render_template('archive.html',
+        items=result['items'],
+        stats=stats,
+        entity_type=entity_type,
+        page=page,
+        total_pages=result['total_pages'],
+        total=result['total']
+    )
+
+
+@api_bp.route('/archive/<entity_type>/<int:entity_id>', methods=['POST'])
+@api_login_required
+def api_archive_item(entity_type, entity_id):
+    """Archive an item (hide from normal queries)."""
+    archive_svc = get_archive_service()
+    
+    username = g.current_user.get('username') if g.current_user else None
+    
+    result = archive_svc.archive_item(entity_type, entity_id, archived_by=username)
+    
+    if result['success']:
+        return jsonify(result), 200
+    else:
+        return jsonify(result), 400
+
+
+@api_bp.route('/archive/<entity_type>/<int:entity_id>/unarchive', methods=['POST'])
+@api_login_required
+def api_unarchive_item(entity_type, entity_id):
+    """Unarchive an item (restore to normal visibility)."""
+    archive_svc = get_archive_service()
+    
+    result = archive_svc.unarchive_item(entity_type, entity_id)
+    
+    if result['success']:
+        return jsonify(result), 200
+    else:
+        return jsonify(result), 400
+
+
+@api_bp.route('/archive/stats', methods=['GET'])
+@api_login_required
+def api_archive_stats():
+    """Get archive statistics."""
+    archive_svc = get_archive_service()
+    stats = archive_svc.get_archive_stats()
+    return jsonify(stats)

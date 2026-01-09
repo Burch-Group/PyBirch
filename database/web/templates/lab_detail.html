@@ -17,7 +17,7 @@
             <span class="badge badge-lg">{{ lab.code }}</span>
             {% endif %}
             <a href="{{ url_for('main.lab_edit', lab_id=lab.id) }}" class="btn btn-secondary">Edit</a>
-            <button class="btn btn-danger" onclick="moveToTrash('lab', {{ lab.id }}, '{{ lab.name | e }}')">🗑️ Move to Trash</button>
+            <button class="btn btn-warning" onclick="archiveItem('lab', {{ lab.id }}, '{{ lab.name | e }}')">📦 Archive</button>
         </div>
     </div>
     
@@ -123,5 +123,100 @@
         <p class="empty-message">No projects yet.</p>
         {% endif %}
     </div>
+    
+    <!-- Danger Zone -->
+    <div class="detail-section full-width danger-zone">
+        <h2>⚠️ Danger Zone</h2>
+        <div class="danger-zone-content">
+            <div class="danger-warning">
+                <p><strong>Warning:</strong> Deleting this lab will also move the following to trash:</p>
+                <ul>
+                    <li>{{ lab.projects|length }} project(s) and all their contents</li>
+                    <li>All samples, scans, and queues within those projects</li>
+                    <li>{{ lab.members|length }} lab member(s)</li>
+                </ul>
+                <p class="danger-note">💡 Items can be restored from the <a href="{{ url_for('main.trash') }}">Trash</a> within 30 days.</p>
+            </div>
+            <button class="btn btn-danger btn-lg" onclick="deleteLabWithWarning({{ lab.id }}, '{{ lab.name | e }}', {{ lab.projects|length }}, {{ lab.members|length }})">
+                🗑️ Delete Lab and All Contents
+            </button>
+        </div>
+    </div>
 </div>
+
+<style>
+.danger-zone {
+    background: #fef2f2;
+    border: 2px solid #fecaca;
+    border-radius: 8px;
+    margin-top: 2rem;
+}
+.danger-zone h2 {
+    color: #dc2626;
+    border-bottom-color: #fecaca;
+}
+.danger-zone-content {
+    padding: 1rem 0;
+}
+.danger-warning {
+    background: #ffffff;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.danger-warning p {
+    margin: 0 0 0.5rem;
+    color: #7f1d1d;
+}
+.danger-warning ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+    color: #991b1b;
+}
+.danger-warning li {
+    margin: 0.25rem 0;
+}
+.danger-note {
+    font-size: 0.9rem;
+    color: #64748b !important;
+    margin-top: 1rem !important;
+}
+.danger-note a {
+    color: #3b82f6;
+}
+.btn-lg {
+    padding: 12px 24px;
+    font-size: 1rem;
+}
+</style>
+
+<script>
+async function deleteLabWithWarning(labId, labName, projectCount, memberCount) {
+    const confirmed = await PyBirchModal.confirm({
+        type: 'danger',
+        title: 'Delete Lab',
+        body: `
+            <p>You are about to delete <strong>"${labName}"</strong> and all of its contents.</p>
+            <div class="info-text" style="background: #fef2f2; border-color: #fecaca;">
+                ⚠️ <strong>This will also delete:</strong>
+                <ul style="margin: 0.5rem 0 0; padding-left: 1.5rem;">
+                    <li>${projectCount} project(s) and all their contents</li>
+                    <li>All samples, scans, and queues</li>
+                    <li>${memberCount} lab member(s)</li>
+                </ul>
+            </div>
+            <p style="margin-top: 12px;">Items can be restored from Trash within 30 days.</p>
+        `,
+        cancelText: 'Cancel',
+        confirmText: 'Delete Lab',
+        confirmType: 'danger'
+    });
+    
+    if (!confirmed) return;
+    
+    // Use the standard moveToTrash function
+    await moveToTrash('lab', labId, labName);
+}
+</script>
 {% endblock %}

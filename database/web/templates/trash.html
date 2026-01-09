@@ -18,7 +18,8 @@
                     <a href="{{ url_for('main.trash') }}">All Types</a>
                     <span class="badge">{{ stats.total_trashed }}</span>
                 </li>
-                {% for type_name, count in stats.by_type.items() %}
+                {% for type_name, type_stats in stats.by_type.items() %}
+                {% set count = type_stats.count if type_stats is mapping else type_stats %}
                 {% if count > 0 %}
                 <li class="{% if entity_type == type_name %}active{% endif %}">
                     <a href="{{ url_for('main.trash', type=type_name) }}">{{ type_name | replace('_', ' ') | title }}</a>
@@ -72,7 +73,7 @@
                             <td>{{ item.trashed_by or 'Unknown' }}</td>
                             <td>{{ item.trashed_at[:19] if item.trashed_at else '-' }}</td>
                             <td>
-                                {% set days_left = item.days_until_permanent_deletion %}
+                                {% set days_left = item.days_until_deletion %}
                                 {% if days_left is not none %}
                                     <span class="{% if days_left <= 7 %}text-danger{% elif days_left <= 14 %}text-warning{% endif %}">
                                         {{ days_left }} days
@@ -115,7 +116,8 @@
                     </div>
                     {% else %}
                     <div class="trash-stats-grid">
-                        {% for type_name, count in stats.by_type.items() %}
+                        {% for type_name, type_stats in stats.by_type.items() %}
+                        {% set count = type_stats.count if type_stats is mapping else type_stats %}
                         {% if count > 0 %}
                         <a href="{{ url_for('main.trash', type=type_name) }}" class="trash-stat-card">
                             <div class="stat-count">{{ count }}</div>
@@ -146,7 +148,7 @@
 .trash-sidebar h3 {
     margin-bottom: 1rem;
     font-size: 1rem;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
 }
 
 .trash-type-list {
@@ -165,11 +167,11 @@
 }
 
 .trash-type-list li:hover {
-    background: var(--bg-secondary);
+    background: var(--color-bg-tertiary);
 }
 
 .trash-type-list li.active {
-    background: var(--primary-color);
+    background: var(--color-primary);
 }
 
 .trash-type-list li.active a {
@@ -177,14 +179,14 @@
 }
 
 .trash-type-list a {
-    color: var(--text-primary);
+    color: var(--color-text-primary);
     text-decoration: none;
     flex-grow: 1;
 }
 
 .trash-type-list .badge {
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-secondary);
     padding: 0.125rem 0.5rem;
     border-radius: 10px;
     font-size: 0.75rem;
@@ -198,7 +200,7 @@
 .trash-actions {
     margin-top: 1.5rem;
     padding-top: 1rem;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--color-border);
 }
 
 .trash-content {
@@ -229,8 +231,8 @@
 }
 
 .trash-stat-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     padding: 1.5rem 1rem;
     text-align: center;
@@ -247,13 +249,17 @@
 .stat-count {
     font-size: 2rem;
     font-weight: bold;
-    color: var(--primary-color);
+    color: var(--color-text-primary);
 }
 
 .stat-label {
     font-size: 0.875rem;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     margin-top: 0.5rem;
+}
+
+.trash-stat-card:hover {
+    text-decoration: none;
 }
 
 .trash-item-actions {
@@ -262,21 +268,21 @@
 }
 
 .text-danger {
-    color: var(--danger-color, #dc3545);
+    color: var(--color-error);
 }
 
 .text-warning {
-    color: var(--warning-color, #ffc107);
+    color: var(--color-warning);
 }
 
 .page-description {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     margin-top: 0.5rem;
 }
 
 .no-results {
     text-align: center;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     padding: 2rem;
 }
 </style>

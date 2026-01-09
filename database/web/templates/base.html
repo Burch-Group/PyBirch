@@ -274,8 +274,12 @@
                 <span>Issues</span>
             </a>
             {% if current_user %}
+            <a href="{{ url_for('main.archive') }}" class="nav-drawer-link {% if request.endpoint == 'main.archive' %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/archive.svg') }}" class="nav-icon" alt="">
+                <span>Archive</span>
+            </a>
             <a href="{{ url_for('main.trash') }}" class="nav-drawer-link {% if request.endpoint == 'main.trash' %}active{% endif %}">
-                <span class="nav-icon nav-icon-emoji">🗑️</span>
+                <img src="{{ url_for('static', filename='images/trash.svg') }}" class="nav-icon" alt="">
                 <span>Trash</span>
             </a>
             {% endif %}
@@ -327,6 +331,16 @@
                         {% endfor %}
                     </select>
                 </div>
+                <div class="filter-row-group filter-row-checkboxes">
+                    <label class="filter-checkbox-label">
+                        <input type="checkbox" name="show_archived" value="1" {% if show_archived %}checked{% endif %}>
+                        <span>📦 Show Archived</span>
+                    </label>
+                    <label class="filter-checkbox-label">
+                        <input type="checkbox" name="show_trashed" value="1" {% if show_trashed %}checked{% endif %}>
+                        <span>🗑️ Show Trashed</span>
+                    </label>
+                </div>
                 <div class="filter-row-actions">
                     <button type="submit" class="btn btn-primary btn-sm">Apply</button>
                     {% if has_active_filter %}
@@ -341,6 +355,12 @@
                     {% endif %}
                     {% if filter_project_name %}
                     <span class="filter-badge filter-badge-project">{{ filter_project_name }}</span>
+                    {% endif %}
+                    {% if show_archived %}
+                    <span class="filter-badge filter-badge-archived">📦 Archived</span>
+                    {% endif %}
+                    {% if show_trashed %}
+                    <span class="filter-badge filter-badge-trashed">🗑️ Trashed</span>
                     {% endif %}
                 </div>
                 {% endif %}
@@ -531,10 +551,14 @@
         justify-content: center;
         z-index: 10000;
         opacity: 0;
-        transition: opacity 0.2s ease;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.2s ease, visibility 0.2s ease;
     }
     .pybirch-modal-overlay.show {
         opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
     }
     .pybirch-modal {
         background: #ffffff;
@@ -957,6 +981,122 @@
                 type: 'danger',
                 title: 'Error',
                 body: `<p>Failed to delete item. Please try again.</p>`,
+                buttonText: 'OK'
+            });
+            return false;
+        }
+    }
+    
+    // ==================== Archive Management Functions ====================
+    
+    async function archiveItem(entityType, entityId, entityName) {
+        const name = entityName || `#${entityId}`;
+        const typeName = entityType.replace(/_/g, ' ');
+        
+        const confirmed = await PyBirchModal.confirm({
+            type: 'warning',
+            icon: '📦',
+            title: 'Archive Item',
+            body: `
+                <p>Are you sure you want to archive <strong>"${name}"</strong>?</p>
+                <div class="info-text">
+                    📦 Archived items are hidden from normal views but preserved indefinitely.
+                    You can unarchive from the Archive page anytime.
+                </div>
+            `,
+            cancelText: 'Cancel',
+            confirmText: 'Archive',
+            confirmType: 'primary'
+        });
+        
+        if (!confirmed) return false;
+        
+        try {
+            const response = await fetch(`/api/archive/${entityType}/${entityId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                credentials: 'same-origin'
+            });
+            
+            const responseText = await response.text();
+            const contentType = response.headers.get('content-type');
+            
+            if (!contentType || !contentType.includes('application/json')) {
+                if (response.status === 401 || responseText.includes('login')) {
+                    await PyBirchModal.alert({
+                        type: 'warning',
+                        title: 'Session Expired',
+                        body: '<p>Your session has expired. Please log in again.</p>',
+                        buttonText: 'OK'
+                    });
+                    window.location.href = '/login';
+                    return false;
+                }
+                throw new Error(`Server returned non-JSON response`);
+            }
+            
+            const data = JSON.parse(responseText);
+            
+            if (response.ok) {
+                await PyBirchModal.alert({
+                    type: 'success',
+                    title: 'Archived',
+                    body: `<p><strong>"${name}"</strong> has been archived.</p>
+                           <div class="info-text">You can restore it from the <a href="/archive">Archive page</a> anytime.</div>`,
+                    buttonText: 'OK'
+                });
+                window.location.href = `/${entityType}s`;
+                return true;
+            } else {
+                await PyBirchModal.alert({
+                    type: 'danger',
+                    title: 'Error',
+                    body: `<p>${data.error || 'Failed to archive item.'}</p>`,
+                    buttonText: 'OK'
+                });
+                return false;
+            }
+        } catch (error) {
+            console.error('Archive error:', error);
+            await PyBirchModal.alert({
+                type: 'danger',
+                title: 'Error',
+                body: `<p>Failed to archive item. Please try again.</p>`,
+                buttonText: 'OK'
+            });
+            return false;
+        }
+    }
+    
+    async function unarchiveItem(entityType, entityId, entityName) {
+        const name = entityName || `#${entityId}`;
+        
+        try {
+            const response = await fetch(`/api/archive/${entityType}/${entityId}/unarchive`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                credentials: 'same-origin'
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                return true;
+            } else {
+                await PyBirchModal.alert({
+                    type: 'danger',
+                    title: 'Error',
+                    body: `<p>${data.error || 'Failed to unarchive item.'}</p>`,
+                    buttonText: 'OK'
+                });
+                return false;
+            }
+        } catch (error) {
+            console.error('Unarchive error:', error);
+            await PyBirchModal.alert({
+                type: 'danger',
+                title: 'Error',
+                body: `<p>Failed to unarchive item. Please try again.</p>`,
                 buttonText: 'OK'
             });
             return false;

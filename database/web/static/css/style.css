@@ -514,6 +514,45 @@ code {
     color: var(--color-text-secondary);
 }
 
+.filter-row-checkboxes {
+    display: flex;
+    gap: 1rem;
+    padding-left: 1rem;
+    border-left: 1px solid var(--color-border);
+    margin-left: 0.5rem;
+}
+
+.filter-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+}
+
+.filter-checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--color-primary);
+}
+
+.filter-checkbox-label span {
+    font-weight: 400;
+}
+
+.filter-badge-archived {
+    background: #f59e0b;
+    color: white;
+}
+
+.filter-badge-trashed {
+    background: #ef4444;
+    color: white;
+}
+
 /* Legacy filter styles */
 .filter-bar {
     background-color: var(--color-bg-primary);

@@ -18,7 +18,7 @@
             {% endif %}
             <span class="status-badge status-{{ project.status }}">{{ project.status }}</span>
             <a href="{{ url_for('main.project_edit', project_id=project.id) }}" class="btn btn-secondary">Edit</a>
-            <button class="btn btn-danger" onclick="moveToTrash('project', {{ project.id }}, '{{ project.name | e }}')">🗑️ Move to Trash</button>
+            <button class="btn btn-warning" onclick="archiveItem('project', {{ project.id }}, '{{ project.name | e }}')">📦 Archive</button>
         </div>
     </div>
     
@@ -173,5 +173,102 @@
         </table>
         {% endif %}
     </div>
+    
+    <!-- Danger Zone -->
+    <div class="detail-section full-width danger-zone">
+        <h2>⚠️ Danger Zone</h2>
+        <div class="danger-zone-content">
+            <div class="danger-warning">
+                <p><strong>Warning:</strong> Deleting this project will also move the following to trash:</p>
+                <ul>
+                    <li>{{ project.sample_count }} sample(s)</li>
+                    <li>{{ project.scan_count }} scan(s)</li>
+                    <li>{{ project.queue_count }} queue(s)</li>
+                    <li>{{ project.members|length }} team member(s)</li>
+                </ul>
+                <p class="danger-note">💡 Items can be restored from the <a href="{{ url_for('main.trash') }}">Trash</a> within 30 days.</p>
+            </div>
+            <button class="btn btn-danger btn-lg" onclick="deleteProjectWithWarning({{ project.id }}, '{{ project.name | e }}', {{ project.sample_count }}, {{ project.scan_count }}, {{ project.queue_count }}, {{ project.members|length }})">
+                🗑️ Delete Project and All Contents
+            </button>
+        </div>
+    </div>
 </div>
+
+<style>
+.danger-zone {
+    background: #fef2f2;
+    border: 2px solid #fecaca;
+    border-radius: 8px;
+    margin-top: 2rem;
+}
+.danger-zone h2 {
+    color: #dc2626;
+    border-bottom-color: #fecaca;
+}
+.danger-zone-content {
+    padding: 1rem 0;
+}
+.danger-warning {
+    background: #ffffff;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.danger-warning p {
+    margin: 0 0 0.5rem;
+    color: #7f1d1d;
+}
+.danger-warning ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+    color: #991b1b;
+}
+.danger-warning li {
+    margin: 0.25rem 0;
+}
+.danger-note {
+    font-size: 0.9rem;
+    color: #64748b !important;
+    margin-top: 1rem !important;
+}
+.danger-note a {
+    color: #3b82f6;
+}
+.btn-lg {
+    padding: 12px 24px;
+    font-size: 1rem;
+}
+</style>
+
+<script>
+async function deleteProjectWithWarning(projectId, projectName, sampleCount, scanCount, queueCount, memberCount) {
+    const confirmed = await PyBirchModal.confirm({
+        type: 'danger',
+        title: 'Delete Project',
+        body: `
+            <p>You are about to delete <strong>"${projectName}"</strong> and all of its contents.</p>
+            <div class="info-text" style="background: #fef2f2; border-color: #fecaca;">
+                ⚠️ <strong>This will also delete:</strong>
+                <ul style="margin: 0.5rem 0 0; padding-left: 1.5rem;">
+                    <li>${sampleCount} sample(s)</li>
+                    <li>${scanCount} scan(s)</li>
+                    <li>${queueCount} queue(s)</li>
+                    <li>${memberCount} team member(s)</li>
+                </ul>
+            </div>
+            <p style="margin-top: 12px;">Items can be restored from Trash within 30 days.</p>
+        `,
+        cancelText: 'Cancel',
+        confirmText: 'Delete Project',
+        confirmType: 'danger'
+    });
+    
+    if (!confirmed) return;
+    
+    // Use the standard moveToTrash function
+    await moveToTrash('project', projectId, projectName);
+}
+</script>
 {% endblock %}

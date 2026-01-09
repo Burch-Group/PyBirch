@@ -186,6 +186,29 @@
     .heatmap-view { display: none; }
     .show-heatmap .chart-view { display: none; }
     .show-heatmap .heatmap-view { display: block; }
+    
+    /* Save to sample button */
+    .viz-save-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-color);
+    }
+    .save-to-sample-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .save-to-sample-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    .save-hint {
+        color: var(--text-tertiary);
+        font-size: 0.85rem;
+        font-style: italic;
+    }
     /* Dimension Reduction Panel */
     .dim-reduction-panel {
         background: var(--bg-secondary);
@@ -344,6 +367,7 @@
             {% endif %}
             <span id="connection-status" class="connection-status connecting" title="Connecting..."></span>
             <a href="{{ scan.pybirch_uri }}" class="btn btn-primary">Open in PyBirch</a>
+            <button class="btn btn-warning" onclick="archiveItem('scan', {{ scan.id }}, '{{ (scan.scan_name or scan.scan_id) | e }}')">📦 Archive</button>
             <button class="btn btn-danger" onclick="moveToTrash('scan', {{ scan.id }}, '{{ (scan.scan_name or scan.scan_id) | e }}')">🗑️ Trash</button>
         </div>
     </div>
@@ -613,6 +637,24 @@
                 <!-- Plotly heatmap container -->
                 <div class="heatmap-view">
                     <div class="heatmap-container" id="heatmap-{{ loop.index }}"></div>
+                </div>
+                
+                <!-- Save visualization to sample -->
+                <div class="viz-save-actions">
+                    {% if scan.sample %}
+                    <button class="btn btn-secondary btn-sm save-to-sample-btn" 
+                            data-measurement="{{ loop.index }}"
+                            data-measurement-name="{{ name }}"
+                            data-sample-id="{{ scan.sample.id }}"
+                            data-sample-name="{{ scan.sample.sample_id }}"
+                            data-scan-name="{{ scan.scan_name or scan.scan_id }}">
+                        📷 Save to Sample
+                    </button>
+                    {% else %}
+                    <span class="save-hint" title="Link this scan to a sample to save visualizations">
+                        💡 Link to sample to save images
+                    </span>
+                    {% endif %}
                 </div>
                 {% else %}
                 <div class="no-data-message">No data points available for visualization.</div>
@@ -1757,6 +1799,128 @@
                 this.textContent = 'Copied!';
                 setTimeout(() => this.textContent = originalText, 2000);
             });
+        });
+    });
+    
+    // ===== SAVE VISUALIZATION TO SAMPLE =====
+    document.querySelectorAll('.save-to-sample-btn').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const measurementIndex = this.dataset.measurement;
+            const measurementName = this.dataset.measurementName;
+            const sampleId = this.dataset.sampleId;
+            const sampleName = this.dataset.sampleName;
+            const scanName = this.dataset.scanName;
+            
+            // Disable button during save
+            this.disabled = true;
+            const originalText = this.innerHTML;
+            this.innerHTML = '⏳ Saving...';
+            
+            try {
+                // Determine if we're showing heatmap or chart
+                const section = document.getElementById(`measurement-${measurementIndex}`);
+                const chartWrapper = section.querySelector('.chart-wrapper');
+                const isHeatmap = chartWrapper && chartWrapper.classList.contains('show-heatmap');
+                
+                let imageData;
+                const chartId = `chart-${measurementIndex}`;
+                const heatmapId = `heatmap-${measurementIndex}`;
+                
+                if (isHeatmap && heatmaps[heatmapId]) {
+                    // Capture Plotly heatmap
+                    const heatmapContainer = document.getElementById(heatmapId);
+                    imageData = await Plotly.toImage(heatmapContainer, {
+                        format: 'png',
+                        width: 1200,
+                        height: 800,
+                        scale: 2
+                    });
+                } else if (charts[chartId] && charts[chartId].chart) {
+                    // Capture Chart.js canvas
+                    const canvas = document.getElementById(chartId);
+                    
+                    // Create a temporary canvas with white background
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = canvas.width * 2;
+                    tempCanvas.height = canvas.height * 2;
+                    const ctx = tempCanvas.getContext('2d');
+                    
+                    // Fill white background
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+                    
+                    // Scale and draw the chart
+                    ctx.scale(2, 2);
+                    ctx.drawImage(canvas, 0, 0);
+                    
+                    imageData = tempCanvas.toDataURL('image/png');
+                } else {
+                    throw new Error('No visualization found to capture');
+                }
+                
+                // Get current visualization type
+                const vizTypeSelect = section.querySelector('.viz-type-select');
+                const vizType = vizTypeSelect ? vizTypeSelect.value : 'chart';
+                
+                // Get axis info
+                const xSelect = section.querySelector('.x-axis-select');
+                const ySelect = section.querySelector('.y-axis-select');
+                const xAxis = xSelect ? xSelect.value : '';
+                const yAxis = ySelect ? ySelect.value : '';
+                
+                // Create description
+                const description = `${vizType.charAt(0).toUpperCase() + vizType.slice(1)} visualization from scan "${scanName}"\nMeasurement: ${measurementName}\nX-Axis: ${xAxis}\nY-Axis: ${yAxis}`;
+                const imageName = `${scanName} - ${measurementName} (${vizType})`;
+                
+                // Upload to sample
+                const response = await fetch(`/api/images/sample/${sampleId}/upload-base64`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        image_data: imageData,
+                        name: imageName,
+                        description: description
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Show success using PyBirchModal if available, otherwise alert
+                    if (typeof PyBirchModal !== 'undefined') {
+                        await PyBirchModal.alert({
+                            type: 'success',
+                            title: 'Saved to Sample',
+                            body: `<p>Visualization saved to <strong>${sampleName}</strong></p>
+                                   <div class="info-text">
+                                       <a href="/samples/${sampleId}#images" target="_blank">View in sample gallery →</a>
+                                   </div>`
+                        });
+                    } else {
+                        alert(`Visualization saved to ${sampleName}!`);
+                    }
+                } else {
+                    throw new Error(result.error || 'Failed to save image');
+                }
+            } catch (error) {
+                console.error('Save to sample error:', error);
+                if (typeof PyBirchModal !== 'undefined') {
+                    await PyBirchModal.alert({
+                        type: 'danger',
+                        title: 'Error',
+                        body: `<p>Failed to save visualization: ${error.message}</p>`
+                    });
+                } else {
+                    alert('Failed to save visualization: ' + error.message);
+                }
+            } finally {
+                this.disabled = false;
+                this.innerHTML = originalText;
+            }
         });
     });
     

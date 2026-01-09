@@ -14,6 +14,7 @@
         <h1>{{ computer.nickname or computer.computer_name }}</h1>
         <div class="detail-actions">
             <a href="{{ url_for('main.computer_edit', computer_id=computer.id) }}" class="btn btn-secondary">Edit</a>
+            <button class="btn btn-warning" onclick="archiveItem('computer', {{ computer.id }}, '{{ (computer.nickname or computer.computer_name) | e }}')">📦 Archive</button>
             <button class="btn btn-danger" onclick="moveToTrash('computer', {{ computer.id }}, '{{ (computer.nickname or computer.computer_name) | e }}')">🗑️ Move to Trash</button>
         </div>
     </div>

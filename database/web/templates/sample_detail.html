@@ -11,6 +11,7 @@
         <div class="header-actions">
             <a href="{{ url_for('main.sample_duplicate', sample_id=sample.id) }}" class="btn btn-secondary">Duplicate</a>
             <a href="{{ url_for('main.sample_edit', sample_id=sample.id) }}" class="btn btn-secondary">Edit</a>
+            <button class="btn btn-warning" onclick="archiveItem('sample', {{ sample.id }}, '{{ sample.sample_id | e }}')">📦 Archive</button>
             <button class="btn btn-danger" onclick="moveToTrash('sample', {{ sample.id }}, '{{ sample.sample_id | e }}')">🗑️ Move to Trash</button>
         </div>
     </div>

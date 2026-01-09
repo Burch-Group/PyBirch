@@ -256,6 +256,7 @@
             <a href="{{ url_for('main.driver_issues', definition_id=definition.id) }}" class="btn btn-secondary">Issues</a>
             <a href="{{ url_for('main.driver_edit', definition_id=definition.id) }}" class="btn btn-primary">Edit</a>
             <a href="{{ url_for('main.driver_duplicate', definition_id=definition.id) }}" class="btn btn-secondary">Duplicate</a>
+            <button class="btn btn-warning" onclick="archiveItem('driver', {{ definition.id }}, '{{ definition.display_name | e }}')">📦 Archive</button>
             <button class="btn btn-danger" onclick="moveToTrash('driver', {{ definition.id }}, '{{ definition.display_name | e }}')">🗑️ Move to Trash</button>
         </div>
     </div>
