@@ -112,6 +112,7 @@ Items:
 - [x] make equipment types dynamic & configurable within a lab (i.e. should be able to add new types, which will populate in the dropdown.)
 
 - [ ] Add images to labs (so i can add the cute group photo)
+- [ ] Troubleshooting (draft name) page for fabrication runs. Able to plot statistics by parameter, histograms or lineplots if numerical. statistics by user (instances of the error, in sorted error). statistics by substrate & sample material, by precursor id, plots by time of day and by time in general. plots by weather
 
 - [ ] Site-wide filters need to be edited -- the button is visible longer than the Ui bar that it opens (frustrating)
 - [ ] allow users to choose a lab in their profile, filters everything. allow labs to turn on/off database items they don't use -- wont show up in navlinks or index when that lab is selected for viewing in the user profile. allow labs to configure a custom color theme (three or four primary colors) that will be used when that lab is selected for viewing.
