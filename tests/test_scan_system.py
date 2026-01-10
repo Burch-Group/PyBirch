@@ -1396,6 +1396,7 @@ class TestLegacyConversion:
         assert legacy_flags_to_scan_state(True, False, False) == ScanState.COMPLETED
 
 
+@pytest.mark.skipif(not HAS_GUI, reason="GUI dependencies (PySide6) not available")
 class TestTreeTraverserModule:
     """Test TreeTraverser module (extracted from treeitem.py)."""
     

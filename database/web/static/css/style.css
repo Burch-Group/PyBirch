@@ -792,6 +792,7 @@ code {
     display: flex;
     gap: 0.25rem;
     justify-content: flex-end;
+    flex-wrap: nowrap;
 }
 
 /* Detail page action buttons - larger size */
@@ -1139,7 +1140,7 @@ input[readonly] {
     box-shadow: var(--shadow);
 }
 
-.action-buttons {
+.quick-actions .action-buttons {
     display: flex;
     gap: 0.75rem;
     flex-wrap: wrap;

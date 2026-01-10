@@ -19,6 +19,9 @@ if project_root not in sys.path:
 # Configure Qt API before importing any Qt modules
 os.environ.setdefault('QT_API', 'pyside6')
 
+# Skip entire module if PySide6 is not available
+pytest.importorskip("PySide6", reason="PySide6 not installed")
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication, QTreeWidgetItem
 
