@@ -1522,6 +1522,9 @@ def equipment_detail(equipment_id):
     object_location = db.get_object_location('equipment', equipment_id)
     locations_list = db.get_locations_simple_list()
     
+    # Get scheduling configuration
+    scheduling_config = db.get_equipment_scheduling_config(equipment_id)
+    
     return render_template('equipment_detail.html', 
         equipment=item,
         maintenance_tasks=maintenance_tasks,
@@ -1535,8 +1538,39 @@ def equipment_detail(equipment_id):
         object_type='equipment',
         object_id=equipment_id,
         object_location=object_location,
-        locations_list=locations_list
+        locations_list=locations_list,
+        scheduling_config=scheduling_config
     )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/toggle-scheduling', methods=['POST'])
+@login_required
+def equipment_toggle_scheduling(equipment_id):
+    """Toggle scheduling enabled/disabled for equipment."""
+    db = get_db_service()
+    
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    # Check permissions (owner or admin)
+    if equipment.get('owner_id') != g.current_user['id'] and g.current_user['role'] != 'admin':
+        flash('Only equipment owners or admins can toggle scheduling', 'error')
+        return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
+    
+    # Get current config
+    config = db.get_equipment_scheduling_config(equipment_id)
+    current_enabled = config.get('scheduling_enabled', True) if config else True
+    
+    # Toggle the value
+    db.create_or_update_scheduling_config(equipment_id, {
+        'scheduling_enabled': not current_enabled
+    })
+    
+    status = 'enabled' if not current_enabled else 'disabled'
+    flash(f'Scheduling {status} for {equipment["name"]}', 'success')
+    return redirect(url_for('main.equipment_detail', equipment_id=equipment_id))
 
 
 @main_bp.route('/equipment/<int:equipment_id>/link-instrument', methods=['POST'])
@@ -2407,6 +2441,27 @@ def equipment_calendar_events(equipment_id):
     return jsonify(events)
 
 
+@main_bp.route('/equipment/<int:equipment_id>/schedule/check-availability')
+def equipment_check_availability(equipment_id):
+    """API endpoint to check booking availability (for conflict detection)."""
+    db = get_db_service()
+    
+    start_str = request.args.get('start')
+    end_str = request.args.get('end')
+    
+    if not start_str or not end_str:
+        return jsonify({'available': False, 'error': 'Start and end times required'}), 400
+    
+    try:
+        start_datetime = datetime.fromisoformat(start_str.replace('Z', ''))
+        end_datetime = datetime.fromisoformat(end_str.replace('Z', ''))
+    except ValueError:
+        return jsonify({'available': False, 'error': 'Invalid datetime format'}), 400
+    
+    availability = db.check_booking_availability(equipment_id, start_datetime, end_datetime)
+    return jsonify(availability)
+
+
 @main_bp.route('/equipment/<int:equipment_id>/book', methods=['GET', 'POST'])
 @login_required
 def equipment_book(equipment_id):
@@ -2803,7 +2858,14 @@ def lab_schedule():
     lab_id = session.get('filter_lab_id')
     
     # Get all equipment for the lab
-    equipment_list, _ = db.get_equipment_list(lab_id=lab_id, per_page=100)
+    all_equipment, _ = db.get_equipment_list(lab_id=lab_id, per_page=100)
+    
+    # Filter to only equipment with scheduling enabled
+    equipment_list = []
+    for equip in all_equipment:
+        config = db.get_equipment_scheduling_config(equip['id'])
+        if config is None or config.get('scheduling_enabled', True):
+            equipment_list.append(equip)
     
     return render_template('lab_schedule.html',
         equipment_list=equipment_list,
@@ -2829,7 +2891,21 @@ def lab_calendar_events():
         end_date=end
     )
     
-    return jsonify(events)
+    # Filter out events for equipment with scheduling disabled
+    filtered_events = []
+    equipment_scheduling_cache = {}
+    for event in events:
+        equipment_id = event.get('extendedProps', {}).get('equipment_id')
+        if equipment_id:
+            if equipment_id not in equipment_scheduling_cache:
+                config = db.get_equipment_scheduling_config(equipment_id)
+                equipment_scheduling_cache[equipment_id] = config is None or config.get('scheduling_enabled', True)
+            if equipment_scheduling_cache[equipment_id]:
+                filtered_events.append(event)
+        else:
+            filtered_events.append(event)
+    
+    return jsonify(filtered_events)
 
 
 # -------------------- Calendar Integration --------------------
@@ -2966,7 +3042,7 @@ def equipment_shared_calendar(equipment_id):
     from database.calendar_integration import get_calendar_service
     
     db = get_db_service()
-    equipment = db.get_equipment_by_id(equipment_id)
+    equipment = db.get_equipment(equipment_id)
     
     if not equipment:
         flash('Equipment not found', 'error')

@@ -2,7 +2,7 @@
 
 {% block title %}Lab Schedule - PyBirch Database{% endblock %}
 
-{% block head %}
+{% block extra_head %}
 <!-- FullCalendar CSS -->
 <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' />
 <style>
@@ -14,25 +14,53 @@
     }
     
     .calendar-container {
-        background: var(--color-surface);
-        border-radius: 8px;
-        padding: 1rem;
+        background: var(--color-bg-primary);
+        border-radius: var(--border-radius);
+        padding: 1.25rem;
         margin-bottom: 1.5rem;
+        box-shadow: var(--shadow);
     }
     
     .fc {
         --fc-border-color: var(--color-border);
         --fc-button-bg-color: var(--color-primary);
         --fc-button-border-color: var(--color-primary);
-        --fc-button-hover-bg-color: var(--color-primary-hover);
-        --fc-button-hover-border-color: var(--color-primary-hover);
-        --fc-button-active-bg-color: var(--color-primary-hover);
-        --fc-today-bg-color: rgba(59, 130, 246, 0.1);
+        --fc-button-hover-bg-color: var(--color-primary-dark);
+        --fc-button-hover-border-color: var(--color-primary-dark);
+        --fc-button-active-bg-color: var(--color-primary-dark);
+        --fc-today-bg-color: rgba(0, 120, 212, 0.1);
+        --fc-page-bg-color: var(--color-bg-primary);
+        --fc-neutral-bg-color: var(--color-bg-secondary);
+        --fc-list-event-hover-bg-color: var(--color-bg-tertiary);
     }
     
-    .fc-daygrid-day-number,
-    .fc-col-header-cell-cushion {
-        color: var(--color-text);
+    .fc .fc-daygrid-day-number,
+    .fc .fc-col-header-cell-cushion,
+    .fc .fc-timegrid-slot-label-cushion,
+    .fc .fc-timegrid-axis-cushion {
+        color: var(--color-text-primary);
+    }
+    
+    .fc .fc-toolbar-title {
+        color: var(--color-text-primary);
+    }
+    
+    .fc .fc-button {
+        font-size: 0.875rem;
+    }
+    
+    .fc .fc-daygrid-day.fc-day-today,
+    .fc .fc-timegrid-col.fc-day-today {
+        background-color: var(--fc-today-bg-color);
+    }
+    
+    .fc-theme-standard td,
+    .fc-theme-standard th {
+        border-color: var(--color-border);
+    }
+    
+    .fc-theme-standard .fc-scrollgrid {
+        border-color: var(--color-border);
     }
     
     .equipment-legend {
@@ -41,8 +69,9 @@
         gap: 1rem;
         margin-top: 1rem;
         padding: 1rem;
-        background: var(--color-surface);
-        border-radius: 8px;
+        background: var(--color-bg-primary);
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow-sm);
     }
     
     .legend-item {
@@ -59,40 +88,141 @@
     
     .equipment-filter {
         display: flex;
-        flex-wrap: wrap;
+        align-items: center;
         gap: 0.5rem;
+        margin-bottom: 1rem;
+        padding: 0.75rem 1rem;
+        background: var(--color-bg-primary);
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow-sm);
+    }
+    
+    .equipment-filter select {
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--color-border);
+        border-radius: var(--border-radius-sm);
+        background: var(--color-bg-primary);
+        color: var(--color-text-primary);
+        font-size: 0.875rem;
+        min-width: 250px;
+    }
+    
+    .equipment-filter select:focus {
+        outline: none;
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+    }
+    
+    /* Booking Modal Styles */
+    .booking-modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    .booking-modal-overlay.active {
+        display: flex;
+    }
+    
+    .booking-modal {
+        background: var(--color-bg-primary);
+        border-radius: var(--border-radius);
+        padding: 1.5rem;
+        width: 100%;
+        max-width: 450px;
+        box-shadow: var(--shadow-lg);
+    }
+    
+    .booking-modal h2 {
+        margin: 0 0 1rem;
+        font-size: 1.25rem;
+    }
+    
+    .booking-modal-times {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
         margin-bottom: 1rem;
     }
     
-    .equipment-filter .filter-btn {
-        padding: 0.5rem 1rem;
-        background: var(--color-surface);
+    .booking-modal-times .form-group {
+        margin-bottom: 0.5rem;
+    }
+    
+    .booking-modal-times label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--color-text-secondary);
+        margin-bottom: 0.25rem;
+    }
+    
+    .booking-modal-times input,
+    .booking-modal-times select {
+        width: 100%;
+        padding: 0.5rem;
         border: 1px solid var(--color-border);
-        border-radius: 4px;
-        cursor: pointer;
-        transition: all 0.2s;
+        border-radius: var(--border-radius-sm);
+        font-size: 0.875rem;
     }
     
-    .equipment-filter .filter-btn:hover {
-        background: var(--color-primary);
-        color: white;
+    .booking-modal-duration {
+        text-align: center;
+        padding: 0.75rem;
+        background: var(--color-bg-secondary);
+        border-radius: var(--border-radius-sm);
+        margin-bottom: 1rem;
+        font-size: 0.875rem;
     }
     
-    .equipment-filter .filter-btn.active {
-        background: var(--color-primary);
-        color: white;
-        border-color: var(--color-primary);
+    .booking-modal-conflict {
+        padding: 0.75rem;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: var(--border-radius-sm);
+        margin-bottom: 1rem;
+        color: #dc2626;
+        font-size: 0.875rem;
+    }
+    
+    .booking-modal-conflict.hidden {
+        display: none;
+    }
+    
+    .booking-modal-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+    }
+    
+    .fc .fc-highlight {
+        background: rgba(0, 120, 212, 0.2);
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="content-page">
-    <div class="schedule-header">
-        <h1>📅 Lab Equipment Schedule</h1>
-        {% if g.current_user %}
-        <a href="{{ url_for('main.my_bookings') }}" class="btn btn-secondary">My Bookings</a>
-        {% endif %}
+<div class="list-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.index') }}">Dashboard</a> / Lab Schedule
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <h1>Lab Equipment Schedule</h1>
+        <div class="detail-actions">
+            {% if g.current_user %}
+            <a href="{{ url_for('main.my_bookings') }}" class="btn btn-secondary">My Bookings</a>
+            {% endif %}
+        </div>
     </div>
     
     {% if not equipment_list %}
@@ -104,10 +234,13 @@
     
     <!-- Equipment Filter -->
     <div class="equipment-filter">
-        <button type="button" class="filter-btn active" data-equipment-id="">All Equipment</button>
-        {% for equip in equipment_list %}
-        <button type="button" class="filter-btn" data-equipment-id="{{ equip.id }}">{{ equip.name }}</button>
-        {% endfor %}
+        <label for="equipment-filter-select" style="font-weight: 500; margin-right: 0.5rem;">Filter by Equipment:</label>
+        <select id="equipment-filter-select" class="searchable-select" style="min-width: 250px;">
+            <option value="">All Equipment</option>
+            {% for equip in equipment_list %}
+            <option value="{{ equip.id }}">{{ equip.name }}</option>
+            {% endfor %}
+        </select>
     </div>
     
     <!-- Calendar View -->
@@ -129,22 +262,94 @@
     </div>
     {% endif %}
 </div>
+
+{% if g.current_user and equipment_list %}
+<!-- Booking Confirmation Modal -->
+<div id="booking-modal" class="booking-modal-overlay">
+    <div class="booking-modal">
+        <h2>📅 Book Equipment</h2>
+        <p style="color: var(--color-text-secondary); margin-bottom: 1rem; font-size: 0.875rem;">
+            Select equipment and adjust the times below, then continue to the booking form.
+        </p>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+            <label for="modal-equipment" style="display: block; font-size: 0.875rem; font-weight: 500; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Equipment *</label>
+            <select id="modal-equipment" style="width: 100%; padding: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--border-radius-sm); font-size: 0.875rem;">
+                <option value="">-- Select Equipment --</option>
+                {% for equip in equipment_list %}
+                <option value="{{ equip.id }}">{{ equip.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="booking-modal-times">
+            <div class="form-group">
+                <label for="modal-start-date">Start Date</label>
+                <input type="date" id="modal-start-date">
+            </div>
+            <div class="form-group">
+                <label for="modal-start-time">Start Time</label>
+                <input type="time" id="modal-start-time">
+            </div>
+            <div class="form-group">
+                <label for="modal-end-date">End Date</label>
+                <input type="date" id="modal-end-date">
+            </div>
+            <div class="form-group">
+                <label for="modal-end-time">End Time</label>
+                <input type="time" id="modal-end-time">
+            </div>
+        </div>
+        
+        <div id="modal-duration" class="booking-modal-duration">
+            Duration: --
+        </div>
+        
+        <div id="modal-conflict" class="booking-modal-conflict hidden">
+            <strong>⚠️ Conflict Detected:</strong>
+            <span id="modal-conflict-message"></span>
+        </div>
+        
+        <div class="booking-modal-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeBookingModal()">Cancel</button>
+            <button type="button" id="modal-confirm-btn" class="btn btn-primary" onclick="confirmBooking()" disabled>
+                Continue to Booking Form →
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
-{% block scripts %}
+{% block extra_scripts %}
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
 <script>
+var calendar;
+var selectedEquipmentId = '';
+var checkAvailabilityTimeout;
+
+// Generate colors for equipment
+var equipmentColors = {};
+{% for equip in equipment_list %}
+equipmentColors[{{ equip.id }}] = 'hsl({{ loop.index0 * 47 % 360 }}, 70%, 50%)';
+{% endfor %}
+
+// Equipment IDs for availability check URLs
+var equipmentUrls = {};
+{% for equip in equipment_list %}
+equipmentUrls[{{ equip.id }}] = '{{ url_for("main.equipment_check_availability", equipment_id=equip.id) }}';
+{% endfor %}
+
+// Equipment booking URLs
+var bookingUrls = {};
+{% for equip in equipment_list %}
+bookingUrls[{{ equip.id }}] = '{{ url_for("main.equipment_book", equipment_id=equip.id) }}';
+{% endfor %}
+
 document.addEventListener('DOMContentLoaded', function() {
     var calendarEl = document.getElementById('calendar');
-    var selectedEquipmentId = '';
     
-    // Generate colors for equipment
-    var equipmentColors = {};
-    {% for equip in equipment_list %}
-    equipmentColors[{{ equip.id }}] = 'hsl({{ loop.index0 * 47 % 360 }}, 70%, 50%)';
-    {% endfor %}
-    
-    var calendar = new FullCalendar.Calendar(calendarEl, {
+    calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'timeGridWeek',
         headerToolbar: {
             left: 'prev,next today',
@@ -182,12 +387,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 .replace('/equipment/0/', '/equipment/' + info.event.extendedProps.equipment_id + '/')
                 .replace('/0', '/' + info.event.id);
         },
+        {% if g.current_user %}
+        selectable: true,
+        selectMirror: true,
+        select: function(info) {
+            openBookingModal(info.start, info.end);
+            calendar.unselect();
+        },
+        {% endif %}
         slotMinTime: '06:00:00',
         slotMaxTime: '22:00:00',
         allDaySlot: false,
         nowIndicator: true,
         weekends: true,
         height: 'auto',
+        slotDuration: '00:30:00',
+        snapDuration: '00:15:00',
         eventTimeFormat: {
             hour: '2-digit',
             minute: '2-digit',
@@ -197,17 +412,174 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     calendar.render();
     
-    // Equipment filter buttons
-    document.querySelectorAll('.equipment-filter .filter-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            document.querySelectorAll('.equipment-filter .filter-btn').forEach(function(b) {
-                b.classList.remove('active');
-            });
-            this.classList.add('active');
-            selectedEquipmentId = this.dataset.equipmentId;
+    // Equipment filter select
+    var equipmentFilterSelect = document.getElementById('equipment-filter-select');
+    if (equipmentFilterSelect) {
+        equipmentFilterSelect.addEventListener('change', function() {
+            selectedEquipmentId = this.value;
             calendar.refetchEvents();
         });
+    }
+    
+    {% if g.current_user %}
+    // Add event listeners for modal inputs
+    ['modal-start-date', 'modal-start-time', 'modal-end-date', 'modal-end-time', 'modal-equipment'].forEach(function(id) {
+        document.getElementById(id).addEventListener('change', onModalInputChange);
     });
+    {% endif %}
 });
+
+{% if g.current_user %}
+function openBookingModal(start, end) {
+    var modal = document.getElementById('booking-modal');
+    
+    // Format dates for inputs
+    var startDate = start.toISOString().split('T')[0];
+    var startTime = start.toTimeString().slice(0, 5);
+    var endDate = end.toISOString().split('T')[0];
+    var endTime = end.toTimeString().slice(0, 5);
+    
+    document.getElementById('modal-start-date').value = startDate;
+    document.getElementById('modal-start-time').value = startTime;
+    document.getElementById('modal-end-date').value = endDate;
+    document.getElementById('modal-end-time').value = endTime;
+    
+    // Pre-select equipment if filtered
+    var equipSelect = document.getElementById('modal-equipment');
+    if (selectedEquipmentId) {
+        equipSelect.value = selectedEquipmentId;
+    } else {
+        equipSelect.value = '';
+    }
+    
+    updateDuration();
+    checkAvailability();
+    
+    modal.classList.add('active');
+}
+
+function closeBookingModal() {
+    var modal = document.getElementById('booking-modal');
+    modal.classList.remove('active');
+    hideConflict();
+}
+
+function onModalInputChange() {
+    updateDuration();
+    clearTimeout(checkAvailabilityTimeout);
+    checkAvailabilityTimeout = setTimeout(checkAvailability, 300);
+}
+
+function updateDuration() {
+    var startDate = document.getElementById('modal-start-date').value;
+    var startTime = document.getElementById('modal-start-time').value;
+    var endDate = document.getElementById('modal-end-date').value;
+    var endTime = document.getElementById('modal-end-time').value;
+    
+    if (startDate && startTime && endDate && endTime) {
+        var start = new Date(startDate + 'T' + startTime);
+        var end = new Date(endDate + 'T' + endTime);
+        var diffMs = end - start;
+        
+        if (diffMs > 0) {
+            var hours = Math.floor(diffMs / 3600000);
+            var minutes = Math.floor((diffMs % 3600000) / 60000);
+            var durationText = '';
+            if (hours > 0) durationText += hours + ' hour' + (hours > 1 ? 's' : '');
+            if (minutes > 0) durationText += (hours > 0 ? ' ' : '') + minutes + ' minute' + (minutes > 1 ? 's' : '');
+            document.getElementById('modal-duration').textContent = 'Duration: ' + durationText;
+        } else {
+            document.getElementById('modal-duration').textContent = 'Duration: Invalid (end must be after start)';
+        }
+    }
+}
+
+function checkAvailability() {
+    var equipmentId = document.getElementById('modal-equipment').value;
+    var startDate = document.getElementById('modal-start-date').value;
+    var startTime = document.getElementById('modal-start-time').value;
+    var endDate = document.getElementById('modal-end-date').value;
+    var endTime = document.getElementById('modal-end-time').value;
+    
+    // Need equipment selected
+    if (!equipmentId) {
+        hideConflict();
+        document.getElementById('modal-confirm-btn').disabled = true;
+        return;
+    }
+    
+    if (!startDate || !startTime || !endDate || !endTime) return;
+    
+    var startISO = startDate + 'T' + startTime + ':00';
+    var endISO = endDate + 'T' + endTime + ':00';
+    
+    var baseUrl = equipmentUrls[equipmentId];
+    var url = baseUrl + '?start=' + encodeURIComponent(startISO) + '&end=' + encodeURIComponent(endISO);
+    
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            if (data.available) {
+                hideConflict();
+                document.getElementById('modal-confirm-btn').disabled = false;
+            } else {
+                var messages = [];
+                if (data.issues) {
+                    data.issues.forEach(function(issue) {
+                        messages.push(issue.message);
+                    });
+                }
+                showConflict(messages.join('. ') || 'This time slot is not available');
+                document.getElementById('modal-confirm-btn').disabled = true;
+            }
+        })
+        .catch(function(error) {
+            console.error('Error checking availability:', error);
+        });
+}
+
+function showConflict(message) {
+    var conflictDiv = document.getElementById('modal-conflict');
+    document.getElementById('modal-conflict-message').textContent = message;
+    conflictDiv.classList.remove('hidden');
+}
+
+function hideConflict() {
+    document.getElementById('modal-conflict').classList.add('hidden');
+}
+
+function confirmBooking() {
+    var equipmentId = document.getElementById('modal-equipment').value;
+    if (!equipmentId) {
+        alert('Please select equipment first');
+        return;
+    }
+    
+    var startDate = document.getElementById('modal-start-date').value;
+    var startTime = document.getElementById('modal-start-time').value;
+    var endDate = document.getElementById('modal-end-date').value;
+    var endTime = document.getElementById('modal-end-time').value;
+    
+    var startISO = startDate + 'T' + startTime + ':00';
+    var endISO = endDate + 'T' + endTime + ':00';
+    
+    var bookUrl = bookingUrls[equipmentId];
+    window.location.href = bookUrl + '?start=' + encodeURIComponent(startISO) + '&end=' + encodeURIComponent(endISO);
+}
+
+// Close modal on overlay click
+document.getElementById('booking-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeBookingModal();
+    }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeBookingModal();
+    }
+});
+{% endif %}
 </script>
 {% endblock %}

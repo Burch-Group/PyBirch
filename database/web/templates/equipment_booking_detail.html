@@ -132,7 +132,7 @@
             </dl>
             
             <div style="margin-top: 1rem;">
-                <p class="text-secondary">Add to your calendar:</p>
+                <p style="color: var(--color-text-secondary);">Add to your calendar:</p>
                 <a href="{{ url_for('main.equipment_ical_feed', equipment_id=equipment.id) }}" class="btn btn-small btn-secondary">📥 Download .ics</a>
             </div>
         </div>
@@ -169,7 +169,7 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
+{% block extra_scripts %}
 <script>
 function showCancelModal() {
     document.getElementById('cancel-modal').style.display = 'flex';
@@ -202,11 +202,12 @@ document.getElementById('cancel-modal').addEventListener('click', function(e) {
 }
 
 .modal-content {
-    background: var(--color-surface);
+    background: var(--color-bg-primary);
     padding: 2rem;
-    border-radius: 8px;
+    border-radius: var(--border-radius);
     max-width: 500px;
     width: 90%;
+    box-shadow: var(--shadow-lg);
 }
 
 .modal-actions {

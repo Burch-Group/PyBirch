@@ -3,7 +3,7 @@
 {% block title %}Shared Calendar - {{ equipment.name }} - PyBirch Database{% endblock %}
 
 {% block content %}
-<div class="detail-page">
+<div class="list-page">
     <div class="page-header">
         <div class="breadcrumb">
             <a href="{{ url_for('main.equipment_list') }}">Equipment</a> /
@@ -13,13 +13,15 @@
         </div>
     </div>
     
-    <h1>📅 Shared Calendar for {{ equipment.name }}</h1>
+    <div class="detail-header">
+        <h1>Shared Calendar for {{ equipment.name }}</h1>
+    </div>
     <p class="section-description">
         Create and manage a shared Google Calendar so all lab members can see this equipment's schedule.
     </p>
     
     {% if not google_available %}
-    <div class="alert alert-warning">
+    <div class="flash flash-warning">
         <strong>Google Calendar not configured.</strong>
         To enable shared calendars, set the <code>GOOGLE_CALENDAR_CLIENT_ID</code> and 
         <code>GOOGLE_CALENDAR_CLIENT_SECRET</code> environment variables.
@@ -82,7 +84,7 @@
             </table>
             
             {% if share_link %}
-            <div class="share-links" style="margin-top: 1rem; padding: 1rem; background: var(--color-background); border-radius: 8px;">
+            <div class="share-links" style="margin-top: 1rem; padding: 1rem; background: var(--color-bg-secondary); border-radius: var(--border-radius);">
                 <p><strong>📤 Share this calendar:</strong></p>
                 <div style="margin-bottom: 0.5rem;">
                     <label>View Link:</label>
@@ -118,7 +120,7 @@
                 </button>
             </form>
             
-            <p class="text-secondary" style="font-size: 0.875rem; margin-top: 0.5rem;">
+            <p style="font-size: 0.875rem; margin-top: 0.5rem; color: var(--color-text-secondary);">
                 Tip: New bookings are automatically synced when created. Use this to manually sync 
                 existing bookings or fix any discrepancies.
             </p>
@@ -236,7 +238,7 @@
                                 </button>
                             </form>
                             {% else %}
-                            <span class="text-secondary">Owner</span>
+                            <span style="color: var(--color-text-secondary);">Owner</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -250,7 +252,7 @@
     {% endif %}
     {% endif %}
     
-    <div class="page-actions" style="margin-top: 2rem;">
+    <div class="header-actions" style="margin-top: 2rem;">
         <a href="{{ url_for('main.equipment_schedule_settings', equipment_id=equipment.id) }}" class="btn btn-secondary">
             ← Back to Schedule Settings
         </a>
@@ -259,10 +261,11 @@
 
 <style>
 .card {
-    background: var(--color-surface);
-    border-radius: 8px;
+    background: var(--color-bg-primary);
+    border-radius: var(--border-radius);
     padding: 1.5rem;
     border: 1px solid var(--color-border);
+    box-shadow: var(--shadow);
 }
 
 .card h2 {
@@ -286,10 +289,10 @@
 }
 
 .info-box {
-    background: var(--color-background);
+    background: var(--color-bg-secondary);
     border-left: 4px solid var(--color-primary);
     padding: 1rem;
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
 }
 
 .form-group {
@@ -316,7 +319,7 @@
 
 .data-table th {
     font-weight: 600;
-    background: var(--color-background);
+    background: var(--color-bg-secondary);
 }
 
 .btn-sm {

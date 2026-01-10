@@ -13,7 +13,9 @@
         </div>
     </div>
     
-    <h1>{% if booking %}✏️ Edit Booking{% else %}📅 Book {{ equipment.name }}{% endif %}</h1>
+    <div class="detail-header">
+        <h1>{% if booking %}Edit Booking{% else %}Book {{ equipment.name }}{% endif %}</h1>
+    </div>
     
     {% if config %}
     <div class="info-box" style="margin-bottom: 1.5rem;">
@@ -92,7 +94,7 @@
                 </div>
             </div>
             
-            <div id="duration-display" class="text-secondary" style="margin-top: 0.5rem;"></div>
+            <div id="duration-display" style="margin-top: 0.5rem; color: var(--color-text-secondary);"></div>
         </div>
         
         {% if not booking and config and config.allow_recurring %}
@@ -163,7 +165,7 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
+{% block extra_scripts %}
 <script>
 // Calculate and display duration
 function updateDuration() {

@@ -3,7 +3,7 @@
 {% block title %}Scheduling Settings - {{ equipment.name }} - PyBirch Database{% endblock %}
 
 {% block content %}
-<div class="detail-page">
+<div class="list-page">
     <div class="page-header">
         <div class="breadcrumb">
             <a href="{{ url_for('main.equipment') }}">Equipment</a> / 
@@ -13,7 +13,9 @@
         </div>
     </div>
     
-    <h1>⚙️ Scheduling Settings - {{ equipment.name }}</h1>
+    <div class="detail-header">
+        <h1>Scheduling Settings - {{ equipment.name }}</h1>
+    </div>
     
     <form method="POST" class="form-grid">
         <div class="form-section">

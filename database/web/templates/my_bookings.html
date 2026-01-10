@@ -3,10 +3,16 @@
 {% block title %}My Bookings - PyBirch Database{% endblock %}
 
 {% block content %}
-<div class="content-page">
-    <div class="page-header-main">
-        <h1>📅 My Bookings</h1>
-        <div class="page-actions">
+<div class="list-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.index') }}">Dashboard</a> / My Bookings
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <h1>My Bookings</h1>
+        <div class="detail-actions">
             <a href="{{ url_for('main.my_bookings_ical_feed') }}" class="btn btn-secondary">
                 📥 Export to Calendar (iCal)
             </a>
@@ -15,18 +21,18 @@
     
     <!-- Upcoming Bookings Widget -->
     {% if upcoming %}
-    <div class="upcoming-widget" style="margin-bottom: 2rem; padding: 1.5rem; background: var(--color-surface); border-radius: 8px; border-left: 4px solid var(--color-primary);">
+    <div class="upcoming-widget" style="margin-bottom: 2rem; padding: 1.5rem; background: var(--color-bg-primary); border-radius: var(--border-radius); border-left: 4px solid var(--color-primary); box-shadow: var(--shadow);">
         <h2 style="margin-top: 0;">⏰ Upcoming</h2>
         <div class="upcoming-list">
             {% for booking in upcoming %}
             <div style="display: flex; align-items: center; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--color-border);">
                 <div style="min-width: 120px;">
                     <strong>{{ booking.start_time[:10] }}</strong><br>
-                    <span class="text-secondary">{{ booking.start_time[11:16] }}</span>
+                    <span style="color: var(--color-text-secondary);">{{ booking.start_time[11:16] }}</span>
                 </div>
                 <div style="flex: 1;">
                     <strong>{{ booking.title }}</strong><br>
-                    <span class="text-secondary">{{ booking.equipment_name }}</span>
+                    <span style="color: var(--color-text-secondary);">{{ booking.equipment_name }}</span>
                 </div>
                 <a href="{{ url_for('main.equipment_booking_detail', equipment_id=booking.equipment_id, booking_id=booking.id) }}" class="btn btn-small btn-secondary">View</a>
             </div>
@@ -125,7 +131,7 @@
 
 @keyframes pulse-border {
     0%, 100% { border-left-color: var(--color-primary); }
-    50% { border-left-color: var(--color-primary-hover); }
+    50% { border-left-color: var(--color-primary-light); }
 }
 </style>
 {% endblock %}

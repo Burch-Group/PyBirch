@@ -15,9 +15,23 @@
         <h1>{{ equipment.name }}</h1>
         <div class="detail-actions">
             <span class="status-badge status-{{ equipment.status }}">{{ equipment.status }}</span>
+            {% set scheduling_enabled = scheduling_config.scheduling_enabled if scheduling_config else true %}
+            {% if scheduling_enabled %}
             <a href="{{ url_for('main.equipment_schedule', equipment_id=equipment.id) }}" class="btn btn-primary">📅 Schedule</a>
             {% if g.current_user %}
             <a href="{{ url_for('main.equipment_book', equipment_id=equipment.id) }}" class="btn btn-success">Book Equipment</a>
+            {% endif %}
+            {% else %}
+            <span class="status-badge" style="background: var(--color-text-secondary); color: white;">📅 Scheduling Disabled</span>
+            {% endif %}
+            {% if g.current_user and (equipment.owner_id == g.current_user.id or g.current_user.role == 'admin') %}
+            <form action="{{ url_for('main.equipment_toggle_scheduling', equipment_id=equipment.id) }}" method="POST" style="display: inline;">
+                {% if scheduling_enabled %}
+                <button type="submit" class="btn btn-secondary btn-sm" title="Disable scheduling for this equipment">🚫 Disable Scheduling</button>
+                {% else %}
+                <button type="submit" class="btn btn-success btn-sm" title="Enable scheduling for this equipment">✅ Enable Scheduling</button>
+                {% endif %}
+            </form>
             {% endif %}
             {{ detail_action_buttons(
                 edit_url=url_for('main.equipment_edit', equipment_id=equipment.id),

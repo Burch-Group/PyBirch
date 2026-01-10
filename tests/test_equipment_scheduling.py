@@ -465,6 +465,69 @@ class TestSchedulingWebRoutes:
         # In a real test environment with full Flask setup,
         # we would test the actual routes
         pass
+    
+    def test_availability_check_endpoint(self, db_service, test_equipment, test_user):
+        """Test the booking availability check API endpoint."""
+        from datetime import datetime, timedelta
+        
+        # Create an existing booking
+        start_time = datetime.now() + timedelta(days=1)
+        start_time = start_time.replace(hour=10, minute=0, second=0, microsecond=0)
+        end_time = start_time + timedelta(hours=2)
+        
+        db_service.create_equipment_booking({
+            'equipment_id': test_equipment['id'],
+            'user_id': test_user['id'],
+            'title': 'Existing Booking',
+            'start_time': start_time,
+            'end_time': end_time,
+        })
+        
+        # Test 1: Check availability for conflicting time
+        availability = db_service.check_booking_availability(
+            test_equipment['id'],
+            start_time + timedelta(minutes=30),  # Overlaps
+            end_time + timedelta(minutes=30)
+        )
+        assert not availability['available'], "Overlapping time should not be available"
+        assert len(availability['issues']) > 0, "Should have conflict issue"
+        
+        # Test 2: Check availability for non-conflicting time
+        available_start = end_time + timedelta(hours=1)
+        available_end = available_start + timedelta(hours=1)
+        
+        availability2 = db_service.check_booking_availability(
+            test_equipment['id'],
+            available_start,
+            available_end
+        )
+        assert availability2['available'], "Non-overlapping time should be available"
+    
+    def test_toggle_scheduling_enabled(self, db_service, test_equipment):
+        """Test toggling scheduling enabled/disabled for equipment."""
+        equipment_id = test_equipment['id']
+        
+        # Initially, scheduling should be enabled (default)
+        config = db_service.get_equipment_scheduling_config(equipment_id)
+        initial_enabled = config.get('scheduling_enabled', True) if config else True
+        assert initial_enabled, "Scheduling should be enabled by default"
+        
+        # Disable scheduling
+        db_service.create_or_update_scheduling_config(equipment_id, {
+            'scheduling_enabled': False
+        })
+        
+        config = db_service.get_equipment_scheduling_config(equipment_id)
+        assert config is not None, "Config should exist after update"
+        assert not config['scheduling_enabled'], "Scheduling should be disabled"
+        
+        # Re-enable scheduling
+        db_service.create_or_update_scheduling_config(equipment_id, {
+            'scheduling_enabled': True
+        })
+        
+        config = db_service.get_equipment_scheduling_config(equipment_id)
+        assert config['scheduling_enabled'], "Scheduling should be enabled again"
 
 
 # Fixtures for scheduling tests
