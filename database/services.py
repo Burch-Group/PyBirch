@@ -5971,6 +5971,20 @@ class DatabaseService:
             
             return [self._user_to_dict(u) for u in users], total
     
+    def get_users_simple_list(self) -> List[Dict]:
+        """Get a simple list of all active users for dropdowns."""
+        with self.session_scope() as session:
+            users = session.query(User).filter(
+                User.is_active == True
+            ).order_by(User.username).all()
+            return [{
+                'id': u.id,
+                'username': u.username,
+                'name': u.name,
+                'email': u.email,
+                'display': u.name if u.name else u.username
+            } for u in users]
+    
     def _user_to_dict(self, user: User) -> Dict:
         """Convert User model to dictionary."""
         return {

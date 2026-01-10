@@ -1007,6 +1007,348 @@ class TestSubscriberFeature:
 
 
 # =============================================================================
+# Service Method Integrity Tests
+# =============================================================================
+
+class TestServiceMethodIntegrity:
+    """Test that all service methods called by routes actually exist.
+    
+    This catches AttributeError issues that can be masked by auth redirects.
+    """
+    
+    def test_database_service_methods_exist(self, app):
+        """Verify all DatabaseService methods used by routes exist."""
+        from database.services import DatabaseService
+        
+        # List of all service methods that routes expect to call
+        # Method names must match actual DatabaseService methods
+        expected_methods = [
+            # Lab methods
+            'get_labs', 'get_lab', 'create_lab', 'update_lab', 'get_labs_simple_list',
+            # Project methods
+            'get_projects', 'get_project', 'create_project', 'update_project',
+            # Sample methods
+            'get_samples', 'get_sample', 'create_sample', 'update_sample',
+            # Scan methods
+            'get_scans', 'get_scan', 'create_scan', 'update_scan',
+            # Queue methods
+            'get_queues', 'get_queue', 'create_queue', 'update_queue',
+            # Equipment methods
+            'get_equipment_list', 'get_equipment', 'create_equipment', 'update_equipment',
+            # Issue methods
+            'get_issues', 'get_issue', 'create_issue', 'update_issue',
+            # Precursor methods
+            'get_precursors', 'get_precursor', 'create_precursor', 'update_precursor',
+            # Waste methods
+            'get_wastes', 'get_waste', 'create_waste', 'update_waste',
+            # Location methods
+            'get_locations_list', 'get_location', 'create_location', 'update_location',
+            'get_locations_simple_list',
+            # Procedure methods
+            'get_procedures', 'get_procedure', 'create_procedure', 'update_procedure',
+            # User methods
+            'get_users', 'get_user_by_id', 'get_users_simple_list',
+            # Driver methods
+            'get_drivers', 'get_driver', 'create_driver', 'update_driver',
+            # Instrument methods
+            'get_instruments_list', 'get_instrument', 'create_instrument', 'update_instrument',
+            # Computer methods
+            'get_computers', 'get_computer', 'create_computer', 'update_computer',
+            # Subscriber methods
+            'get_subscribers', 'get_subscriber', 'create_subscriber', 'update_subscriber',
+            # Template methods
+            'get_templates', 'get_template', 'create_template', 'update_template',
+            # Fabrication run methods
+            'get_fabrication_runs', 'get_fabrication_run', 'create_fabrication_run',
+        ]
+        
+        db = DatabaseService('sqlite:///:memory:')
+        missing_methods = []
+        
+        for method_name in expected_methods:
+            if not hasattr(db, method_name):
+                missing_methods.append(method_name)
+        
+        assert not missing_methods, f"Missing DatabaseService methods: {missing_methods}"
+
+
+class TestRouteHandlerExecution:
+    """Test route handlers execute without AttributeError or other exceptions.
+    
+    These tests bypass the auth decorator to directly test route handler code.
+    """
+    
+    @pytest.fixture
+    def app_with_auth_bypass(self, app):
+        """Create app context with authentication bypassed for testing."""
+        # Push app context and set up a fake authenticated user
+        with app.app_context():
+            from flask import g, session
+            from flask_login import login_user
+            from database.models import User
+            
+            # Set up test request context with authenticated session
+            with app.test_request_context():
+                session['user_id'] = app.config['TEST_USER_ID']
+                session['user_email'] = 'test@example.com'
+                session['user_name'] = 'Test User'
+                session['current_lab_id'] = app.config['TEST_LAB_ID']
+                g.current_lab_id = app.config['TEST_LAB_ID']
+                yield app
+    
+    def test_waste_new_route_no_attribute_error(self, app):
+        """Test /waste/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            # Login first
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            # Make the request - if there's an AttributeError, it will show in response
+            response = client.get('/waste/new')
+            content = response.data.decode('utf-8')
+            
+            # Check for Python error indicators in response
+            assert 'AttributeError' not in content, f"AttributeError in /waste/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /waste/new: {content[:500]}"
+            assert 'Internal Server Error' not in content or 'login' in content.lower(), \
+                f"Server error in /waste/new (not auth-related): {content[:500]}"
+    
+    def test_subscriber_new_route_no_attribute_error(self, app):
+        """Test /subscribers/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/subscribers/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /subscribers/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /subscribers/new: {content[:500]}"
+    
+    def test_precursor_new_route_no_attribute_error(self, app):
+        """Test /precursors/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/precursors/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /precursors/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /precursors/new: {content[:500]}"
+    
+    def test_equipment_new_route_no_attribute_error(self, app):
+        """Test /equipment/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/equipment/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /equipment/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /equipment/new: {content[:500]}"
+    
+    def test_sample_new_route_no_attribute_error(self, app):
+        """Test /samples/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/samples/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /samples/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /samples/new: {content[:500]}"
+    
+    def test_issue_new_route_no_attribute_error(self, app):
+        """Test /issues/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/issues/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /issues/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /issues/new: {content[:500]}"
+    
+    def test_project_new_route_no_attribute_error(self, app):
+        """Test /projects/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/projects/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /projects/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /projects/new: {content[:500]}"
+    
+    def test_lab_new_route_no_attribute_error(self, app):
+        """Test /labs/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/labs/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /labs/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /labs/new: {content[:500]}"
+    
+    def test_location_new_route_no_attribute_error(self, app):
+        """Test /locations/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/locations/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /locations/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /locations/new: {content[:500]}"
+    
+    def test_procedure_new_route_no_attribute_error(self, app):
+        """Test /procedures/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/procedures/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /procedures/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /procedures/new: {content[:500]}"
+    
+    def test_driver_new_route_no_attribute_error(self, app):
+        """Test /drivers/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/drivers/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /drivers/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /drivers/new: {content[:500]}"
+    
+    def test_instrument_new_route_no_attribute_error(self, app):
+        """Test /instruments/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/instruments/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /instruments/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /instruments/new: {content[:500]}"
+    
+    def test_computer_new_route_no_attribute_error(self, app):
+        """Test /computers/new route doesn't have missing service methods."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get('/computers/new')
+            content = response.data.decode('utf-8')
+            
+            assert 'AttributeError' not in content, f"AttributeError in /computers/new: {content[:500]}"
+            assert 'has no attribute' not in content, f"Missing attribute in /computers/new: {content[:500]}"
+
+
+class TestRouteErrorDetection:
+    """Test that routes return proper error information instead of masking errors."""
+    
+    # All form routes that need to be tested
+    NEW_FORM_ROUTES = [
+        '/labs/new',
+        '/projects/new',
+        '/equipment/new',
+        '/samples/new',
+        '/issues/new',
+        '/precursors/new',
+        '/waste/new',
+        '/locations/new',
+        '/procedures/new',
+        '/drivers/new',
+        '/instruments/new',
+        '/computers/new',
+        '/subscribers/new',
+    ]
+    
+    @pytest.mark.parametrize('route', NEW_FORM_ROUTES)
+    def test_new_form_routes_no_python_errors(self, app, route):
+        """Ensure form routes don't have Python errors in response."""
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['user_id'] = app.config['TEST_USER_ID']
+                sess['user_email'] = 'test@example.com'
+                sess['user_name'] = 'Test User'
+                sess['current_lab_id'] = app.config['TEST_LAB_ID']
+            
+            response = client.get(route, follow_redirects=True)
+            content = response.data.decode('utf-8')
+            
+            # These indicate actual code errors, not auth issues
+            error_indicators = [
+                'AttributeError',
+                'TypeError',
+                'NameError',
+                'KeyError',
+                'ImportError',
+                'ModuleNotFoundError',
+                'has no attribute',
+                'is not defined',
+                'Traceback (most recent call last)',
+            ]
+            
+            for indicator in error_indicators:
+                assert indicator not in content, \
+                    f"Python error '{indicator}' found in {route}. Response: {content[:1000]}"
+
+
+# =============================================================================
 # Run Tests Directly
 # =============================================================================
 
