@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Subscriber - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <a href="{{ url_for('main.subscriber_list') }}" class="back-link">← Back to Subscribers</a>
+        <h1>{{ action }} Subscriber</h1>
+    </div>
+    
+    <form method="POST" class="entity-form">
+        <div class="form-section">
+            <h2>Basic Information</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="name">Name *</label>
+                    <input type="text" id="name" name="name" class="form-input" 
+                           value="{{ subscriber.name if subscriber else '' }}" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="channel_type">Channel Type *</label>
+                    {% if subscriber %}
+                    {# Read-only when editing - can't change type #}
+                    <input type="hidden" name="channel_type" value="{{ subscriber.channel_type }}">
+                    <input type="text" class="form-input" value="{{ subscriber.channel_type | replace('_', ' ') | title }}" disabled>
+                    <small class="help-text">Channel type cannot be changed after creation</small>
+                    {% else %}
+                    <select id="channel_type" name="channel_type" class="form-select" required onchange="updateChannelFields()">
+                        <option value="">Select channel type...</option>
+                        {% for type in channel_types %}
+                        <option value="{{ type }}">{{ type | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                    {% endif %}
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" class="form-textarea" rows="2">{{ subscriber.description if subscriber else '' }}</textarea>
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Channel Configuration</h2>
+            <div class="form-grid">
+                {# Email fields #}
+                <div id="email-fields" class="channel-fields" style="display: none;">
+                    <div class="form-group full-width">
+                        <label for="channel_address_email">Email Address *</label>
+                        <input type="email" id="channel_address_email" name="channel_address" class="form-input"
+                               value="{{ subscriber.channel_address if subscriber and subscriber.channel_type == 'email' else '' }}"
+                               placeholder="team@example.com">
+                        <small class="help-text">The email address that will receive notifications</small>
+                    </div>
+                </div>
+                
+                {# Slack Channel fields #}
+                <div id="slack_channel-fields" class="channel-fields" style="display: none;">
+                    <div class="form-group">
+                        <label for="channel_address_slack">Channel Name *</label>
+                        <input type="text" id="channel_address_slack" name="channel_address" class="form-input"
+                               value="{{ subscriber.channel_address if subscriber and subscriber.channel_type == 'slack_channel' else '' }}"
+                               placeholder="#lab-notifications">
+                        <small class="help-text">The Slack channel name (with or without #)</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="slack_workspace_id">Workspace ID</label>
+                        <input type="text" id="slack_workspace_id" name="slack_workspace_id" class="form-input"
+                               value="{{ subscriber.slack_workspace_id if subscriber else '' }}"
+                               placeholder="T0123456789">
+                    </div>
+                    <div class="form-group">
+                        <label for="slack_channel_id">Channel ID</label>
+                        <input type="text" id="slack_channel_id" name="slack_channel_id" class="form-input"
+                               value="{{ subscriber.slack_channel_id if subscriber else '' }}"
+                               placeholder="C0123456789">
+                        <small class="help-text">Found in channel settings → More → Copy link</small>
+                    </div>
+                </div>
+                
+                {# Slack User fields #}
+                <div id="slack_user-fields" class="channel-fields" style="display: none;">
+                    <div class="form-group">
+                        <label for="channel_address_slack_user">Slack Username or Email *</label>
+                        <input type="text" id="channel_address_slack_user" name="channel_address" class="form-input"
+                               value="{{ subscriber.channel_address if subscriber and subscriber.channel_type == 'slack_user' else '' }}"
+                               placeholder="@username or user@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="slack_workspace_id_user">Workspace ID</label>
+                        <input type="text" id="slack_workspace_id_user" name="slack_workspace_id" class="form-input"
+                               value="{{ subscriber.slack_workspace_id if subscriber else '' }}"
+                               placeholder="T0123456789">
+                    </div>
+                </div>
+                
+                {# Webhook fields #}
+                <div id="webhook-fields" class="channel-fields" style="display: none;">
+                    <div class="form-group full-width">
+                        <label for="webhook_url">Webhook URL *</label>
+                        <input type="url" id="webhook_url" name="webhook_url" class="form-input"
+                               value="{{ subscriber.webhook_url if subscriber else '' }}"
+                               placeholder="https://api.example.com/webhooks/notifications">
+                        <small class="help-text">The URL that will receive POST requests with notification data</small>
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="channel_address_webhook">Webhook Name/Label</label>
+                        <input type="text" id="channel_address_webhook" name="channel_address" class="form-input"
+                               value="{{ subscriber.channel_address if subscriber and subscriber.channel_type == 'webhook' else '' }}"
+                               placeholder="External Integration">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="webhook_headers">Custom Headers (JSON)</label>
+                        <textarea id="webhook_headers" name="webhook_headers" class="form-textarea mono" rows="4"
+                                  placeholder='{"Authorization": "Bearer token123", "X-Custom-Header": "value"}'>{% if subscriber and subscriber.webhook_headers %}{{ subscriber.webhook_headers | tojson(indent=2) }}{% endif %}</textarea>
+                        <small class="help-text">Optional HTTP headers to include with webhook requests</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Settings</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="is_active" {% if not subscriber or subscriber.is_active %}checked{% endif %}>
+                        Active
+                    </label>
+                    <small class="help-text">Inactive subscribers won't receive any notifications</small>
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">{{ action }} Subscriber</button>
+            <a href="{{ url_for('main.subscriber_list') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+function updateChannelFields() {
+    const channelType = document.getElementById('channel_type').value;
+    
+    // Hide all channel-specific fields
+    document.querySelectorAll('.channel-fields').forEach(el => {
+        el.style.display = 'none';
+        // Disable inputs in hidden sections
+        el.querySelectorAll('input, textarea').forEach(input => {
+            input.disabled = true;
+        });
+    });
+    
+    // Show and enable fields for selected channel type
+    if (channelType) {
+        const fieldsDiv = document.getElementById(channelType + '-fields');
+        if (fieldsDiv) {
+            fieldsDiv.style.display = 'block';
+            // Enable inputs in shown section
+            fieldsDiv.querySelectorAll('input, textarea').forEach(input => {
+                input.disabled = false;
+            });
+        }
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    {% if subscriber %}
+    // When editing, show fields for current channel type
+    const channelType = '{{ subscriber.channel_type }}';
+    const fieldsDiv = document.getElementById(channelType + '-fields');
+    if (fieldsDiv) {
+        fieldsDiv.style.display = 'block';
+        fieldsDiv.querySelectorAll('input, textarea').forEach(input => {
+            input.disabled = false;
+        });
+    }
+    {% else %}
+    updateChannelFields();
+    {% endif %}
+});
+</script>
+
+<style>
+/* Form page */
+.form-page {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+/* Form sections */
+.form-section {
+    background: var(--color-bg-secondary, #f8f9fa);
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.form-section h2 {
+    margin-top: 0;
+    margin-bottom: 16px;
+    font-size: 1.1em;
+    color: var(--color-text-primary, #212529);
+}
+
+/* Form grid */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group.full-width {
+    grid-column: span 2;
+}
+
+.form-group label {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+/* Form inputs */
+.form-input, .form-select, .form-textarea {
+    padding: 8px 12px;
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: 4px;
+    font-size: 1em;
+    background: var(--color-bg-primary, #ffffff);
+    color: var(--color-text-primary, #212529);
+}
+
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+    outline: none;
+    border-color: var(--color-primary, #0078d4);
+    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+}
+
+.form-input:disabled {
+    background: var(--color-bg-tertiary, #e9ecef);
+    cursor: not-allowed;
+}
+
+.form-textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.form-textarea.mono {
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
+/* Help text */
+.help-text {
+    display: block;
+    color: var(--color-text-secondary, #6c757d);
+    font-size: 0.85em;
+    margin-top: 4px;
+}
+
+/* Checkbox label */
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: normal;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+}
+
+/* Form actions */
+.form-actions {
+    display: flex;
+    gap: 12px;
+    padding-top: 20px;
+}
+
+/* Channel fields */
+.channel-fields {
+    grid-column: span 2;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+/* Back link */
+.back-link {
+    display: inline-block;
+    margin-bottom: 8px;
+    color: var(--color-text-secondary, #6c757d);
+    text-decoration: none;
+}
+
+.back-link:hover {
+    color: var(--color-primary, #0078d4);
+}
+</style>
+{% endblock %}

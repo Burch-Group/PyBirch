@@ -2298,6 +2298,197 @@ class ObjectLocation(Base):
 
 
 # ============================================================
+# SUBSCRIBERS & NOTIFICATIONS
+# ============================================================
+
+class Subscriber(TrashableMixin, ArchivableMixin, Base):
+    """
+    Notification endpoint that can receive alerts about lab events.
+    
+    Industry-standard pub/sub pattern implementation supporting:
+    - Email addresses/groups (SMTP/API)
+    - Slack channels (incoming webhooks)
+    - Slack users (via Slack API)
+    - Generic webhooks (for integrations)
+    - User preferences (managed in profile, not shown in subscriber list)
+    
+    Channel Types:
+    - 'email': Email address or group
+    - 'slack_channel': Slack channel webhook URL
+    - 'slack_user': Slack user ID for DMs
+    - 'webhook': Generic HTTP webhook endpoint
+    - 'user': User's own notification preferences (internal use)
+    """
+    __tablename__ = "subscribers"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)  # Display name like "Lab Slack Channel"
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Channel configuration
+    channel_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'email', 'slack_channel', 'slack_user', 'webhook', 'user'
+    channel_address: Mapped[str] = mapped_column(String(500), nullable=False)  # Email, webhook URL, Slack user ID, etc.
+    
+    # For user-type subscribers, link to user
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    
+    # Slack-specific configuration
+    slack_workspace_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Slack workspace/team ID
+    slack_channel_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Slack channel ID
+    slack_bot_token: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Encrypted bot token (for user DMs)
+    
+    # Webhook-specific configuration  
+    webhook_secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # For webhook signature verification
+    webhook_headers: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Custom headers to send
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)  # Email/webhook verification status
+    last_notification_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0)  # Track delivery failures
+    
+    extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    # Relationships
+    lab: Mapped["Lab"] = relationship("Lab", backref="subscribers")
+    user: Mapped[Optional["User"]] = relationship("User", backref="subscriber_profiles")
+    notification_rules: Mapped[List["NotificationRule"]] = relationship("NotificationRule", back_populates="subscriber", cascade="all, delete-orphan")
+    notification_logs: Mapped[List["NotificationLog"]] = relationship("NotificationLog", back_populates="subscriber")
+    
+    __table_args__ = (
+        Index('idx_subscriber_lab', 'lab_id'),
+        Index('idx_subscriber_channel_type', 'channel_type'),
+        Index('idx_subscriber_user', 'user_id'),
+        Index('idx_subscriber_active', 'is_active'),
+    )
+    
+    def __repr__(self):
+        return f"<Subscriber(id={self.id}, name='{self.name}', type='{self.channel_type}')>"
+
+
+class NotificationRule(Base):
+    """
+    Configuration for which events trigger notifications to which subscribers.
+    
+    Supports:
+    - Lab-wide notifications (project_id = null)
+    - Project-specific notifications
+    - Owner-only filtering for issues and waste
+    - Custom JSON conditions for advanced filtering
+    
+    Event Types:
+    - Scan/Queue: scan_status_change, queue_status_change, scan_completed, scan_failed
+    - Issues: issue_created, issue_assigned, issue_status_change, issue_resolved
+    - Equipment: equipment_status_change, maintenance_due, maintenance_completed
+    - Samples: sample_created, fabrication_run_completed, fabrication_run_failed
+    - Waste: waste_status_change, waste_fill_warning, waste_collection_requested
+    - Lab: new_member_added, member_left
+    """
+    __tablename__ = "notification_rules"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    subscriber_id: Mapped[int] = mapped_column(Integer, ForeignKey('subscribers.id'), nullable=False)
+    
+    # Scope
+    project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)  # null = lab-wide
+    
+    # Event configuration
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)  # The event type to listen for
+    
+    # Owner-based filtering (for issues and waste)
+    owner_only: Mapped[bool] = mapped_column(Boolean, default=False)  # Only notify if user is owner/assignee
+    
+    # Condition filters (JSON for flexible filtering)
+    conditions: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Example conditions:
+    # {"status": ["failed", "error"]} - Only for these statuses
+    # {"priority": "high"} - Only high priority
+    # {"equipment_id": 5} - Only for specific equipment
+    # {"fill_percent_gte": 80} - Waste fill level threshold
+    
+    # Notification template customization
+    custom_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Custom message template
+    include_link: Mapped[bool] = mapped_column(Boolean, default=True)  # Include link to entity
+    
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    # Relationships
+    subscriber: Mapped["Subscriber"] = relationship("Subscriber", back_populates="notification_rules")
+    project: Mapped[Optional["Project"]] = relationship("Project", backref="notification_rules")
+    
+    __table_args__ = (
+        Index('idx_notification_rule_subscriber', 'subscriber_id'),
+        Index('idx_notification_rule_event', 'event_type'),
+        Index('idx_notification_rule_project', 'project_id'),
+        Index('idx_notification_rule_active', 'is_active'),
+    )
+    
+    def __repr__(self):
+        return f"<NotificationRule(id={self.id}, event='{self.event_type}', subscriber={self.subscriber_id})>"
+
+
+class NotificationLog(Base):
+    """
+    Audit trail of sent notifications for debugging and analytics.
+    
+    Tracks:
+    - What was sent
+    - When it was sent
+    - Success/failure status
+    - Any error messages
+    """
+    __tablename__ = "notification_logs"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    subscriber_id: Mapped[int] = mapped_column(Integer, ForeignKey('subscribers.id'), nullable=False)
+    rule_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('notification_rules.id', ondelete='SET NULL'), nullable=True)
+    
+    # Event details
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    entity_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # 'scan', 'issue', 'equipment', etc.
+    entity_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
+    # Message sent
+    message_subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # For emails
+    message_body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Delivery status
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default='pending')  # 'pending', 'sent', 'delivered', 'failed', 'bounced'
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Timing
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    delivered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Actor who triggered the event
+    triggered_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    # Relationships
+    subscriber: Mapped["Subscriber"] = relationship("Subscriber", back_populates="notification_logs")
+    rule: Mapped[Optional["NotificationRule"]] = relationship("NotificationRule", backref="logs")
+    
+    __table_args__ = (
+        Index('idx_notification_log_subscriber', 'subscriber_id'),
+        Index('idx_notification_log_event', 'event_type'),
+        Index('idx_notification_log_status', 'status'),
+        Index('idx_notification_log_created', 'created_at'),
+        Index('idx_notification_log_entity', 'entity_type', 'entity_id'),
+    )
+    
+    def __repr__(self):
+        return f"<NotificationLog(id={self.id}, event='{self.event_type}', status='{self.status}')>"
+
+
+# ============================================================
 # AUDIT LOG
 # ============================================================
 

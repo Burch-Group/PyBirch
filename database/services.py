@@ -21,7 +21,8 @@ from database.models import (
     User, UserPin, Issue, IssueUpdate, EntityImage, Attachment,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
     DriverIssue, Location, ObjectLocation, MaintenanceTask, QrCodeScan, PageView,
-    Waste, WastePrecursor
+    Waste, WastePrecursor,
+    Subscriber, NotificationRule, NotificationLog
 )
 from database.session import get_session, init_db
 
@@ -8100,6 +8101,971 @@ class DatabaseService:
             session.delete(theme)
             session.flush()
             return True
+    
+    # ===== Subscriber & Notification Services =====
+    
+    def _subscriber_to_dict(self, subscriber: Subscriber) -> Dict:
+        """Convert a Subscriber to a dictionary representation."""
+        return {
+            'id': subscriber.id,
+            'lab_id': subscriber.lab_id,
+            'name': subscriber.name,
+            'description': subscriber.description,
+            'channel_type': subscriber.channel_type,
+            'channel_address': subscriber.channel_address,
+            'user_id': subscriber.user_id,
+            'slack_workspace_id': subscriber.slack_workspace_id,
+            'slack_channel_id': subscriber.slack_channel_id,
+            'webhook_url': subscriber.webhook_url,
+            'webhook_headers': subscriber.webhook_headers,
+            'is_verified': subscriber.is_verified,
+            'is_active': subscriber.is_active,
+            'failure_count': subscriber.failure_count,
+            'last_failure_at': subscriber.last_failure_at.isoformat() if subscriber.last_failure_at else None,
+            'last_failure_reason': subscriber.last_failure_reason,
+            'created_at': subscriber.created_at.isoformat() if subscriber.created_at else None,
+            'updated_at': subscriber.updated_at.isoformat() if subscriber.updated_at else None,
+            'created_by_id': subscriber.created_by_id,
+            'is_trashed': subscriber.is_trashed,
+            'trashed_at': subscriber.trashed_at.isoformat() if subscriber.trashed_at else None
+        }
+    
+    def _notification_rule_to_dict(self, rule: NotificationRule) -> Dict:
+        """Convert a NotificationRule to a dictionary representation."""
+        return {
+            'id': rule.id,
+            'subscriber_id': rule.subscriber_id,
+            'name': rule.name,
+            'description': rule.description,
+            'event_type': rule.event_type,
+            'project_id': rule.project_id,
+            'owner_only': rule.owner_only,
+            'conditions': rule.conditions,
+            'custom_message_template': rule.custom_message_template,
+            'is_active': rule.is_active,
+            'priority': rule.priority,
+            'created_at': rule.created_at.isoformat() if rule.created_at else None,
+            'updated_at': rule.updated_at.isoformat() if rule.updated_at else None,
+            'created_by_id': rule.created_by_id,
+            'is_trashed': rule.is_trashed,
+            'trashed_at': rule.trashed_at.isoformat() if rule.trashed_at else None
+        }
+    
+    def _notification_log_to_dict(self, log: NotificationLog) -> Dict:
+        """Convert a NotificationLog to a dictionary representation."""
+        return {
+            'id': log.id,
+            'subscriber_id': log.subscriber_id,
+            'rule_id': log.rule_id,
+            'event_type': log.event_type,
+            'entity_type': log.entity_type,
+            'entity_id': log.entity_id,
+            'event_data': log.event_data,
+            'message_content': log.message_content,
+            'status': log.status,
+            'error_message': log.error_message,
+            'retry_count': log.retry_count,
+            'sent_at': log.sent_at.isoformat() if log.sent_at else None,
+            'delivered_at': log.delivered_at.isoformat() if log.delivered_at else None,
+            'created_at': log.created_at.isoformat() if log.created_at else None
+        }
+    
+    def get_subscribers(
+        self, 
+        lab_id: int, 
+        include_trashed: bool = False,
+        channel_type: Optional[str] = None,
+        is_active: Optional[bool] = None
+    ) -> List[Dict]:
+        """Get all subscribers for a lab with optional filtering.
+        
+        Args:
+            lab_id: The lab ID to get subscribers for
+            include_trashed: Whether to include trashed subscribers
+            channel_type: Filter by channel type (email, slack_channel, etc.)
+            is_active: Filter by active status
+            
+        Returns:
+            List of subscriber dictionaries
+        """
+        with self.get_session() as session:
+            query = session.query(Subscriber).filter(Subscriber.lab_id == lab_id)
+            
+            if not include_trashed:
+                query = query.filter(Subscriber.is_trashed == False)
+            
+            if channel_type:
+                query = query.filter(Subscriber.channel_type == channel_type)
+            
+            if is_active is not None:
+                query = query.filter(Subscriber.is_active == is_active)
+            
+            subscribers = query.order_by(Subscriber.name).all()
+            return [self._subscriber_to_dict(s) for s in subscribers]
+    
+    def get_subscriber(self, subscriber_id: int) -> Optional[Dict]:
+        """Get a single subscriber by ID.
+        
+        Args:
+            subscriber_id: The subscriber ID
+            
+        Returns:
+            Subscriber dictionary or None if not found
+        """
+        with self.get_session() as session:
+            subscriber = session.query(Subscriber).filter(
+                Subscriber.id == subscriber_id
+            ).first()
+            
+            if subscriber:
+                return self._subscriber_to_dict(subscriber)
+            return None
+    
+    def get_subscriber_by_user(self, user_id: int) -> Optional[Dict]:
+        """Get the internal subscriber for a user.
+        
+        Args:
+            user_id: The user ID
+            
+        Returns:
+            Subscriber dictionary or None if not found
+        """
+        with self.get_session() as session:
+            subscriber = session.query(Subscriber).filter(
+                Subscriber.user_id == user_id,
+                Subscriber.channel_type == 'user'
+            ).first()
+            
+            if subscriber:
+                return self._subscriber_to_dict(subscriber)
+            return None
+    
+    def create_subscriber(
+        self,
+        lab_id: int,
+        name: str,
+        channel_type: str,
+        channel_address: str,
+        created_by_id: int,
+        description: Optional[str] = None,
+        user_id: Optional[int] = None,
+        slack_workspace_id: Optional[str] = None,
+        slack_channel_id: Optional[str] = None,
+        webhook_url: Optional[str] = None,
+        webhook_headers: Optional[Dict] = None,
+        is_active: bool = True
+    ) -> Dict:
+        """Create a new subscriber.
+        
+        Args:
+            lab_id: The lab ID
+            name: Display name for the subscriber
+            channel_type: Type of channel (email, slack_channel, slack_user, webhook, user)
+            channel_address: Primary address (email, channel name, etc.)
+            created_by_id: ID of user creating the subscriber
+            description: Optional description
+            user_id: For user channel type, the associated user ID
+            slack_workspace_id: Slack workspace ID
+            slack_channel_id: Slack channel ID
+            webhook_url: Webhook URL for webhook type
+            webhook_headers: Optional headers for webhook
+            is_active: Whether the subscriber is active
+            
+        Returns:
+            The created subscriber dictionary
+        """
+        with self.get_session() as session:
+            subscriber = Subscriber(
+                lab_id=lab_id,
+                name=name,
+                description=description,
+                channel_type=channel_type,
+                channel_address=channel_address,
+                user_id=user_id,
+                slack_workspace_id=slack_workspace_id,
+                slack_channel_id=slack_channel_id,
+                webhook_url=webhook_url,
+                webhook_headers=webhook_headers,
+                is_active=is_active,
+                is_verified=False,  # Requires verification
+                failure_count=0,
+                created_by_id=created_by_id
+            )
+            session.add(subscriber)
+            session.flush()
+            return self._subscriber_to_dict(subscriber)
+    
+    def create_user_subscriber(
+        self,
+        user_id: int,
+        lab_id: int,
+        email: Optional[str] = None
+    ) -> Dict:
+        """Create an internal subscriber for a user's personal notifications.
+        
+        This creates a 'user' type subscriber that represents the user's
+        own notification preferences. The address is their email.
+        
+        Args:
+            user_id: The user ID
+            lab_id: The lab ID
+            email: User's email address
+            
+        Returns:
+            The created subscriber dictionary
+        """
+        with self.get_session() as session:
+            # Check if user subscriber already exists
+            existing = session.query(Subscriber).filter(
+                Subscriber.user_id == user_id,
+                Subscriber.channel_type == 'user'
+            ).first()
+            
+            if existing:
+                return self._subscriber_to_dict(existing)
+            
+            subscriber = Subscriber(
+                lab_id=lab_id,
+                name=f"User {user_id} Notifications",
+                channel_type='user',
+                channel_address=email or '',
+                user_id=user_id,
+                is_active=True,
+                is_verified=True,  # User subscribers are auto-verified
+                failure_count=0,
+                created_by_id=user_id
+            )
+            session.add(subscriber)
+            session.flush()
+            return self._subscriber_to_dict(subscriber)
+    
+    def update_subscriber(
+        self,
+        subscriber_id: int,
+        **kwargs
+    ) -> Optional[Dict]:
+        """Update a subscriber.
+        
+        Args:
+            subscriber_id: The subscriber ID
+            **kwargs: Fields to update (name, description, channel_address, etc.)
+            
+        Returns:
+            Updated subscriber dictionary or None if not found
+        """
+        allowed_fields = {
+            'name', 'description', 'channel_address', 
+            'slack_workspace_id', 'slack_channel_id',
+            'webhook_url', 'webhook_headers', 'is_active'
+        }
+        
+        with self.get_session() as session:
+            subscriber = session.query(Subscriber).filter(
+                Subscriber.id == subscriber_id
+            ).first()
+            
+            if not subscriber:
+                return None
+            
+            for key, value in kwargs.items():
+                if key in allowed_fields:
+                    setattr(subscriber, key, value)
+            
+            subscriber.updated_at = datetime.utcnow()
+            session.flush()
+            return self._subscriber_to_dict(subscriber)
+    
+    def verify_subscriber(self, subscriber_id: int, verified: bool = True) -> Optional[Dict]:
+        """Mark a subscriber as verified or unverified.
+        
+        Args:
+            subscriber_id: The subscriber ID
+            verified: Verification status
+            
+        Returns:
+            Updated subscriber dictionary or None if not found
+        """
+        with self.get_session() as session:
+            subscriber = session.query(Subscriber).filter(
+                Subscriber.id == subscriber_id
+            ).first()
+            
+            if not subscriber:
+                return None
+            
+            subscriber.is_verified = verified
+            subscriber.updated_at = datetime.utcnow()
+            session.flush()
+            return self._subscriber_to_dict(subscriber)
+    
+    def record_subscriber_failure(
+        self, 
+        subscriber_id: int, 
+        reason: str
+    ) -> Optional[Dict]:
+        """Record a delivery failure for a subscriber.
+        
+        Args:
+            subscriber_id: The subscriber ID
+            reason: The failure reason
+            
+        Returns:
+            Updated subscriber dictionary or None if not found
+        """
+        with self.get_session() as session:
+            subscriber = session.query(Subscriber).filter(
+                Subscriber.id == subscriber_id
+            ).first()
+            
+            if not subscriber:
+                return None
+            
+            subscriber.failure_count += 1
+            subscriber.last_failure_at = datetime.utcnow()
+            subscriber.last_failure_reason = reason
+            
+            # Auto-deactivate after too many failures
+            if subscriber.failure_count >= 5:
+                subscriber.is_active = False
+            
+            session.flush()
+            return self._subscriber_to_dict(subscriber)
+    
+    def reset_subscriber_failures(self, subscriber_id: int) -> Optional[Dict]:
+        """Reset failure count for a subscriber after successful delivery.
+        
+        Args:
+            subscriber_id: The subscriber ID
+            
+        Returns:
+            Updated subscriber dictionary or None if not found
+        """
+        with self.get_session() as session:
+            subscriber = session.query(Subscriber).filter(
+                Subscriber.id == subscriber_id
+            ).first()
+            
+            if not subscriber:
+                return None
+            
+            subscriber.failure_count = 0
+            subscriber.last_failure_at = None
+            subscriber.last_failure_reason = None
+            session.flush()
+            return self._subscriber_to_dict(subscriber)
+    
+    def trash_subscriber(self, subscriber_id: int) -> bool:
+        """Soft-delete a subscriber by moving it to trash.
+        
+        Args:
+            subscriber_id: The subscriber ID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        with self.get_session() as session:
+            subscriber = session.query(Subscriber).filter(
+                Subscriber.id == subscriber_id
+            ).first()
+            
+            if not subscriber:
+                return False
+            
+            subscriber.is_trashed = True
+            subscriber.trashed_at = datetime.utcnow()
+            subscriber.is_active = False
+            session.flush()
+            return True
+    
+    def restore_subscriber(self, subscriber_id: int) -> Optional[Dict]:
+        """Restore a trashed subscriber.
+        
+        Args:
+            subscriber_id: The subscriber ID
+            
+        Returns:
+            Restored subscriber dictionary or None if not found
+        """
+        with self.get_session() as session:
+            subscriber = session.query(Subscriber).filter(
+                Subscriber.id == subscriber_id
+            ).first()
+            
+            if not subscriber:
+                return None
+            
+            subscriber.is_trashed = False
+            subscriber.trashed_at = None
+            session.flush()
+            return self._subscriber_to_dict(subscriber)
+    
+    def delete_subscriber(self, subscriber_id: int) -> bool:
+        """Permanently delete a subscriber (and its rules).
+        
+        Args:
+            subscriber_id: The subscriber ID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        with self.get_session() as session:
+            subscriber = session.query(Subscriber).filter(
+                Subscriber.id == subscriber_id
+            ).first()
+            
+            if not subscriber:
+                return False
+            
+            # Delete associated rules first
+            session.query(NotificationRule).filter(
+                NotificationRule.subscriber_id == subscriber_id
+            ).delete()
+            
+            session.delete(subscriber)
+            session.flush()
+            return True
+    
+    # ===== Notification Rule Services =====
+    
+    def get_notification_rules(
+        self,
+        subscriber_id: Optional[int] = None,
+        lab_id: Optional[int] = None,
+        event_type: Optional[str] = None,
+        project_id: Optional[int] = None,
+        include_trashed: bool = False
+    ) -> List[Dict]:
+        """Get notification rules with optional filtering.
+        
+        Args:
+            subscriber_id: Filter by subscriber ID
+            lab_id: Filter by lab ID (through subscriber)
+            event_type: Filter by event type
+            project_id: Filter by project ID
+            include_trashed: Whether to include trashed rules
+            
+        Returns:
+            List of notification rule dictionaries
+        """
+        with self.get_session() as session:
+            query = session.query(NotificationRule)
+            
+            if subscriber_id:
+                query = query.filter(NotificationRule.subscriber_id == subscriber_id)
+            
+            if lab_id:
+                query = query.join(Subscriber).filter(Subscriber.lab_id == lab_id)
+            
+            if event_type:
+                query = query.filter(NotificationRule.event_type == event_type)
+            
+            if project_id:
+                query = query.filter(NotificationRule.project_id == project_id)
+            
+            if not include_trashed:
+                query = query.filter(NotificationRule.is_trashed == False)
+            
+            rules = query.order_by(
+                NotificationRule.priority.desc(),
+                NotificationRule.name
+            ).all()
+            
+            return [self._notification_rule_to_dict(r) for r in rules]
+    
+    def get_notification_rule(self, rule_id: int) -> Optional[Dict]:
+        """Get a single notification rule by ID.
+        
+        Args:
+            rule_id: The rule ID
+            
+        Returns:
+            Rule dictionary or None if not found
+        """
+        with self.get_session() as session:
+            rule = session.query(NotificationRule).filter(
+                NotificationRule.id == rule_id
+            ).first()
+            
+            if rule:
+                return self._notification_rule_to_dict(rule)
+            return None
+    
+    def create_notification_rule(
+        self,
+        subscriber_id: int,
+        event_type: str,
+        created_by_id: int,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        project_id: Optional[int] = None,
+        owner_only: bool = False,
+        conditions: Optional[Dict] = None,
+        custom_message_template: Optional[str] = None,
+        priority: int = 0,
+        is_active: bool = True
+    ) -> Dict:
+        """Create a new notification rule.
+        
+        Args:
+            subscriber_id: The subscriber to notify
+            event_type: Type of event to listen for
+            created_by_id: ID of user creating the rule
+            name: Optional display name
+            description: Optional description
+            project_id: Optional project scope (None = lab-wide)
+            owner_only: Only notify if user is the owner of the entity
+            conditions: Optional JSON conditions for filtering
+            custom_message_template: Optional custom message template
+            priority: Rule priority (higher = processed first)
+            is_active: Whether the rule is active
+            
+        Returns:
+            The created rule dictionary
+        """
+        with self.get_session() as session:
+            rule = NotificationRule(
+                subscriber_id=subscriber_id,
+                name=name or f"{event_type} notification",
+                description=description,
+                event_type=event_type,
+                project_id=project_id,
+                owner_only=owner_only,
+                conditions=conditions,
+                custom_message_template=custom_message_template,
+                priority=priority,
+                is_active=is_active,
+                created_by_id=created_by_id
+            )
+            session.add(rule)
+            session.flush()
+            return self._notification_rule_to_dict(rule)
+    
+    def update_notification_rule(
+        self,
+        rule_id: int,
+        **kwargs
+    ) -> Optional[Dict]:
+        """Update a notification rule.
+        
+        Args:
+            rule_id: The rule ID
+            **kwargs: Fields to update
+            
+        Returns:
+            Updated rule dictionary or None if not found
+        """
+        allowed_fields = {
+            'name', 'description', 'event_type', 'project_id',
+            'owner_only', 'conditions', 'custom_message_template',
+            'priority', 'is_active'
+        }
+        
+        with self.get_session() as session:
+            rule = session.query(NotificationRule).filter(
+                NotificationRule.id == rule_id
+            ).first()
+            
+            if not rule:
+                return None
+            
+            for key, value in kwargs.items():
+                if key in allowed_fields:
+                    setattr(rule, key, value)
+            
+            rule.updated_at = datetime.utcnow()
+            session.flush()
+            return self._notification_rule_to_dict(rule)
+    
+    def trash_notification_rule(self, rule_id: int) -> bool:
+        """Soft-delete a notification rule.
+        
+        Args:
+            rule_id: The rule ID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        with self.get_session() as session:
+            rule = session.query(NotificationRule).filter(
+                NotificationRule.id == rule_id
+            ).first()
+            
+            if not rule:
+                return False
+            
+            rule.is_trashed = True
+            rule.trashed_at = datetime.utcnow()
+            rule.is_active = False
+            session.flush()
+            return True
+    
+    def delete_notification_rule(self, rule_id: int) -> bool:
+        """Permanently delete a notification rule.
+        
+        Args:
+            rule_id: The rule ID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        with self.get_session() as session:
+            rule = session.query(NotificationRule).filter(
+                NotificationRule.id == rule_id
+            ).first()
+            
+            if not rule:
+                return False
+            
+            session.delete(rule)
+            session.flush()
+            return True
+    
+    # ===== Notification Dispatch Services =====
+    
+    def get_matching_rules_for_event(
+        self,
+        lab_id: int,
+        event_type: str,
+        entity_type: str,
+        entity_id: int,
+        project_id: Optional[int] = None,
+        owner_id: Optional[int] = None,
+        event_data: Optional[Dict] = None
+    ) -> List[Dict]:
+        """Find all notification rules that match a given event.
+        
+        This is the core matching logic for the pub/sub system.
+        
+        Args:
+            lab_id: The lab ID where the event occurred
+            event_type: The type of event (e.g., 'issue_created', 'waste_status_change')
+            entity_type: The type of entity (e.g., 'issue', 'waste')
+            entity_id: The entity ID
+            project_id: The project ID if applicable
+            owner_id: The owner user ID if applicable (for owner_only filtering)
+            event_data: Additional event data for condition matching
+            
+        Returns:
+            List of matching rule dictionaries with subscriber info
+        """
+        with self.get_session() as session:
+            # Get all active rules for this event type in this lab
+            query = session.query(NotificationRule).join(Subscriber).filter(
+                Subscriber.lab_id == lab_id,
+                Subscriber.is_active == True,
+                Subscriber.is_verified == True,
+                Subscriber.is_trashed == False,
+                NotificationRule.event_type == event_type,
+                NotificationRule.is_active == True,
+                NotificationRule.is_trashed == False
+            )
+            
+            rules = query.order_by(NotificationRule.priority.desc()).all()
+            
+            matching_rules = []
+            for rule in rules:
+                # Check project scope
+                if rule.project_id is not None and rule.project_id != project_id:
+                    continue
+                
+                # Check owner_only filter
+                if rule.owner_only:
+                    # For 'user' type subscribers, check if the user is the owner
+                    if rule.subscriber.channel_type == 'user':
+                        if rule.subscriber.user_id != owner_id:
+                            continue
+                    # For non-user subscribers, owner_only doesn't apply the same way
+                    # They receive notifications about items they created the rule for
+                
+                # Check custom conditions if present
+                if rule.conditions and event_data:
+                    if not self._evaluate_conditions(rule.conditions, event_data):
+                        continue
+                
+                # Rule matches - include subscriber info
+                rule_dict = self._notification_rule_to_dict(rule)
+                rule_dict['subscriber'] = self._subscriber_to_dict(rule.subscriber)
+                matching_rules.append(rule_dict)
+            
+            return matching_rules
+    
+    def _evaluate_conditions(self, conditions: Dict, event_data: Dict) -> bool:
+        """Evaluate custom JSON conditions against event data.
+        
+        Supports simple key-value matching and basic operators.
+        
+        Args:
+            conditions: Dictionary of conditions to check
+            event_data: Event data to check against
+            
+        Returns:
+            True if all conditions are met
+        """
+        for key, expected in conditions.items():
+            actual = event_data.get(key)
+            
+            if isinstance(expected, dict):
+                # Operator-based condition
+                op = expected.get('op', 'eq')
+                value = expected.get('value')
+                
+                if op == 'eq' and actual != value:
+                    return False
+                elif op == 'neq' and actual == value:
+                    return False
+                elif op == 'gt' and (actual is None or actual <= value):
+                    return False
+                elif op == 'gte' and (actual is None or actual < value):
+                    return False
+                elif op == 'lt' and (actual is None or actual >= value):
+                    return False
+                elif op == 'lte' and (actual is None or actual > value):
+                    return False
+                elif op == 'in' and actual not in value:
+                    return False
+                elif op == 'not_in' and actual in value:
+                    return False
+                elif op == 'contains' and value not in str(actual):
+                    return False
+            else:
+                # Simple equality check
+                if actual != expected:
+                    return False
+        
+        return True
+    
+    def create_notification_log(
+        self,
+        subscriber_id: int,
+        rule_id: int,
+        event_type: str,
+        entity_type: str,
+        entity_id: int,
+        event_data: Optional[Dict] = None,
+        message_content: Optional[str] = None
+    ) -> Dict:
+        """Create a notification log entry.
+        
+        Args:
+            subscriber_id: The subscriber being notified
+            rule_id: The rule that triggered the notification
+            event_type: The event type
+            entity_type: The entity type
+            entity_id: The entity ID
+            event_data: The event data sent
+            message_content: The formatted message content
+            
+        Returns:
+            The created log entry dictionary
+        """
+        with self.get_session() as session:
+            log = NotificationLog(
+                subscriber_id=subscriber_id,
+                rule_id=rule_id,
+                event_type=event_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                event_data=event_data,
+                message_content=message_content,
+                status='pending',
+                retry_count=0
+            )
+            session.add(log)
+            session.flush()
+            return self._notification_log_to_dict(log)
+    
+    def update_notification_log_status(
+        self,
+        log_id: int,
+        status: str,
+        error_message: Optional[str] = None
+    ) -> Optional[Dict]:
+        """Update the status of a notification log entry.
+        
+        Args:
+            log_id: The log entry ID
+            status: New status (pending, sent, delivered, failed, retry)
+            error_message: Optional error message for failed status
+            
+        Returns:
+            Updated log entry dictionary or None if not found
+        """
+        with self.get_session() as session:
+            log = session.query(NotificationLog).filter(
+                NotificationLog.id == log_id
+            ).first()
+            
+            if not log:
+                return None
+            
+            log.status = status
+            if status == 'sent':
+                log.sent_at = datetime.utcnow()
+            elif status == 'delivered':
+                log.delivered_at = datetime.utcnow()
+            elif status == 'failed':
+                log.error_message = error_message
+            elif status == 'retry':
+                log.retry_count += 1
+            
+            session.flush()
+            return self._notification_log_to_dict(log)
+    
+    def get_notification_logs(
+        self,
+        subscriber_id: Optional[int] = None,
+        rule_id: Optional[int] = None,
+        status: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict]:
+        """Get notification logs with optional filtering.
+        
+        Args:
+            subscriber_id: Filter by subscriber
+            rule_id: Filter by rule
+            status: Filter by status
+            limit: Maximum number of results
+            
+        Returns:
+            List of notification log dictionaries
+        """
+        with self.get_session() as session:
+            query = session.query(NotificationLog)
+            
+            if subscriber_id:
+                query = query.filter(NotificationLog.subscriber_id == subscriber_id)
+            
+            if rule_id:
+                query = query.filter(NotificationLog.rule_id == rule_id)
+            
+            if status:
+                query = query.filter(NotificationLog.status == status)
+            
+            logs = query.order_by(
+                NotificationLog.created_at.desc()
+            ).limit(limit).all()
+            
+            return [self._notification_log_to_dict(l) for l in logs]
+    
+    def get_pending_notifications(self, limit: int = 50) -> List[Dict]:
+        """Get pending notifications for processing.
+        
+        Args:
+            limit: Maximum number of results
+            
+        Returns:
+            List of pending notification log dictionaries
+        """
+        with self.get_session() as session:
+            logs = session.query(NotificationLog).filter(
+                NotificationLog.status.in_(['pending', 'retry'])
+            ).order_by(
+                NotificationLog.created_at
+            ).limit(limit).all()
+            
+            return [self._notification_log_to_dict(l) for l in logs]
+    
+    def dispatch_event(
+        self,
+        lab_id: int,
+        event_type: str,
+        entity_type: str,
+        entity_id: int,
+        project_id: Optional[int] = None,
+        owner_id: Optional[int] = None,
+        event_data: Optional[Dict] = None,
+        message: Optional[str] = None
+    ) -> List[Dict]:
+        """Dispatch an event to all matching subscribers.
+        
+        This is the main entry point for the notification system.
+        It finds all matching rules and creates notification log entries.
+        
+        Args:
+            lab_id: The lab where the event occurred
+            event_type: The type of event
+            entity_type: The type of entity involved
+            entity_id: The entity ID
+            project_id: Optional project scope
+            owner_id: The owner of the entity (for owner_only filtering)
+            event_data: Additional event data
+            message: Default message content
+            
+        Returns:
+            List of created notification log entries
+        """
+        # Find matching rules
+        matching_rules = self.get_matching_rules_for_event(
+            lab_id=lab_id,
+            event_type=event_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            project_id=project_id,
+            owner_id=owner_id,
+            event_data=event_data
+        )
+        
+        # Create notification log entries for each match
+        created_logs = []
+        for rule in matching_rules:
+            # Use custom message template if available
+            msg = message
+            if rule.get('custom_message_template'):
+                msg = self._format_message_template(
+                    rule['custom_message_template'],
+                    event_type=event_type,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    event_data=event_data or {}
+                )
+            
+            log = self.create_notification_log(
+                subscriber_id=rule['subscriber_id'],
+                rule_id=rule['id'],
+                event_type=event_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                event_data=event_data,
+                message_content=msg
+            )
+            created_logs.append(log)
+        
+        return created_logs
+    
+    def _format_message_template(
+        self,
+        template: str,
+        event_type: str,
+        entity_type: str,
+        entity_id: int,
+        event_data: Dict
+    ) -> str:
+        """Format a custom message template with event data.
+        
+        Supports simple placeholder replacement: {key}
+        
+        Args:
+            template: The message template
+            event_type: The event type
+            entity_type: The entity type
+            entity_id: The entity ID
+            event_data: Additional event data
+            
+        Returns:
+            Formatted message string
+        """
+        replacements = {
+            'event_type': event_type,
+            'entity_type': entity_type,
+            'entity_id': str(entity_id),
+            **{k: str(v) for k, v in event_data.items()}
+        }
+        
+        result = template
+        for key, value in replacements.items():
+            result = result.replace(f'{{{key}}}', value)
+        
+        return result
     
     def get_default_theme_palettes(self) -> Dict:
         """Get the default light and dark palettes for theme creation.

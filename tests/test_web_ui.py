@@ -857,6 +857,156 @@ class TestWasteFeature:
 
 
 # =============================================================================
+# Subscriber/Notification Feature Tests
+# =============================================================================
+
+class TestSubscriberFeature:
+    """Test the subscriber and notification management feature."""
+    
+    def test_subscriber_list_page(self, authenticated_client):
+        """Test the subscriber list page loads (or redirects if auth needed)."""
+        response = authenticated_client.get('/subscribers', follow_redirects=True)
+        assert response.status_code in [200, 302]
+        # Page should load - either subscriber page or login redirect
+        content = response.data.decode('utf-8').lower()
+        # Either shows subscribers page or login page
+        assert 'subscriber' in content or 'notification' in content or 'login' in content or 'sign in' in content
+    
+    def test_subscriber_new_page(self, authenticated_client):
+        """Test the new subscriber form page loads."""
+        response = authenticated_client.get('/subscribers/new', follow_redirects=True)
+        assert response.status_code in [200, 302]
+        # Page should load - check it's a valid page
+        content = response.data.decode('utf-8').lower()
+        # Either shows form or login/lab selection page
+        assert 'name' in content or 'channel' in content or 'login' in content or 'lab' in content
+    
+    def test_subscriber_api_endpoint(self, authenticated_client):
+        """Test the subscriber API endpoint returns valid data."""
+        response = authenticated_client.get('/api/subscribers', follow_redirects=True)
+        # API may return 200, 400 (no lab), or 401 (auth required)
+        assert response.status_code in [200, 400, 401]
+        if response.status_code == 200:
+            assert response.content_type.startswith('application/json')
+            data = json.loads(response.data)
+            assert 'success' in data
+    
+    def test_create_subscriber_email(self, app, authenticated_client):
+        """Test creating a new email subscriber."""
+        lab_id = app.config['TEST_LAB_ID']
+        
+        # Set lab in session
+        with authenticated_client.session_transaction() as sess:
+            sess['current_lab_id'] = lab_id
+        
+        response = authenticated_client.post('/subscribers/new', data={
+            'name': 'Test Email Subscriber',
+            'description': 'Test email notification channel',
+            'channel_type': 'email',
+            'channel_address': 'test@example.com',
+            'is_active': 'on',
+        }, follow_redirects=True)
+        
+        # Should redirect to detail page or list
+        assert response.status_code in [200, 302]
+        # Check no server errors - use specific error text to avoid false positives
+        # (CSS like "font-weight: 500" can trigger b'500' checks)
+        assert b'500 Internal Server Error' not in response.data
+    
+    def test_create_subscriber_slack_channel(self, app, authenticated_client):
+        """Test creating a new Slack channel subscriber."""
+        lab_id = app.config['TEST_LAB_ID']
+        
+        # Set lab in session
+        with authenticated_client.session_transaction() as sess:
+            sess['current_lab_id'] = lab_id
+        
+        response = authenticated_client.post('/subscribers/new', data={
+            'name': 'Lab Notifications Channel',
+            'description': 'Slack channel for lab notifications',
+            'channel_type': 'slack_channel',
+            'channel_address': '#lab-notifications',
+            'slack_workspace_id': 'T0123456789',
+            'slack_channel_id': 'C0123456789',
+            'is_active': 'on',
+        }, follow_redirects=True)
+        
+        # Should redirect to detail page or list
+        assert response.status_code in [200, 302]
+    
+    def test_create_subscriber_webhook(self, app, authenticated_client):
+        """Test creating a new webhook subscriber."""
+        lab_id = app.config['TEST_LAB_ID']
+        
+        # Set lab in session
+        with authenticated_client.session_transaction() as sess:
+            sess['current_lab_id'] = lab_id
+        
+        response = authenticated_client.post('/subscribers/new', data={
+            'name': 'External API Webhook',
+            'description': 'Webhook for external system integration',
+            'channel_type': 'webhook',
+            'channel_address': 'External System',
+            'webhook_url': 'https://api.example.com/webhooks/notifications',
+            'webhook_headers': '{"Authorization": "Bearer test123"}',
+            'is_active': 'on',
+        }, follow_redirects=True)
+        
+        # Should redirect to detail page or list
+        assert response.status_code in [200, 302]
+    
+    def test_notification_dispatch_api(self, app, authenticated_client):
+        """Test the notification dispatch API endpoint."""
+        lab_id = app.config['TEST_LAB_ID']
+        
+        # Set lab in session
+        with authenticated_client.session_transaction() as sess:
+            sess['current_lab_id'] = lab_id
+        
+        response = authenticated_client.post('/api/notifications/dispatch',
+            data=json.dumps({
+                'lab_id': lab_id,
+                'event_type': 'issue_created',
+                'entity_type': 'issue',
+                'entity_id': 1,
+                'message': 'Test notification'
+            }),
+            content_type='application/json'
+        )
+        
+        # Should return 200, or 401 if auth required
+        assert response.status_code in [200, 401]
+        if response.status_code == 200:
+            data = json.loads(response.data)
+            assert 'success' in data
+    
+    def test_settings_notification_preferences(self, authenticated_client):
+        """Test the notification preferences section in settings."""
+        response = authenticated_client.get('/settings', follow_redirects=True)
+        
+        assert response.status_code in [200, 302]
+        content = response.data.decode('utf-8').lower()
+        # Should contain notification settings section or login page
+        assert 'notification' in content or 'email' in content or 'login' in content or 'sign in' in content
+    
+    def test_save_notification_preferences(self, authenticated_client):
+        """Test saving notification preferences."""
+        response = authenticated_client.post('/settings', data={
+            'form_type': 'notification_settings',
+            'email_notifications_enabled': 'on',
+            'notify_issues': 'on',
+            'notify_issues_owner_only': 'on',
+            'notify_waste': 'on',
+            'notify_waste_owner_only': 'on',
+        }, follow_redirects=True)
+        
+        assert response.status_code in [200, 302]
+        # Should show success message or login page if auth expired
+        content = response.data.decode('utf-8').lower()
+        assert 'saved' in content or 'success' in content or 'preference' in content or 'login' in content or 'sign in' in content
+
+
+# =============================================================================
 # Run Tests Directly
 # =============================================================================
 

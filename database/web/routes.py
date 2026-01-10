@@ -4617,6 +4617,452 @@ def entity_team_access(entity_type, entity_id):
     return jsonify(teams)
 
 
+# -------------------- Subscribers & Notifications --------------------
+
+@main_bp.route('/subscribers')
+@login_required
+def subscriber_list():
+    """Subscribers list page for managing notification channels."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    lab_id = session.get('current_lab_id')
+    channel_type = request.args.get('channel_type', '')
+    is_active = request.args.get('is_active')
+    
+    # Convert is_active to boolean if provided
+    if is_active == 'true':
+        is_active = True
+    elif is_active == 'false':
+        is_active = False
+    else:
+        is_active = None
+    
+    subscribers = db.get_subscribers(
+        lab_id=lab_id,
+        channel_type=channel_type if channel_type else None,
+        is_active=is_active
+    )
+    
+    # Channel type options
+    channel_types = ['email', 'slack_channel', 'slack_user', 'webhook', 'user']
+    
+    return render_template('subscriber_list.html',
+        subscribers=subscribers,
+        channel_type=channel_type,
+        is_active=is_active,
+        channel_types=channel_types,
+        lab_id=lab_id,
+    )
+
+
+@main_bp.route('/subscribers/<int:subscriber_id>')
+@login_required
+def subscriber_detail(subscriber_id):
+    """Subscriber detail page showing rules and notification history."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    subscriber = db.get_subscriber(subscriber_id)
+    
+    if not subscriber:
+        flash('Subscriber not found', 'error')
+        return redirect(url_for('main.subscriber_list'))
+    
+    # Get notification rules for this subscriber
+    rules = db.get_notification_rules(subscriber_id=subscriber_id)
+    
+    # Get recent notification logs
+    logs = db.get_notification_logs(subscriber_id=subscriber_id, limit=50)
+    
+    # Get projects for rule creation form
+    projects = db.get_projects_simple_list()
+    
+    # Event type options
+    event_types = [
+        'scan_created', 'scan_started', 'scan_completed', 'scan_failed',
+        'queue_created', 'queue_item_added', 'queue_item_completed', 'queue_completed',
+        'issue_created', 'issue_updated', 'issue_resolved', 'issue_assigned',
+        'equipment_status_change', 'equipment_maintenance_due',
+        'sample_created', 'sample_status_change',
+        'waste_status_change', 'waste_fill_warning', 'waste_collection_requested',
+        'lab_member_added', 'lab_member_removed', 'lab_member_role_changed',
+    ]
+    
+    return render_template('subscriber_detail.html',
+        subscriber=subscriber,
+        rules=rules,
+        logs=logs,
+        projects=projects,
+        event_types=event_types,
+    )
+
+
+@main_bp.route('/subscribers/new', methods=['GET', 'POST'])
+@login_required
+def subscriber_new():
+    """Create a new subscriber."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    lab_id = session.get('current_lab_id')
+    if not lab_id:
+        flash('Please select a lab first', 'warning')
+        return redirect(url_for('main.labs'))
+    
+    if request.method == 'POST':
+        data = {
+            'lab_id': lab_id,
+            'name': request.form.get('name'),
+            'description': request.form.get('description'),
+            'channel_type': request.form.get('channel_type'),
+            'channel_address': request.form.get('channel_address'),
+            'slack_workspace_id': request.form.get('slack_workspace_id'),
+            'slack_channel_id': request.form.get('slack_channel_id'),
+            'webhook_url': request.form.get('webhook_url'),
+            'is_active': request.form.get('is_active') == 'on',
+            'created_by_id': g.current_user['id'],
+        }
+        
+        # Parse webhook headers if provided
+        webhook_headers = request.form.get('webhook_headers')
+        if webhook_headers:
+            try:
+                import json
+                data['webhook_headers'] = json.loads(webhook_headers)
+            except json.JSONDecodeError:
+                flash('Invalid JSON for webhook headers', 'error')
+                return redirect(request.url)
+        
+        try:
+            subscriber = db.create_subscriber(**data)
+            flash(f'Subscriber "{subscriber["name"]}" created', 'success')
+            return redirect(url_for('main.subscriber_detail', subscriber_id=subscriber['id']))
+        except Exception as e:
+            flash(f'Error creating subscriber: {str(e)}', 'error')
+    
+    # Channel type options
+    channel_types = ['email', 'slack_channel', 'slack_user', 'webhook']
+    
+    return render_template('subscriber_form.html',
+        subscriber=None,
+        action='Create',
+        channel_types=channel_types,
+    )
+
+
+@main_bp.route('/subscribers/<int:subscriber_id>/edit', methods=['GET', 'POST'])
+@login_required
+def subscriber_edit(subscriber_id):
+    """Edit an existing subscriber."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    subscriber = db.get_subscriber(subscriber_id)
+    if not subscriber:
+        flash('Subscriber not found', 'error')
+        return redirect(url_for('main.subscriber_list'))
+    
+    if request.method == 'POST':
+        data = {
+            'name': request.form.get('name'),
+            'description': request.form.get('description'),
+            'channel_address': request.form.get('channel_address'),
+            'slack_workspace_id': request.form.get('slack_workspace_id'),
+            'slack_channel_id': request.form.get('slack_channel_id'),
+            'webhook_url': request.form.get('webhook_url'),
+            'is_active': request.form.get('is_active') == 'on',
+        }
+        
+        # Parse webhook headers if provided
+        webhook_headers = request.form.get('webhook_headers')
+        if webhook_headers:
+            try:
+                import json
+                data['webhook_headers'] = json.loads(webhook_headers)
+            except json.JSONDecodeError:
+                flash('Invalid JSON for webhook headers', 'error')
+                return redirect(request.url)
+        
+        try:
+            updated = db.update_subscriber(subscriber_id, **data)
+            flash(f'Subscriber "{updated["name"]}" updated', 'success')
+            return redirect(url_for('main.subscriber_detail', subscriber_id=subscriber_id))
+        except Exception as e:
+            flash(f'Error updating subscriber: {str(e)}', 'error')
+    
+    # Channel type options (read-only in edit - can't change type)
+    channel_types = ['email', 'slack_channel', 'slack_user', 'webhook']
+    
+    return render_template('subscriber_form.html',
+        subscriber=subscriber,
+        action='Edit',
+        channel_types=channel_types,
+    )
+
+
+@main_bp.route('/subscribers/<int:subscriber_id>/delete', methods=['POST'])
+@login_required
+def subscriber_delete(subscriber_id):
+    """Delete (trash) a subscriber."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        return jsonify({'success': False, 'error': 'Authentication required'}), 401
+    
+    if db.trash_subscriber(subscriber_id):
+        flash('Subscriber moved to trash', 'success')
+    else:
+        flash('Error deleting subscriber', 'error')
+    
+    return redirect(url_for('main.subscriber_list'))
+
+
+@main_bp.route('/subscribers/<int:subscriber_id>/verify', methods=['POST'])
+@login_required
+def subscriber_verify(subscriber_id):
+    """Manually verify a subscriber (admin action)."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        return jsonify({'success': False, 'error': 'Authentication required'}), 401
+    
+    verified = db.verify_subscriber(subscriber_id, verified=True)
+    if verified:
+        flash('Subscriber verified', 'success')
+    else:
+        flash('Error verifying subscriber', 'error')
+    
+    return redirect(url_for('main.subscriber_detail', subscriber_id=subscriber_id))
+
+
+@main_bp.route('/subscribers/<int:subscriber_id>/rules/new', methods=['POST'])
+@login_required
+def subscriber_rule_new(subscriber_id):
+    """Create a new notification rule for a subscriber."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        return jsonify({'success': False, 'error': 'Authentication required'}), 401
+    
+    subscriber = db.get_subscriber(subscriber_id)
+    if not subscriber:
+        flash('Subscriber not found', 'error')
+        return redirect(url_for('main.subscriber_list'))
+    
+    project_id = request.form.get('project_id')
+    
+    data = {
+        'subscriber_id': subscriber_id,
+        'name': request.form.get('name'),
+        'description': request.form.get('description'),
+        'event_type': request.form.get('event_type'),
+        'project_id': int(project_id) if project_id else None,
+        'owner_only': request.form.get('owner_only') == 'on',
+        'custom_message_template': request.form.get('custom_message_template'),
+        'priority': int(request.form.get('priority', 0) or 0),
+        'is_active': request.form.get('is_active') == 'on',
+        'created_by_id': g.current_user['id'],
+    }
+    
+    # Parse conditions JSON if provided
+    conditions = request.form.get('conditions')
+    if conditions:
+        try:
+            import json
+            data['conditions'] = json.loads(conditions)
+        except json.JSONDecodeError:
+            flash('Invalid JSON for conditions', 'error')
+            return redirect(url_for('main.subscriber_detail', subscriber_id=subscriber_id))
+    
+    try:
+        rule = db.create_notification_rule(**data)
+        flash(f'Notification rule "{rule["name"]}" created', 'success')
+    except Exception as e:
+        flash(f'Error creating rule: {str(e)}', 'error')
+    
+    return redirect(url_for('main.subscriber_detail', subscriber_id=subscriber_id))
+
+
+@main_bp.route('/subscribers/<int:subscriber_id>/rules/<int:rule_id>/edit', methods=['POST'])
+@login_required
+def subscriber_rule_edit(subscriber_id, rule_id):
+    """Update a notification rule."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        return jsonify({'success': False, 'error': 'Authentication required'}), 401
+    
+    project_id = request.form.get('project_id')
+    
+    data = {
+        'name': request.form.get('name'),
+        'description': request.form.get('description'),
+        'event_type': request.form.get('event_type'),
+        'project_id': int(project_id) if project_id else None,
+        'owner_only': request.form.get('owner_only') == 'on',
+        'custom_message_template': request.form.get('custom_message_template'),
+        'priority': int(request.form.get('priority', 0) or 0),
+        'is_active': request.form.get('is_active') == 'on',
+    }
+    
+    # Parse conditions JSON if provided
+    conditions = request.form.get('conditions')
+    if conditions:
+        try:
+            import json
+            data['conditions'] = json.loads(conditions)
+        except json.JSONDecodeError:
+            flash('Invalid JSON for conditions', 'error')
+            return redirect(url_for('main.subscriber_detail', subscriber_id=subscriber_id))
+    
+    try:
+        rule = db.update_notification_rule(rule_id, **data)
+        if rule:
+            flash(f'Notification rule "{rule["name"]}" updated', 'success')
+        else:
+            flash('Rule not found', 'error')
+    except Exception as e:
+        flash(f'Error updating rule: {str(e)}', 'error')
+    
+    return redirect(url_for('main.subscriber_detail', subscriber_id=subscriber_id))
+
+
+@main_bp.route('/subscribers/<int:subscriber_id>/rules/<int:rule_id>/delete', methods=['POST'])
+@login_required
+def subscriber_rule_delete(subscriber_id, rule_id):
+    """Delete a notification rule."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        return jsonify({'success': False, 'error': 'Authentication required'}), 401
+    
+    if db.trash_notification_rule(rule_id):
+        flash('Notification rule deleted', 'success')
+    else:
+        flash('Error deleting rule', 'error')
+    
+    return redirect(url_for('main.subscriber_detail', subscriber_id=subscriber_id))
+
+
+# API endpoints for notifications
+
+@api_bp.route('/subscribers', methods=['GET'])
+@api_login_required
+def api_get_subscribers():
+    """Get all subscribers for the current lab (JSON API)."""
+    db = get_db_service()
+    lab_id = session.get('current_lab_id')
+    
+    if not lab_id:
+        return jsonify({'success': False, 'error': 'No lab selected'}), 400
+    
+    channel_type = request.args.get('channel_type')
+    is_active = request.args.get('is_active')
+    
+    if is_active is not None:
+        is_active = is_active.lower() == 'true'
+    
+    subscribers = db.get_subscribers(
+        lab_id=lab_id,
+        channel_type=channel_type,
+        is_active=is_active
+    )
+    
+    return jsonify({'success': True, 'data': subscribers})
+
+
+@api_bp.route('/subscribers/<int:subscriber_id>', methods=['GET'])
+@api_login_required
+def api_get_subscriber(subscriber_id):
+    """Get a single subscriber (JSON API)."""
+    db = get_db_service()
+    subscriber = db.get_subscriber(subscriber_id)
+    
+    if not subscriber:
+        return jsonify({'success': False, 'error': 'Subscriber not found'}), 404
+    
+    return jsonify({'success': True, 'data': subscriber})
+
+
+@api_bp.route('/subscribers/<int:subscriber_id>/rules', methods=['GET'])
+@api_login_required
+def api_get_subscriber_rules(subscriber_id):
+    """Get all rules for a subscriber (JSON API)."""
+    db = get_db_service()
+    rules = db.get_notification_rules(subscriber_id=subscriber_id)
+    return jsonify({'success': True, 'data': rules})
+
+
+@api_bp.route('/subscribers/<int:subscriber_id>/logs', methods=['GET'])
+@api_login_required
+def api_get_subscriber_logs(subscriber_id):
+    """Get notification logs for a subscriber (JSON API)."""
+    db = get_db_service()
+    limit = request.args.get('limit', 50, type=int)
+    status = request.args.get('status')
+    
+    logs = db.get_notification_logs(
+        subscriber_id=subscriber_id,
+        status=status,
+        limit=limit
+    )
+    
+    return jsonify({'success': True, 'data': logs})
+
+
+@api_bp.route('/notifications/dispatch', methods=['POST'])
+@api_login_required
+def api_dispatch_notification():
+    """Dispatch a notification event (JSON API).
+    
+    This is the main entry point for programmatically triggering notifications.
+    """
+    db = get_db_service()
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'success': False, 'error': 'Request body required'}), 400
+    
+    lab_id = data.get('lab_id') or session.get('current_lab_id')
+    if not lab_id:
+        return jsonify({'success': False, 'error': 'lab_id required'}), 400
+    
+    required_fields = ['event_type', 'entity_type', 'entity_id']
+    for field in required_fields:
+        if not data.get(field):
+            return jsonify({'success': False, 'error': f'{field} required'}), 400
+    
+    logs = db.dispatch_event(
+        lab_id=lab_id,
+        event_type=data['event_type'],
+        entity_type=data['entity_type'],
+        entity_id=data['entity_id'],
+        project_id=data.get('project_id'),
+        owner_id=data.get('owner_id'),
+        event_data=data.get('event_data'),
+        message=data.get('message')
+    )
+    
+    return jsonify({'success': True, 'notifications_queued': len(logs), 'data': logs})
+
+
 # -------------------- Projects --------------------
 
 @main_bp.route('/projects')
@@ -5218,6 +5664,42 @@ def settings():
             }
             db.update_user_settings(g.current_user['id'], settings=settings_data)
             flash('Settings saved', 'success')
+            return redirect(url_for('main.settings'))
+        
+        elif form_type == 'notification_settings':
+            # Update notification preferences
+            # Get existing settings and merge with notification preferences
+            existing_settings = db.get_user_settings(g.current_user['id'])
+            current_settings = existing_settings.get('settings', {}) if existing_settings else {}
+            
+            notification_settings = {
+                **current_settings,
+                'email_notifications_enabled': 'email_notifications_enabled' in request.form,
+                'slack_notifications_enabled': 'slack_notifications_enabled' in request.form,
+                'notify_issues': 'notify_issues' in request.form,
+                'notify_issues_owner_only': 'notify_issues_owner_only' in request.form,
+                'notify_scans': 'notify_scans' in request.form,
+                'notify_scans_owner_only': 'notify_scans_owner_only' in request.form,
+                'notify_waste': 'notify_waste' in request.form,
+                'notify_waste_owner_only': 'notify_waste_owner_only' in request.form,
+                'notify_equipment': 'notify_equipment' in request.form,
+                'notify_lab_membership': 'notify_lab_membership' in request.form,
+            }
+            db.update_user_settings(g.current_user['id'], settings=notification_settings)
+            
+            # Create/update user's personal subscriber if needed
+            lab_id = session.get('current_lab_id')
+            if lab_id:
+                user_subscriber = db.get_subscriber_by_user(g.current_user['id'])
+                if not user_subscriber:
+                    # Create personal subscriber for the user
+                    db.create_user_subscriber(
+                        user_id=g.current_user['id'],
+                        lab_id=lab_id,
+                        email=g.current_user.get('email')
+                    )
+            
+            flash('Notification preferences saved', 'success')
             return redirect(url_for('main.settings'))
     
     user_settings = db.get_user_settings(g.current_user['id'])

@@ -1,0 +1,472 @@
+{% extends "base.html" %}
+
+{% block title %}{{ subscriber.name }} - Subscriber - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="header-content">
+            <a href="{{ url_for('main.subscriber_list') }}" class="back-link">← Back to Subscribers</a>
+            <h1>{{ subscriber.name }}</h1>
+            <div class="header-badges">
+                <span class="channel-badge channel-{{ subscriber.channel_type }}">
+                    {% if subscriber.channel_type == 'email' %}📧{% endif %}
+                    {% if subscriber.channel_type == 'slack_channel' %}#{% endif %}
+                    {% if subscriber.channel_type == 'slack_user' %}👤{% endif %}
+                    {% if subscriber.channel_type == 'webhook' %}🔗{% endif %}
+                    {% if subscriber.channel_type == 'user' %}🔔{% endif %}
+                    {{ subscriber.channel_type | replace('_', ' ') | title }}
+                </span>
+                {% if subscriber.is_active %}
+                <span class="status-badge status-active">Active</span>
+                {% else %}
+                <span class="status-badge status-inactive">Inactive</span>
+                {% endif %}
+                {% if subscriber.is_verified %}
+                <span class="verified-badge">✓ Verified</span>
+                {% else %}
+                <span class="unverified-badge">⚠ Unverified</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="header-actions">
+            <a href="{{ url_for('main.subscriber_edit', subscriber_id=subscriber.id) }}" class="btn btn-secondary">Edit</a>
+            {% if not subscriber.is_verified %}
+            <form action="{{ url_for('main.subscriber_verify', subscriber_id=subscriber.id) }}" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-success">Verify</button>
+            </form>
+            {% endif %}
+            <form action="{{ url_for('main.subscriber_delete', subscriber_id=subscriber.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this subscriber?');">
+                <button type="submit" class="btn btn-danger">Delete</button>
+            </form>
+        </div>
+    </div>
+    
+    {# Subscriber Info Section #}
+    <div class="detail-section">
+        <h2>Subscriber Details</h2>
+        <div class="info-grid">
+            <div class="info-item">
+                <label>Address</label>
+                <span>{{ subscriber.channel_address or '-' }}</span>
+            </div>
+            {% if subscriber.description %}
+            <div class="info-item full-width">
+                <label>Description</label>
+                <span>{{ subscriber.description }}</span>
+            </div>
+            {% endif %}
+            {% if subscriber.slack_workspace_id %}
+            <div class="info-item">
+                <label>Slack Workspace ID</label>
+                <span>{{ subscriber.slack_workspace_id }}</span>
+            </div>
+            {% endif %}
+            {% if subscriber.slack_channel_id %}
+            <div class="info-item">
+                <label>Slack Channel ID</label>
+                <span>{{ subscriber.slack_channel_id }}</span>
+            </div>
+            {% endif %}
+            {% if subscriber.webhook_url %}
+            <div class="info-item full-width">
+                <label>Webhook URL</label>
+                <span class="mono-text">{{ subscriber.webhook_url }}</span>
+            </div>
+            {% endif %}
+            <div class="info-item">
+                <label>Failure Count</label>
+                <span>
+                    {% if subscriber.failure_count > 0 %}
+                    <span class="failure-badge">{{ subscriber.failure_count }}</span>
+                    {% else %}
+                    0
+                    {% endif %}
+                </span>
+            </div>
+            {% if subscriber.last_failure_at %}
+            <div class="info-item">
+                <label>Last Failure</label>
+                <span>{{ subscriber.last_failure_at }}</span>
+            </div>
+            {% endif %}
+            {% if subscriber.last_failure_reason %}
+            <div class="info-item full-width">
+                <label>Last Failure Reason</label>
+                <span class="error-text">{{ subscriber.last_failure_reason }}</span>
+            </div>
+            {% endif %}
+            <div class="info-item">
+                <label>Created</label>
+                <span>{{ subscriber.created_at }}</span>
+            </div>
+        </div>
+    </div>
+    
+    {# Notification Rules Section #}
+    <div class="detail-section">
+        <div class="section-header">
+            <h2>Notification Rules</h2>
+            <button type="button" class="btn btn-primary btn-sm" onclick="toggleNewRuleForm()">+ Add Rule</button>
+        </div>
+        
+        {# New Rule Form (hidden by default) #}
+        <div id="new-rule-form" class="card" style="display: none; margin-bottom: 20px;">
+            <form action="{{ url_for('main.subscriber_rule_new', subscriber_id=subscriber.id) }}" method="POST">
+                <h3>Create New Rule</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="name">Rule Name</label>
+                        <input type="text" id="name" name="name" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="event_type">Event Type</label>
+                        <select id="event_type" name="event_type" class="form-select" required>
+                            <option value="">Select event type...</option>
+                            <optgroup label="Scans & Queues">
+                                <option value="scan_created">Scan Created</option>
+                                <option value="scan_started">Scan Started</option>
+                                <option value="scan_completed">Scan Completed</option>
+                                <option value="scan_failed">Scan Failed</option>
+                                <option value="queue_created">Queue Created</option>
+                                <option value="queue_item_added">Queue Item Added</option>
+                                <option value="queue_item_completed">Queue Item Completed</option>
+                                <option value="queue_completed">Queue Completed</option>
+                            </optgroup>
+                            <optgroup label="Issues">
+                                <option value="issue_created">Issue Created</option>
+                                <option value="issue_updated">Issue Updated</option>
+                                <option value="issue_resolved">Issue Resolved</option>
+                                <option value="issue_assigned">Issue Assigned</option>
+                            </optgroup>
+                            <optgroup label="Equipment">
+                                <option value="equipment_status_change">Equipment Status Changed</option>
+                                <option value="equipment_maintenance_due">Maintenance Due</option>
+                            </optgroup>
+                            <optgroup label="Samples">
+                                <option value="sample_created">Sample Created</option>
+                                <option value="sample_status_change">Sample Status Changed</option>
+                            </optgroup>
+                            <optgroup label="Waste">
+                                <option value="waste_status_change">Waste Status Changed</option>
+                                <option value="waste_fill_warning">Waste Fill Warning</option>
+                                <option value="waste_collection_requested">Collection Requested</option>
+                            </optgroup>
+                            <optgroup label="Lab Membership">
+                                <option value="lab_member_added">Member Added</option>
+                                <option value="lab_member_removed">Member Removed</option>
+                                <option value="lab_member_role_changed">Role Changed</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="project_id">Project Scope (optional)</label>
+                        <select id="project_id" name="project_id" class="form-select">
+                            <option value="">Lab-wide (all projects)</option>
+                            {% for project in projects %}
+                            <option value="{{ project.id }}">{{ project.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="priority">Priority</label>
+                        <input type="number" id="priority" name="priority" class="form-input" value="0" min="0" max="100">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="description">Description</label>
+                        <textarea id="description" name="description" class="form-textarea" rows="2"></textarea>
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="custom_message_template">Custom Message Template (optional)</label>
+                        <textarea id="custom_message_template" name="custom_message_template" class="form-textarea mono" rows="2" placeholder="Use {event_type}, {entity_type}, {entity_id} placeholders"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="owner_only">
+                            Only notify if I own the item
+                        </label>
+                        <small class="help-text">For issues and waste, only notify when you are the owner/creator</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="is_active" checked>
+                            Active
+                        </label>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Create Rule</button>
+                    <button type="button" class="btn btn-secondary" onclick="toggleNewRuleForm()">Cancel</button>
+                </div>
+            </form>
+        </div>
+        
+        {% if rules %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Event Type</th>
+                    <th>Scope</th>
+                    <th>Owner Only</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rule in rules %}
+                <tr>
+                    <td>{{ rule.name }}</td>
+                    <td><span class="event-badge">{{ rule.event_type | replace('_', ' ') | title }}</span></td>
+                    <td>
+                        {% if rule.project_id %}
+                        Project #{{ rule.project_id }}
+                        {% else %}
+                        Lab-wide
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if rule.owner_only %}
+                        <span class="owner-badge">👤 Owner only</span>
+                        {% else %}
+                        All
+                        {% endif %}
+                    </td>
+                    <td>{{ rule.priority }}</td>
+                    <td>
+                        {% if rule.is_active %}
+                        <span class="status-badge status-active">Active</span>
+                        {% else %}
+                        <span class="status-badge status-inactive">Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <form action="{{ url_for('main.subscriber_rule_delete', subscriber_id=subscriber.id, rule_id=rule.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Delete this rule?');">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No notification rules configured.</p>
+            <p class="text-muted">Rules define which events trigger notifications to this subscriber.</p>
+        </div>
+        {% endif %}
+    </div>
+    
+    {# Notification History Section #}
+    <div class="detail-section">
+        <h2>Recent Notifications</h2>
+        {% if logs %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Event</th>
+                    <th>Entity</th>
+                    <th>Status</th>
+                    <th>Retries</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td class="time-cell">{{ log.created_at }}</td>
+                    <td><span class="event-badge">{{ log.event_type | replace('_', ' ') | title }}</span></td>
+                    <td>{{ log.entity_type }} #{{ log.entity_id }}</td>
+                    <td>
+                        {% if log.status == 'delivered' %}
+                        <span class="status-badge status-delivered">✓ Delivered</span>
+                        {% elif log.status == 'sent' %}
+                        <span class="status-badge status-sent">→ Sent</span>
+                        {% elif log.status == 'pending' %}
+                        <span class="status-badge status-pending">⏳ Pending</span>
+                        {% elif log.status == 'failed' %}
+                        <span class="status-badge status-failed" title="{{ log.error_message }}">✗ Failed</span>
+                        {% elif log.status == 'retry' %}
+                        <span class="status-badge status-retry">↻ Retry</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ log.retry_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No notifications sent yet.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function toggleNewRuleForm() {
+    const form = document.getElementById('new-rule-form');
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+</script>
+
+<style>
+/* Channel badges */
+.channel-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-weight: 500;
+}
+
+.channel-email { background: #e3f2fd; color: #1976d2; }
+.channel-slack_channel { background: #f3e5f5; color: #7b1fa2; }
+.channel-slack_user { background: #fce4ec; color: #c2185b; }
+.channel-webhook { background: #fff3e0; color: #e65100; }
+.channel-user { background: #e8f5e9; color: #388e3c; }
+
+/* Status badges */
+.status-active { background: #c8e6c9; color: #2e7d32; }
+.status-inactive { background: #ffcdd2; color: #c62828; }
+.status-delivered { background: #c8e6c9; color: #2e7d32; }
+.status-sent { background: #e3f2fd; color: #1976d2; }
+.status-pending { background: #fff3e0; color: #e65100; }
+.status-failed { background: #ffcdd2; color: #c62828; }
+.status-retry { background: #fff3e0; color: #f57c00; }
+
+/* Verified badges */
+.verified-badge { color: #2e7d32; font-weight: 500; }
+.unverified-badge { color: #f57c00; font-weight: 500; }
+
+/* Event badge */
+.event-badge {
+    background: #e8eaf6;
+    color: #3f51b5;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+
+/* Owner badge */
+.owner-badge {
+    background: #fff3e0;
+    color: #e65100;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+
+/* Failure badge */
+.failure-badge {
+    background: #ffcdd2;
+    color: #c62828;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+
+/* Header badges container */
+.header-badges {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+/* Section header */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+/* Card for new rule form */
+.card {
+    background: var(--color-bg-secondary, #f8f9fa);
+    border: 1px solid var(--color-border, #dee2e6);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.card h3 {
+    margin-top: 0;
+    margin-bottom: 16px;
+}
+
+/* Form grid */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.form-group.full-width {
+    grid-column: span 2;
+}
+
+/* Mono text */
+.mono-text, .mono {
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
+/* Error text */
+.error-text {
+    color: #c62828;
+}
+
+/* Help text */
+.help-text {
+    display: block;
+    color: var(--color-text-secondary, #6c757d);
+    font-size: 0.85em;
+    margin-top: 4px;
+}
+
+/* Time cell */
+.time-cell {
+    white-space: nowrap;
+    font-size: 0.9em;
+}
+
+/* Info grid */
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.info-item.full-width {
+    grid-column: span 2;
+}
+
+.info-item label {
+    font-weight: 600;
+    color: var(--color-text-secondary, #6c757d);
+    font-size: 0.85em;
+    margin-bottom: 4px;
+}
+
+/* Checkbox label */
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+}
+</style>
+{% endblock %}

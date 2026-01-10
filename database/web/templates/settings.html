@@ -212,6 +212,120 @@
             </form>
         </div>
         
+        <!-- Notification Preferences Section -->
+        <div class="settings-section">
+            <h2>🔔 Notification Preferences</h2>
+            <p class="section-description">Configure how you receive notifications about lab events.</p>
+            
+            <form method="POST" class="data-form">
+                <input type="hidden" name="form_type" value="notification_settings">
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="email_notifications_enabled" 
+                               {% if user_settings.settings.email_notifications_enabled is not defined or user_settings.settings.email_notifications_enabled %}checked{% endif %}>
+                        <span>Email Notifications</span>
+                    </label>
+                    <small>Receive important notifications via email.</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="slack_notifications_enabled" 
+                               {% if user_settings.settings.slack_notifications_enabled %}checked{% endif %}>
+                        <span>Slack Notifications</span>
+                    </label>
+                    <small>Receive notifications via Slack direct messages (requires Slack integration).</small>
+                </div>
+                
+                <h3 class="settings-subheading">Notification Types</h3>
+                
+                <div class="notification-type-grid">
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notify_issues" 
+                                   {% if user_settings.settings.notify_issues is not defined or user_settings.settings.notify_issues %}checked{% endif %}>
+                            <span>Issues</span>
+                        </label>
+                        <small>New issues, assignments, and status updates.</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notify_issues_owner_only" 
+                                   {% if user_settings.settings.notify_issues_owner_only %}checked{% endif %}>
+                            <span>Only issues I own</span>
+                        </label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notify_scans" 
+                                   {% if user_settings.settings.notify_scans is not defined or user_settings.settings.notify_scans %}checked{% endif %}>
+                            <span>Scans & Queues</span>
+                        </label>
+                        <small>Scan completions, failures, and queue updates.</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notify_scans_owner_only" 
+                                   {% if user_settings.settings.notify_scans_owner_only %}checked{% endif %}>
+                            <span>Only scans I own</span>
+                        </label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notify_waste" 
+                                   {% if user_settings.settings.notify_waste %}checked{% endif %}>
+                            <span>Waste Containers</span>
+                        </label>
+                        <small>Fill level warnings, status changes, and collection requests.</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notify_waste_owner_only" 
+                                   {% if user_settings.settings.notify_waste_owner_only %}checked{% endif %}>
+                            <span>Only waste I own</span>
+                        </label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notify_equipment" 
+                                   {% if user_settings.settings.notify_equipment %}checked{% endif %}>
+                            <span>Equipment</span>
+                        </label>
+                        <small>Equipment status changes and maintenance reminders.</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="notify_lab_membership" 
+                                   {% if user_settings.settings.notify_lab_membership %}checked{% endif %}>
+                            <span>Lab Membership</span>
+                        </label>
+                        <small>When members are added or removed from the lab.</small>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Notification Preferences</button>
+                </div>
+            </form>
+            
+            <div class="section-actions" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--color-border);">
+                <a href="{{ url_for('main.subscriber_list') }}" class="btn btn-secondary">
+                    Manage Notification Channels →
+                </a>
+                <small style="display: block; margin-top: 0.5rem; color: var(--color-text-secondary);">
+                    Configure Slack channels, email lists, webhooks, and other notification destinations.
+                </small>
+            </div>
+        </div>
+        
         <!-- Profile Link -->
         <div class="settings-section">
             <h2>👤 Account</h2>
@@ -406,6 +520,21 @@
 .badge-success {
     background: var(--color-success);
     color: white;
+}
+
+/* Notification Type Grid */
+.notification-type-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem 2rem;
+    margin: 1rem 0;
+}
+
+.settings-subheading {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 1.5rem 0 0.5rem;
+    color: var(--color-text-primary);
 }
 
 /* Responsive */

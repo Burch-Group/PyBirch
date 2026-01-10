@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% from "macros.html" import action_buttons %}
+
+{% block title %}Subscribers - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Notification Subscribers</h1>
+        <a href="{{ url_for('main.subscriber_new') }}" class="btn btn-primary">+ New Subscriber</a>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <select name="channel_type" class="filter-select">
+                <option value="">All Channel Types</option>
+                {% for type in channel_types %}
+                <option value="{{ type }}" {% if channel_type == type %}selected{% endif %}>{{ type | replace('_', ' ') | title }}</option>
+                {% endfor %}
+            </select>
+            <select name="is_active" class="filter-select">
+                <option value="">All Status</option>
+                <option value="true" {% if is_active == true %}selected{% endif %}>Active</option>
+                <option value="false" {% if is_active == false %}selected{% endif %}>Inactive</option>
+            </select>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if channel_type or is_active is not none %}
+                <a href="{{ url_for('main.subscriber_list') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ subscribers | length }} subscriber(s) found</p>
+    
+    {% if subscribers %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Channel Type</th>
+                    <th>Address</th>
+                    <th>Status</th>
+                    <th>Verified</th>
+                    <th>Failures</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for subscriber in subscribers %}
+                <tr>
+                    <td><a href="{{ url_for('main.subscriber_detail', subscriber_id=subscriber.id) }}">{{ subscriber.name }}</a></td>
+                    <td>
+                        <span class="channel-badge channel-{{ subscriber.channel_type }}">
+                            {% if subscriber.channel_type == 'email' %}📧{% endif %}
+                            {% if subscriber.channel_type == 'slack_channel' %}#{% endif %}
+                            {% if subscriber.channel_type == 'slack_user' %}👤{% endif %}
+                            {% if subscriber.channel_type == 'webhook' %}🔗{% endif %}
+                            {% if subscriber.channel_type == 'user' %}🔔{% endif %}
+                            {{ subscriber.channel_type | replace('_', ' ') | title }}
+                        </span>
+                    </td>
+                    <td class="address-cell">{{ subscriber.channel_address or '-' }}</td>
+                    <td>
+                        {% if subscriber.is_active %}
+                        <span class="status-badge status-active">Active</span>
+                        {% else %}
+                        <span class="status-badge status-inactive">Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if subscriber.is_verified %}
+                        <span class="verified-badge">✓ Verified</span>
+                        {% else %}
+                        <span class="unverified-badge">⚠ Unverified</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if subscriber.failure_count > 0 %}
+                        <span class="failure-badge">{{ subscriber.failure_count }}</span>
+                        {% else %}
+                        <span class="success-text">0</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ action_buttons(
+                            view_url=url_for('main.subscriber_detail', subscriber_id=subscriber.id),
+                            edit_url=url_for('main.subscriber_edit', subscriber_id=subscriber.id),
+                            entity_type='subscriber',
+                            entity_id=subscriber.id
+                        ) }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            <p>No subscribers found.</p>
+            <p class="text-muted">Subscribers are notification channels like email addresses, Slack channels, or webhooks that receive notifications about lab events.</p>
+            <a href="{{ url_for('main.subscriber_new') }}" class="btn btn-primary">Create your first subscriber</a>
+        </div>
+    {% endif %}
+</div>
+
+<style>
+/* Channel type badges */
+.channel-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-weight: 500;
+}
+
+.channel-email { background: #e3f2fd; color: #1976d2; }
+.channel-slack_channel { background: #f3e5f5; color: #7b1fa2; }
+.channel-slack_user { background: #fce4ec; color: #c2185b; }
+.channel-webhook { background: #fff3e0; color: #e65100; }
+.channel-user { background: #e8f5e9; color: #388e3c; }
+
+/* Status badges */
+.status-active { background: #c8e6c9; color: #2e7d32; }
+.status-inactive { background: #ffcdd2; color: #c62828; }
+
+/* Verified badges */
+.verified-badge { color: #2e7d32; font-weight: 500; }
+.unverified-badge { color: #f57c00; font-weight: 500; }
+
+/* Failure badge */
+.failure-badge {
+    background: #ffcdd2;
+    color: #c62828;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+
+.success-text { color: #2e7d32; }
+
+/* Address cell */
+.address-cell {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+</style>
+{% endblock %}
