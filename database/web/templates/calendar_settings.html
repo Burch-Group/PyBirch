@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Calendar Settings - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.profile') }}">Profile</a> / Calendar Settings
+        </div>
+    </div>
+    
+    <h1>📅 Calendar Integration</h1>
+    <p class="section-description">Connect your external calendars to sync equipment bookings automatically.</p>
+    
+    <div class="settings-grid" style="display: grid; gap: 1.5rem; max-width: 800px;">
+        
+        <!-- Google Calendar -->
+        <div class="settings-card">
+            <div class="settings-card-header" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <svg width="32" height="32" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                <div>
+                    <h2 style="margin: 0;">Google Calendar</h2>
+                    <p class="text-secondary" style="margin: 0;">Sync bookings with your Google Calendar</p>
+                </div>
+            </div>
+            
+            {% set google_integration = integrations | selectattr('provider', 'eq', 'google') | first %}
+            
+            {% if google_integration %}
+            <div class="integration-status connected">
+                <span class="status-indicator" style="display: inline-block; width: 10px; height: 10px; background: #22c55e; border-radius: 50%; margin-right: 0.5rem;"></span>
+                <strong>Connected</strong>
+                {% if google_integration.calendar_name %}
+                <span class="text-secondary"> - {{ google_integration.calendar_name }}</span>
+                {% endif %}
+            </div>
+            
+            {% if google_integration.last_sync_at %}
+            <p class="text-secondary" style="font-size: 0.875rem;">
+                Last synced: {{ google_integration.last_sync_at | replace('T', ' ') }}
+            </p>
+            {% endif %}
+            
+            {% if google_integration.last_error %}
+            <div class="alert alert-warning" style="margin: 0.5rem 0;">
+                {{ google_integration.last_error }}
+            </div>
+            {% endif %}
+            
+            <div class="integration-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                <form action="{{ url_for('main.sync_calendar', provider='google') }}" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-secondary">🔄 Sync Now</button>
+                </form>
+                <form action="{{ url_for('main.disconnect_calendar', provider='google') }}" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-danger" onclick="return confirm('Disconnect Google Calendar?')">Disconnect</button>
+                </form>
+            </div>
+            
+            {% elif available_providers.google %}
+            <p class="text-secondary">Connect your Google Calendar to automatically add equipment bookings to your calendar.</p>
+            <a href="{{ url_for('main.connect_google_calendar') }}" class="btn btn-primary">
+                Connect Google Calendar
+            </a>
+            
+            {% else %}
+            <div class="alert alert-info">
+                Google Calendar integration is not configured. Contact your administrator to enable this feature.
+            </div>
+            {% endif %}
+        </div>
+        
+        <!-- Microsoft Outlook -->
+        <div class="settings-card">
+            <div class="settings-card-header" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <svg width="32" height="32" viewBox="0 0 24 24">
+                    <path fill="#0078D4" d="M21.17 2.06l-8.17 2.58v14.72l8.17 2.58a1 1 0 0 0 .83-.13 1 1 0 0 0 .5-.87V3.06a1 1 0 0 0-.5-.87 1 1 0 0 0-.83-.13z"/>
+                    <path fill="#0078D4" d="M12 4.64L2.5 2.06a1 1 0 0 0-.83.13A1 1 0 0 0 1.17 3v17.94a1 1 0 0 0 .5.87 1 1 0 0 0 .83.13L12 19.36V4.64z"/>
+                </svg>
+                <div>
+                    <h2 style="margin: 0;">Microsoft Outlook</h2>
+                    <p class="text-secondary" style="margin: 0;">Sync bookings with Outlook Calendar</p>
+                </div>
+            </div>
+            
+            {% set outlook_integration = integrations | selectattr('provider', 'eq', 'outlook') | first %}
+            
+            {% if outlook_integration %}
+            <div class="integration-status connected">
+                <span class="status-indicator" style="display: inline-block; width: 10px; height: 10px; background: #22c55e; border-radius: 50%; margin-right: 0.5rem;"></span>
+                <strong>Connected</strong>
+            </div>
+            <div class="integration-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                <form action="{{ url_for('main.disconnect_calendar', provider='outlook') }}" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-danger" onclick="return confirm('Disconnect Outlook Calendar?')">Disconnect</button>
+                </form>
+            </div>
+            
+            {% elif available_providers.outlook %}
+            <p class="text-secondary">Connect your Outlook Calendar to automatically add equipment bookings to your calendar.</p>
+            <a href="#" class="btn btn-primary disabled" title="Coming soon">
+                Connect Outlook Calendar
+            </a>
+            <p class="text-secondary" style="font-size: 0.875rem; margin-top: 0.5rem;">Microsoft Outlook integration coming soon!</p>
+            
+            {% else %}
+            <div class="alert alert-info">
+                Microsoft Outlook integration is not configured. Contact your administrator to enable this feature.
+            </div>
+            {% endif %}
+        </div>
+        
+        <!-- iCalendar Export -->
+        <div class="settings-card">
+            <div class="settings-card-header" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                    <line x1="16" y1="2" x2="16" y2="6"/>
+                    <line x1="8" y1="2" x2="8" y2="6"/>
+                    <line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+                <div>
+                    <h2 style="margin: 0;">iCalendar Export</h2>
+                    <p class="text-secondary" style="margin: 0;">Universal calendar format (works with any calendar app)</p>
+                </div>
+            </div>
+            
+            <p class="text-secondary">Download or subscribe to your bookings in iCalendar format. This works with Apple Calendar, Google Calendar, Outlook, and any other calendar application.</p>
+            
+            <div class="integration-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <a href="{{ url_for('main.my_bookings_ical_feed') }}" class="btn btn-secondary">
+                    📥 Download .ics File
+                </a>
+            </div>
+            
+            <div class="subscribe-info" style="margin-top: 1rem; padding: 1rem; background: var(--color-background); border-radius: 8px;">
+                <p style="font-size: 0.875rem; margin: 0 0 0.5rem 0;"><strong>Subscribe URL:</strong></p>
+                <code style="display: block; padding: 0.5rem; background: var(--color-surface); border-radius: 4px; word-break: break-all; font-size: 0.75rem;">
+                    {{ url_for('main.my_bookings_ical_feed', _external=True) }}
+                </code>
+                <p class="text-secondary" style="font-size: 0.75rem; margin-top: 0.5rem;">
+                    Add this URL to your calendar app to automatically sync bookings.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.settings-card {
+    background: var(--color-surface);
+    border-radius: 8px;
+    padding: 1.5rem;
+    border: 1px solid var(--color-border);
+}
+
+.integration-status {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
+
+.integration-status.connected {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+}
+</style>
+{% endblock %}

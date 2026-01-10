@@ -462,6 +462,8 @@ class User(Base):
     driver_issues_assigned = relationship("DriverIssue", back_populates="assignee", foreign_keys="DriverIssue.assignee_id")
     qr_scans = relationship("QrCodeScan", back_populates="user", cascade="all, delete-orphan")
     page_views = relationship("PageView", back_populates="user", cascade="all, delete-orphan")
+    equipment_bookings: Mapped[List["EquipmentBooking"]] = relationship("EquipmentBooking", back_populates="user", foreign_keys="EquipmentBooking.user_id", cascade="all, delete-orphan")
+    calendar_integrations: Mapped[List["CalendarIntegration"]] = relationship("CalendarIntegration", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', role='{self.role}')>"
@@ -1075,6 +1077,8 @@ class Equipment(TrashableMixin, ArchivableMixin, Base):
     issues: Mapped[List["EquipmentIssue"]] = relationship("EquipmentIssue", back_populates="equipment", cascade="all, delete-orphan")
     fabrication_runs: Mapped[List["FabricationRunEquipment"]] = relationship("FabricationRunEquipment", back_populates="equipment")
     maintenance_tasks: Mapped[List["MaintenanceTask"]] = relationship("MaintenanceTask", back_populates="equipment", cascade="all, delete-orphan")
+    bookings: Mapped[List["EquipmentBooking"]] = relationship("EquipmentBooking", back_populates="equipment", cascade="all, delete-orphan")
+    scheduling_config: Mapped[Optional["EquipmentSchedulingConfig"]] = relationship("EquipmentSchedulingConfig", back_populates="equipment", uselist=False, cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('idx_equipment_lab', 'lab_id'),
@@ -1195,6 +1199,251 @@ class MaintenanceTask(TrashableMixin, Base):
     
     def __repr__(self):
         return f"<MaintenanceTask(id={self.id}, equipment_id={self.equipment_id}, name='{self.name}')>"
+
+
+# ============================================================
+# EQUIPMENT BOOKINGS & SCHEDULING
+# ============================================================
+
+class EquipmentBooking(TrashableMixin, Base):
+    """
+    Equipment usage scheduling/booking system.
+    
+    Allows users to reserve equipment for specific time slots.
+    Supports recurring bookings, integration with external calendars,
+    and conflict detection.
+    
+    Status flow:
+    - pending: Awaiting approval (if approval required)
+    - confirmed: Booking is confirmed
+    - in_progress: Currently using equipment
+    - completed: Usage finished
+    - cancelled: Booking was cancelled
+    - no_show: User didn't show up
+    """
+    __tablename__ = "equipment_bookings"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    equipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment.id'), nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    
+    # Booking time slot
+    title: Mapped[str] = mapped_column(String(255), nullable=False)  # Brief description
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Detailed purpose
+    start_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    end_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    
+    # Status tracking
+    status: Mapped[str] = mapped_column(String(50), default='confirmed')
+    # 'pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show'
+    
+    # Recurring booking support
+    is_recurring: Mapped[bool] = mapped_column(Boolean, default=False)
+    recurrence_rule: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # iCal RRULE format
+    # e.g., "FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=10"
+    parent_booking_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey('equipment_bookings.id'), nullable=True
+    )  # For recurring instance link to parent
+    
+    # Project/sample association (optional context)
+    project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
+    sample_ids: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # List of sample IDs
+    
+    # External calendar sync
+    google_event_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Google Calendar event ID
+    outlook_event_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Outlook Calendar event ID
+    ical_uid: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # iCal UID for export
+    
+    # Approval workflow (if equipment requires approval)
+    requires_approval: Mapped[bool] = mapped_column(Boolean, default=False)
+    approved_by_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Check-in/out tracking
+    actual_start_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    actual_end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Notes and metadata
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cancellation_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    # Audit fields
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    equipment: Mapped["Equipment"] = relationship("Equipment", back_populates="bookings")
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], back_populates="equipment_bookings")
+    approved_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[approved_by_id])
+    project: Mapped[Optional["Project"]] = relationship("Project", foreign_keys=[project_id])
+    parent_booking: Mapped[Optional["EquipmentBooking"]] = relationship(
+        "EquipmentBooking", remote_side=[id], back_populates="recurring_instances"
+    )
+    recurring_instances: Mapped[List["EquipmentBooking"]] = relationship(
+        "EquipmentBooking", back_populates="parent_booking"
+    )
+    
+    __table_args__ = (
+        Index('idx_equipment_booking_equipment', 'equipment_id'),
+        Index('idx_equipment_booking_user', 'user_id'),
+        Index('idx_equipment_booking_time', 'start_time', 'end_time'),
+        Index('idx_equipment_booking_status', 'status'),
+        Index('idx_equipment_booking_google', 'google_event_id'),
+        Index('idx_equipment_booking_recurring', 'parent_booking_id'),
+    )
+    
+    @property
+    def duration_minutes(self) -> int:
+        """Calculate booking duration in minutes."""
+        if self.start_time and self.end_time:
+            delta = self.end_time - self.start_time
+            return int(delta.total_seconds() / 60)
+        return 0
+    
+    @property
+    def is_past(self) -> bool:
+        """Check if booking is in the past."""
+        return self.end_time < datetime.utcnow()
+    
+    @property
+    def is_current(self) -> bool:
+        """Check if booking is currently active."""
+        now = datetime.utcnow()
+        return self.start_time <= now <= self.end_time
+    
+    def __repr__(self):
+        return f"<EquipmentBooking(id={self.id}, equipment_id={self.equipment_id}, user_id={self.user_id}, start={self.start_time})>"
+
+
+class EquipmentSchedulingConfig(Base):
+    """
+    Configuration for equipment scheduling behavior.
+    
+    Defines booking rules per equipment:
+    - Available hours/days
+    - Minimum/maximum booking duration
+    - Advance booking limits
+    - Approval requirements
+    - Buffer time between bookings
+    """
+    __tablename__ = "equipment_scheduling_config"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    equipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment.id'), nullable=False, unique=True)
+    
+    # Scheduling enabled flag
+    scheduling_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Booking duration limits (in minutes)
+    min_booking_duration: Mapped[int] = mapped_column(Integer, default=30)  # 30 min default
+    max_booking_duration: Mapped[int] = mapped_column(Integer, default=480)  # 8 hours default
+    default_booking_duration: Mapped[int] = mapped_column(Integer, default=60)  # 1 hour default
+    
+    # Advance booking limits (in days)
+    min_advance_booking: Mapped[int] = mapped_column(Integer, default=0)  # Same day allowed
+    max_advance_booking: Mapped[int] = mapped_column(Integer, default=30)  # 30 days ahead
+    
+    # Buffer time between bookings (minutes)
+    buffer_time: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Approval settings
+    requires_approval: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_approve_lab_members: Mapped[bool] = mapped_column(Boolean, default=True)
+    approver_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    
+    # Availability schedule (JSON format)
+    # Example: {"monday": {"start": "09:00", "end": "17:00"}, "tuesday": {...}}
+    # null means available 24/7
+    availability_schedule: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    # Blocked dates (JSON list of date strings)
+    blocked_dates: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    
+    # Recurring booking settings
+    allow_recurring: Mapped[bool] = mapped_column(Boolean, default=True)
+    max_recurring_weeks: Mapped[int] = mapped_column(Integer, default=12)  # Max weeks for recurring
+    
+    # External calendar sync settings
+    google_calendar_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    outlook_calendar_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    sync_to_external: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # Shared calendar settings (for lab-wide equipment calendars)
+    shared_calendar_admin_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)
+    shared_calendar_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    shared_calendar_public: Mapped[bool] = mapped_column(Boolean, default=False)  # Make calendar publicly viewable
+    shared_calendar_domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Auto-share with domain
+    last_calendar_sync: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Notification settings
+    send_confirmation_email: Mapped[bool] = mapped_column(Boolean, default=True)
+    send_reminder_email: Mapped[bool] = mapped_column(Boolean, default=True)
+    reminder_hours_before: Mapped[int] = mapped_column(Integer, default=24)  # Hours before booking
+    
+    # Created/updated timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    equipment: Mapped["Equipment"] = relationship("Equipment", back_populates="scheduling_config", uselist=False)
+    approver: Mapped[Optional["User"]] = relationship("User", foreign_keys=[approver_user_id])
+    shared_calendar_admin: Mapped[Optional["User"]] = relationship("User", foreign_keys=[shared_calendar_admin_id])
+    
+    def __repr__(self):
+        return f"<EquipmentSchedulingConfig(id={self.id}, equipment_id={self.equipment_id})>"
+
+
+class CalendarIntegration(Base):
+    """
+    User-level calendar integration settings.
+    
+    Stores OAuth tokens and sync preferences for Google Calendar,
+    Microsoft Outlook, and other calendar services.
+    """
+    __tablename__ = "calendar_integrations"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    
+    # Calendar provider
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)  # 'google', 'outlook', 'apple'
+    
+    # OAuth tokens (encrypted in production)
+    access_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Calendar selection
+    calendar_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Selected calendar ID
+    calendar_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    
+    # Sync settings
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sync_bookings: Mapped[bool] = mapped_column(Boolean, default=True)  # Add bookings to personal calendar
+    two_way_sync: Mapped[bool] = mapped_column(Boolean, default=False)  # Also read from calendar
+    
+    # Last sync timestamps
+    last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Audit
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="calendar_integrations")
+    
+    __table_args__ = (
+        Index('idx_calendar_integration_user', 'user_id'),
+        Index('idx_calendar_integration_provider', 'provider'),
+        UniqueConstraint('user_id', 'provider', name='uq_user_calendar_provider'),
+    )
+    
+    def __repr__(self):
+        return f"<CalendarIntegration(id={self.id}, user_id={self.user_id}, provider='{self.provider}')>"
 
 
 # ============================================================

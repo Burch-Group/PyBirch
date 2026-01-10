@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon_settings, icon_plus %}
+
+{% block title %}{{ equipment.name }} - Schedule - PyBirch Database{% endblock %}
+
+{% block head %}
+<!-- FullCalendar CSS -->
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' />
+<style>
+    .schedule-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+    
+    .schedule-actions {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+    
+    .calendar-container {
+        background: var(--color-surface);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .fc {
+        --fc-border-color: var(--color-border);
+        --fc-button-bg-color: var(--color-primary);
+        --fc-button-border-color: var(--color-primary);
+        --fc-button-hover-bg-color: var(--color-primary-hover);
+        --fc-button-hover-border-color: var(--color-primary-hover);
+        --fc-button-active-bg-color: var(--color-primary-hover);
+        --fc-today-bg-color: rgba(59, 130, 246, 0.1);
+        --fc-event-bg-color: var(--color-primary);
+        --fc-event-border-color: var(--color-primary);
+    }
+    
+    .fc-daygrid-day-number,
+    .fc-col-header-cell-cushion {
+        color: var(--color-text);
+    }
+    
+    .upcoming-bookings {
+        margin-top: 2rem;
+    }
+    
+    .booking-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+        background: var(--color-surface);
+        border-radius: 8px;
+        margin-bottom: 0.5rem;
+        border-left: 4px solid var(--color-primary);
+    }
+    
+    .booking-card .time {
+        font-weight: 600;
+        min-width: 140px;
+    }
+    
+    .booking-card .details {
+        flex: 1;
+    }
+    
+    .booking-card .status-badge {
+        font-size: 0.75rem;
+    }
+    
+    .ical-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--color-text-secondary);
+    }
+    
+    .ical-link:hover {
+        color: var(--color-primary);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.equipment') }}">Equipment</a> / 
+            <a href="{{ url_for('main.equipment_detail', equipment_id=equipment.id) }}">{{ equipment.name }}</a> / 
+            Schedule
+        </div>
+    </div>
+    
+    <div class="schedule-header">
+        <h1>📅 {{ equipment.name }} - Schedule</h1>
+        <div class="schedule-actions">
+            <a href="{{ url_for('main.equipment_ical_feed', equipment_id=equipment.id) }}" class="ical-link" title="Subscribe to calendar">
+                📥 iCal Feed
+            </a>
+            {% if g.current_user %}
+            <a href="{{ url_for('main.equipment_book', equipment_id=equipment.id) }}" class="btn btn-primary">
+                {{ icon_plus() }} Book Equipment
+            </a>
+            {% endif %}
+            {% if g.current_user and (equipment.owner_id == g.current_user.id or g.current_user.role == 'admin') %}
+            <a href="{{ url_for('main.equipment_schedule_settings', equipment_id=equipment.id) }}" class="btn btn-secondary">
+                {{ icon_settings() }} Settings
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    
+    {% if config and not config.scheduling_enabled %}
+    <div class="alert alert-warning">
+        Scheduling is currently disabled for this equipment. Contact the equipment owner to enable it.
+    </div>
+    {% endif %}
+    
+    <!-- Calendar View -->
+    <div class="calendar-container">
+        <div id="calendar"></div>
+    </div>
+    
+    <!-- Upcoming Bookings List -->
+    <div class="upcoming-bookings">
+        <h2>Upcoming Bookings</h2>
+        {% if bookings %}
+        {% for booking in bookings %}
+        <div class="booking-card">
+            <div class="time">
+                {{ booking.start_time[:16] | replace('T', ' ') }}
+            </div>
+            <div class="details">
+                <strong>{{ booking.title }}</strong>
+                <span class="text-secondary">by {{ booking.user_name }}</span>
+                {% if booking.project_name %}
+                <span class="text-secondary">({{ booking.project_name }})</span>
+                {% endif %}
+            </div>
+            <span class="status-badge status-{{ booking.status }}">{{ booking.status }}</span>
+            <a href="{{ url_for('main.equipment_booking_detail', equipment_id=equipment.id, booking_id=booking.id) }}" class="btn btn-small btn-secondary">View</a>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="empty-text">No upcoming bookings.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var calendarEl = document.getElementById('calendar');
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'timeGridWeek',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+        },
+        events: '{{ url_for("main.equipment_calendar_events", equipment_id=equipment.id) }}',
+        eventClick: function(info) {
+            window.location.href = '{{ url_for("main.equipment_booking_detail", equipment_id=equipment.id, booking_id=0) }}'.replace('/0', '/' + info.event.id);
+        },
+        {% if g.current_user %}
+        selectable: true,
+        select: function(info) {
+            // Navigate to booking form with pre-filled times
+            var start = info.startStr;
+            var end = info.endStr;
+            window.location.href = '{{ url_for("main.equipment_book", equipment_id=equipment.id) }}?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
+        },
+        {% endif %}
+        slotMinTime: '06:00:00',
+        slotMaxTime: '22:00:00',
+        allDaySlot: false,
+        nowIndicator: true,
+        weekends: true,
+        height: 'auto',
+        eventTimeFormat: {
+            hour: '2-digit',
+            minute: '2-digit',
+            meridiem: false,
+            hour12: false
+        }
+    });
+    calendar.render();
+});
+</script>
+{% endblock %}

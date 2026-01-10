@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}Scheduling Settings - {{ equipment.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.equipment') }}">Equipment</a> / 
+            <a href="{{ url_for('main.equipment_detail', equipment_id=equipment.id) }}">{{ equipment.name }}</a> / 
+            <a href="{{ url_for('main.equipment_schedule', equipment_id=equipment.id) }}">Schedule</a> /
+            Settings
+        </div>
+    </div>
+    
+    <h1>⚙️ Scheduling Settings - {{ equipment.name }}</h1>
+    
+    <form method="POST" class="form-grid">
+        <div class="form-section">
+            <h2>General Settings</h2>
+            
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="scheduling_enabled" {% if not config or config.scheduling_enabled %}checked{% endif %}>
+                    Enable equipment scheduling
+                </label>
+                <p class="form-help">Allow users to book time slots on this equipment.</p>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Booking Duration Limits</h2>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="min_booking_duration">Minimum Duration (minutes)</label>
+                    <input type="number" id="min_booking_duration" name="min_booking_duration" min="5" max="1440"
+                           value="{{ config.min_booking_duration if config else 30 }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="max_booking_duration">Maximum Duration (minutes)</label>
+                    <input type="number" id="max_booking_duration" name="max_booking_duration" min="5" max="1440"
+                           value="{{ config.max_booking_duration if config else 480 }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="default_booking_duration">Default Duration (minutes)</label>
+                    <input type="number" id="default_booking_duration" name="default_booking_duration" min="5" max="1440"
+                           value="{{ config.default_booking_duration if config else 60 }}">
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Advance Booking Limits</h2>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="min_advance_booking">Minimum Advance (days)</label>
+                    <input type="number" id="min_advance_booking" name="min_advance_booking" min="0" max="365"
+                           value="{{ config.min_advance_booking if config else 0 }}">
+                    <p class="form-help">0 = same-day bookings allowed</p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="max_advance_booking">Maximum Advance (days)</label>
+                    <input type="number" id="max_advance_booking" name="max_advance_booking" min="1" max="365"
+                           value="{{ config.max_advance_booking if config else 30 }}">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="buffer_time">Buffer Time Between Bookings (minutes)</label>
+                <input type="number" id="buffer_time" name="buffer_time" min="0" max="120"
+                       value="{{ config.buffer_time if config else 0 }}">
+                <p class="form-help">Required gap between consecutive bookings for cleanup/setup.</p>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Approval Settings</h2>
+            
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="requires_approval" {% if config and config.requires_approval %}checked{% endif %}>
+                    Require approval for bookings
+                </label>
+                <p class="form-help">Bookings will be set to "pending" until approved.</p>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Recurring Bookings</h2>
+            
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="allow_recurring" {% if not config or config.allow_recurring %}checked{% endif %}>
+                    Allow recurring bookings
+                </label>
+            </div>
+        </div>
+        
+        <div class="form-section full-width">
+            <h2>Availability Schedule</h2>
+            <p class="form-help">Set available hours for each day. Uncheck days to mark as unavailable.</p>
+            
+            <table class="data-table" style="max-width: 600px;">
+                <thead>
+                    <tr>
+                        <th>Day</th>
+                        <th>Available</th>
+                        <th>Start Time</th>
+                        <th>End Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] %}
+                    {% set day_config = config.availability_schedule.get(day, {}) if config and config.availability_schedule else {} %}
+                    <tr>
+                        <td>{{ day | capitalize }}</td>
+                        <td>
+                            <input type="checkbox" name="{{ day }}_enabled" 
+                                   {% if not config or not config.availability_schedule or day in config.availability_schedule %}checked{% endif %}>
+                        </td>
+                        <td>
+                            <input type="time" name="{{ day }}_start" 
+                                   value="{{ day_config.start if day_config else '09:00' }}">
+                        </td>
+                        <td>
+                            <input type="time" name="{{ day }}_end" 
+                                   value="{{ day_config.end if day_config else '17:00' }}">
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="form-section">
+            <h2>Email Notifications</h2>
+            
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="send_confirmation_email" {% if not config or config.send_confirmation_email %}checked{% endif %}>
+                    Send confirmation email on booking
+                </label>
+            </div>
+            
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="send_reminder_email" {% if not config or config.send_reminder_email %}checked{% endif %}>
+                    Send reminder email before booking
+                </label>
+            </div>
+            
+            <div class="form-group">
+                <label for="reminder_hours_before">Reminder Hours Before</label>
+                <input type="number" id="reminder_hours_before" name="reminder_hours_before" min="1" max="168"
+                       value="{{ config.reminder_hours_before if config else 24 }}">
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.equipment_schedule', equipment_id=equipment.id) }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+        </div>
+    </form>
+    
+    <!-- Shared Calendar Section -->
+    <div class="external-section" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--color-border);">
+        <h2>📅 Google Calendar Integration</h2>
+        <p class="section-description">
+            Create a shared Google Calendar so all lab members can see when this equipment is booked.
+        </p>
+        
+        {% if config and config.google_calendar_id %}
+        <div class="status-box success">
+            <strong>✅ Shared Calendar Active</strong>
+            <p>{{ config.shared_calendar_name or 'Equipment Schedule' }}</p>
+        </div>
+        {% endif %}
+        
+        <a href="{{ url_for('main.equipment_shared_calendar', equipment_id=equipment.id) }}" class="btn btn-secondary">
+            ⚙️ Manage Shared Calendar
+        </a>
+    </div>
+</div>
+
+<style>
+.status-box {
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+.status-box.success {
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+.status-box p {
+    margin: 0.25rem 0 0 0;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+}
+</style>
+{% endblock %}

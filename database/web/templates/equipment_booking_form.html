@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+
+{% block title %}{% if booking %}Edit Booking{% else %}Book Equipment{% endif %} - {{ equipment.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.equipment') }}">Equipment</a> / 
+            <a href="{{ url_for('main.equipment_detail', equipment_id=equipment.id) }}">{{ equipment.name }}</a> / 
+            <a href="{{ url_for('main.equipment_schedule', equipment_id=equipment.id) }}">Schedule</a> /
+            {% if booking %}Edit Booking{% else %}Book Equipment{% endif %}
+        </div>
+    </div>
+    
+    <h1>{% if booking %}✏️ Edit Booking{% else %}📅 Book {{ equipment.name }}{% endif %}</h1>
+    
+    {% if config %}
+    <div class="info-box" style="margin-bottom: 1.5rem;">
+        <h3>Booking Rules</h3>
+        <ul style="margin: 0.5rem 0; padding-left: 1.5rem;">
+            <li>Duration: {{ config.min_booking_duration }} - {{ config.max_booking_duration }} minutes</li>
+            <li>Advance booking: {{ config.min_advance_booking }} - {{ config.max_advance_booking }} days ahead</li>
+            {% if config.requires_approval %}
+            <li>⚠️ This equipment requires approval for bookings</li>
+            {% endif %}
+            {% if config.buffer_time > 0 %}
+            <li>{{ config.buffer_time }} minute buffer between bookings</li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+    
+    <form method="POST" class="form-grid">
+        <div class="form-section">
+            <h2>Booking Details</h2>
+            
+            <div class="form-group">
+                <label for="title">Title *</label>
+                <input type="text" id="title" name="title" required
+                       value="{{ booking.title if booking else '' }}"
+                       placeholder="Brief description of what you'll be doing">
+            </div>
+            
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" name="description" rows="3"
+                          placeholder="Additional details about your equipment usage">{{ booking.description if booking else '' }}</textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="project_id">Project</label>
+                <select id="project_id" name="project_id" class="searchable-select">
+                    <option value="">-- Select Project --</option>
+                    {% for project in projects_list %}
+                    <option value="{{ project.id }}" {% if booking and booking.project_id == project.id %}selected{% endif %}>
+                        {{ project.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-section">
+            <h2>Date & Time</h2>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="start_date">Start Date *</label>
+                    <input type="date" id="start_date" name="start_date" required
+                           value="{% if booking %}{{ booking.start_time[:10] }}{% elif default_start %}{{ default_start[:10] }}{% endif %}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="start_time">Start Time *</label>
+                    <input type="time" id="start_time" name="start_time" required
+                           value="{% if booking %}{{ booking.start_time[11:16] }}{% elif default_start and 'T' in default_start %}{{ default_start[11:16] }}{% else %}09:00{% endif %}">
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="end_date">End Date *</label>
+                    <input type="date" id="end_date" name="end_date" required
+                           value="{% if booking %}{{ booking.end_time[:10] }}{% elif default_end %}{{ default_end[:10] }}{% elif default_start %}{{ default_start[:10] }}{% endif %}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="end_time">End Time *</label>
+                    <input type="time" id="end_time" name="end_time" required
+                           value="{% if booking %}{{ booking.end_time[11:16] }}{% elif default_end and 'T' in default_end %}{{ default_end[11:16] }}{% else %}10:00{% endif %}">
+                </div>
+            </div>
+            
+            <div id="duration-display" class="text-secondary" style="margin-top: 0.5rem;"></div>
+        </div>
+        
+        {% if not booking and config and config.allow_recurring %}
+        <div class="form-section">
+            <h2>Recurring Booking</h2>
+            
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="is_recurring" name="is_recurring" onchange="toggleRecurring()">
+                    Make this a recurring booking
+                </label>
+            </div>
+            
+            <div id="recurring-options" style="display: none;">
+                <div class="form-group">
+                    <label for="recurrence_pattern">Repeat</label>
+                    <select id="recurrence_pattern" name="recurrence_pattern" onchange="updateRRule()">
+                        <option value="daily">Daily</option>
+                        <option value="weekly" selected>Weekly</option>
+                        <option value="biweekly">Every 2 weeks</option>
+                        <option value="monthly">Monthly</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="weekly-days" style="display: block;">
+                    <label>Repeat on</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" name="day_mon" checked> Mon</label>
+                        <label><input type="checkbox" name="day_tue"> Tue</label>
+                        <label><input type="checkbox" name="day_wed"> Wed</label>
+                        <label><input type="checkbox" name="day_thu"> Thu</label>
+                        <label><input type="checkbox" name="day_fri"> Fri</label>
+                        <label><input type="checkbox" name="day_sat"> Sat</label>
+                        <label><input type="checkbox" name="day_sun"> Sun</label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="recurrence_count">End after</label>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input type="number" id="recurrence_count" name="recurrence_count" value="10" min="1" max="52" style="width: 80px;">
+                        <span>occurrences (max {{ config.max_recurring_weeks if config else 12 }} weeks)</span>
+                    </div>
+                </div>
+                
+                <input type="hidden" id="recurrence_rule" name="recurrence_rule">
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="form-section">
+            <h2>Notes</h2>
+            
+            <div class="form-group">
+                <label for="notes">Additional Notes</label>
+                <textarea id="notes" name="notes" rows="3"
+                          placeholder="Any special requirements or notes">{{ booking.notes if booking else '' }}</textarea>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('main.equipment_schedule', equipment_id=equipment.id) }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">
+                {% if booking %}Update Booking{% else %}Create Booking{% endif %}
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Calculate and display duration
+function updateDuration() {
+    const startDate = document.getElementById('start_date').value;
+    const startTime = document.getElementById('start_time').value;
+    const endDate = document.getElementById('end_date').value;
+    const endTime = document.getElementById('end_time').value;
+    
+    if (startDate && startTime && endDate && endTime) {
+        const start = new Date(startDate + 'T' + startTime);
+        const end = new Date(endDate + 'T' + endTime);
+        const diffMs = end - start;
+        
+        if (diffMs > 0) {
+            const hours = Math.floor(diffMs / (1000 * 60 * 60));
+            const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+            
+            let durationText = 'Duration: ';
+            if (hours > 0) durationText += hours + ' hour' + (hours > 1 ? 's' : '') + ' ';
+            if (minutes > 0) durationText += minutes + ' minute' + (minutes > 1 ? 's' : '');
+            
+            document.getElementById('duration-display').textContent = durationText;
+        } else {
+            document.getElementById('duration-display').textContent = 'End time must be after start time';
+        }
+    }
+}
+
+// Add event listeners
+document.getElementById('start_date').addEventListener('change', function() {
+    // Auto-set end date if not set
+    if (!document.getElementById('end_date').value) {
+        document.getElementById('end_date').value = this.value;
+    }
+    updateDuration();
+});
+document.getElementById('start_time').addEventListener('change', updateDuration);
+document.getElementById('end_date').addEventListener('change', updateDuration);
+document.getElementById('end_time').addEventListener('change', updateDuration);
+
+// Initial calculation
+updateDuration();
+
+// Recurring booking functions
+function toggleRecurring() {
+    const options = document.getElementById('recurring-options');
+    if (document.getElementById('is_recurring').checked) {
+        options.style.display = 'block';
+        updateRRule();
+    } else {
+        options.style.display = 'none';
+        document.getElementById('recurrence_rule').value = '';
+    }
+}
+
+function updateRRule() {
+    const pattern = document.getElementById('recurrence_pattern').value;
+    const count = document.getElementById('recurrence_count').value;
+    const weeklyDays = document.getElementById('weekly-days');
+    
+    let rrule = '';
+    
+    switch(pattern) {
+        case 'daily':
+            rrule = `FREQ=DAILY;COUNT=${count}`;
+            weeklyDays.style.display = 'none';
+            break;
+        case 'weekly':
+            const days = [];
+            if (document.querySelector('input[name="day_mon"]').checked) days.push('MO');
+            if (document.querySelector('input[name="day_tue"]').checked) days.push('TU');
+            if (document.querySelector('input[name="day_wed"]').checked) days.push('WE');
+            if (document.querySelector('input[name="day_thu"]').checked) days.push('TH');
+            if (document.querySelector('input[name="day_fri"]').checked) days.push('FR');
+            if (document.querySelector('input[name="day_sat"]').checked) days.push('SA');
+            if (document.querySelector('input[name="day_sun"]').checked) days.push('SU');
+            if (days.length > 0) {
+                rrule = `FREQ=WEEKLY;BYDAY=${days.join(',')};COUNT=${count}`;
+            }
+            weeklyDays.style.display = 'block';
+            break;
+        case 'biweekly':
+            rrule = `FREQ=WEEKLY;INTERVAL=2;COUNT=${count}`;
+            weeklyDays.style.display = 'none';
+            break;
+        case 'monthly':
+            rrule = `FREQ=MONTHLY;COUNT=${count}`;
+            weeklyDays.style.display = 'none';
+            break;
+    }
+    
+    document.getElementById('recurrence_rule').value = rrule;
+}
+
+// Add listeners for weekly day checkboxes
+document.querySelectorAll('.checkbox-group input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', updateRRule);
+});
+document.getElementById('recurrence_pattern')?.addEventListener('change', updateRRule);
+document.getElementById('recurrence_count')?.addEventListener('change', updateRRule);
+</script>
+{% endblock %}

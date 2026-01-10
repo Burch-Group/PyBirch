@@ -9,7 +9,7 @@ import shutil
 from datetime import datetime
 from functools import wraps
 from io import BytesIO
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, session, g, send_file, Response, current_app
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, session, g, send_file, Response, current_app, make_response
 from database.services import get_db_service
 
 # Main blueprint for HTML pages
@@ -2355,6 +2355,853 @@ def equipment_maintenance_task_trigger(equipment_id, task_id):
         flash('Could not create maintenance issue', 'error')
     
     return redirect(url_for('main.equipment_maintenance_tasks', equipment_id=equipment_id))
+
+
+# -------------------- Equipment Bookings & Scheduling --------------------
+
+@main_bp.route('/equipment/<int:equipment_id>/schedule')
+def equipment_schedule(equipment_id):
+    """Equipment schedule/calendar view."""
+    db = get_db_service()
+    
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    # Get scheduling configuration
+    config = db.get_equipment_scheduling_config(equipment_id)
+    
+    # Get upcoming bookings
+    bookings, total = db.get_equipment_bookings(
+        equipment_id=equipment_id,
+        include_past=False,
+        per_page=100
+    )
+    
+    return render_template('equipment_schedule.html',
+        equipment=equipment,
+        bookings=bookings,
+        config=config,
+        total=total
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/schedule/calendar-events')
+def equipment_calendar_events(equipment_id):
+    """API endpoint for calendar events (FullCalendar.js)."""
+    db = get_db_service()
+    
+    start_date = request.args.get('start')
+    end_date = request.args.get('end')
+    
+    start = datetime.fromisoformat(start_date.replace('Z', '')) if start_date else None
+    end = datetime.fromisoformat(end_date.replace('Z', '')) if end_date else None
+    
+    events = db.get_bookings_for_calendar(
+        equipment_id=equipment_id,
+        start_date=start,
+        end_date=end
+    )
+    
+    return jsonify(events)
+
+
+@main_bp.route('/equipment/<int:equipment_id>/book', methods=['GET', 'POST'])
+@login_required
+def equipment_book(equipment_id):
+    """Create a new equipment booking."""
+    db = get_db_service()
+    
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    config = db.get_equipment_scheduling_config(equipment_id)
+    
+    if request.method == 'POST':
+        try:
+            # Parse datetime from form
+            start_date = request.form.get('start_date')
+            start_time = request.form.get('start_time')
+            end_date = request.form.get('end_date')
+            end_time = request.form.get('end_time')
+            
+            start_datetime = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
+            end_datetime = datetime.strptime(f"{end_date} {end_time}", "%Y-%m-%d %H:%M")
+            
+            # Check availability
+            availability = db.check_booking_availability(
+                equipment_id, start_datetime, end_datetime
+            )
+            
+            if not availability['available']:
+                for issue in availability['issues']:
+                    flash(issue['message'], 'error')
+                return redirect(url_for('main.equipment_book', equipment_id=equipment_id))
+            
+            data = {
+                'equipment_id': equipment_id,
+                'user_id': g.current_user['id'],
+                'title': request.form.get('title'),
+                'description': request.form.get('description'),
+                'start_time': start_datetime,
+                'end_time': end_datetime,
+                'project_id': request.form.get('project_id', type=int),
+                'notes': request.form.get('notes'),
+                'is_recurring': request.form.get('is_recurring') == 'on',
+                'recurrence_rule': request.form.get('recurrence_rule'),
+                'created_by': g.current_user['username'],
+            }
+            
+            booking = db.create_equipment_booking(data)
+            
+            # Sync to shared Google Calendar if configured
+            if config and config.get('google_calendar_id') and config.get('sync_to_external'):
+                try:
+                    from database.calendar_integration import get_calendar_service
+                    cal_service = get_calendar_service(db)
+                    if cal_service:
+                        admin_id = config.get('shared_calendar_admin_id') or g.current_user['id']
+                        # Add equipment name for calendar event
+                        booking['equipment_name'] = equipment['name']
+                        booking['user_name'] = g.current_user.get('name') or g.current_user['username']
+                        cal_service.sync_booking_to_shared_calendar(
+                            admin_id, config['google_calendar_id'], booking
+                        )
+                except Exception as e:
+                    # Don't fail booking creation if calendar sync fails
+                    pass
+            
+            flash('Booking created successfully', 'success')
+            
+            return redirect(url_for('main.equipment_booking_detail', 
+                equipment_id=equipment_id, booking_id=booking['id']))
+        
+        except ValueError as e:
+            flash(str(e), 'error')
+    
+    # Get projects for dropdown
+    projects_list = db.get_projects_simple_list()
+    
+    # Get default values from query params (for calendar click)
+    default_start = request.args.get('start', '')
+    default_end = request.args.get('end', '')
+    
+    return render_template('equipment_booking_form.html',
+        equipment=equipment,
+        config=config,
+        projects_list=projects_list,
+        booking=None,
+        default_start=default_start,
+        default_end=default_end
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/bookings/<int:booking_id>')
+def equipment_booking_detail(equipment_id, booking_id):
+    """Equipment booking detail page."""
+    db = get_db_service()
+    
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    booking = db.get_equipment_booking(booking_id)
+    if not booking:
+        flash('Booking not found', 'error')
+        return redirect(url_for('main.equipment_schedule', equipment_id=equipment_id))
+    
+    return render_template('equipment_booking_detail.html',
+        equipment=equipment,
+        booking=booking
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/bookings/<int:booking_id>/edit', methods=['GET', 'POST'])
+@login_required
+def equipment_booking_edit(equipment_id, booking_id):
+    """Edit an equipment booking."""
+    db = get_db_service()
+    
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    booking = db.get_equipment_booking(booking_id)
+    if not booking:
+        flash('Booking not found', 'error')
+        return redirect(url_for('main.equipment_schedule', equipment_id=equipment_id))
+    
+    # Check ownership
+    if booking['user_id'] != g.current_user['id'] and g.current_user['role'] != 'admin':
+        flash('You can only edit your own bookings', 'error')
+        return redirect(url_for('main.equipment_booking_detail', 
+            equipment_id=equipment_id, booking_id=booking_id))
+    
+    config = db.get_equipment_scheduling_config(equipment_id)
+    
+    if request.method == 'POST':
+        try:
+            start_date = request.form.get('start_date')
+            start_time = request.form.get('start_time')
+            end_date = request.form.get('end_date')
+            end_time = request.form.get('end_time')
+            
+            start_datetime = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
+            end_datetime = datetime.strptime(f"{end_date} {end_time}", "%Y-%m-%d %H:%M")
+            
+            # Check availability (excluding current booking)
+            availability = db.check_booking_availability(
+                equipment_id, start_datetime, end_datetime, exclude_booking_id=booking_id
+            )
+            
+            if not availability['available']:
+                for issue in availability['issues']:
+                    flash(issue['message'], 'error')
+                return redirect(url_for('main.equipment_booking_edit', 
+                    equipment_id=equipment_id, booking_id=booking_id))
+            
+            data = {
+                'title': request.form.get('title'),
+                'description': request.form.get('description'),
+                'start_time': start_datetime,
+                'end_time': end_datetime,
+                'project_id': request.form.get('project_id', type=int),
+                'notes': request.form.get('notes'),
+            }
+            
+            db.update_equipment_booking(booking_id, data)
+            flash('Booking updated successfully', 'success')
+            
+            return redirect(url_for('main.equipment_booking_detail', 
+                equipment_id=equipment_id, booking_id=booking_id))
+        
+        except ValueError as e:
+            flash(str(e), 'error')
+    
+    projects_list = db.get_projects_simple_list()
+    
+    return render_template('equipment_booking_form.html',
+        equipment=equipment,
+        config=config,
+        projects_list=projects_list,
+        booking=booking
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/bookings/<int:booking_id>/cancel', methods=['POST'])
+@login_required
+def equipment_booking_cancel(equipment_id, booking_id):
+    """Cancel an equipment booking."""
+    db = get_db_service()
+    
+    booking = db.get_equipment_booking(booking_id)
+    if not booking:
+        flash('Booking not found', 'error')
+        return redirect(url_for('main.equipment_schedule', equipment_id=equipment_id))
+    
+    # Check ownership
+    if booking['user_id'] != g.current_user['id'] and g.current_user['role'] != 'admin':
+        flash('You can only cancel your own bookings', 'error')
+        return redirect(url_for('main.equipment_booking_detail', 
+            equipment_id=equipment_id, booking_id=booking_id))
+    
+    reason = request.form.get('reason', '')
+    db.cancel_booking(booking_id, reason=reason, cancelled_by=g.current_user['username'])
+    
+    # Delete from shared Google Calendar if configured
+    config = db.get_equipment_scheduling_config(equipment_id)
+    if config and config.get('google_calendar_id') and booking.get('google_event_id'):
+        try:
+            from database.calendar_integration import get_calendar_service
+            cal_service = get_calendar_service(db)
+            if cal_service:
+                admin_id = config.get('shared_calendar_admin_id') or g.current_user['id']
+                cal_service.sync_booking_to_shared_calendar(
+                    admin_id, config['google_calendar_id'], booking, delete=True
+                )
+        except Exception:
+            pass  # Don't fail if calendar sync fails
+    
+    flash('Booking cancelled', 'success')
+    
+    return redirect(url_for('main.equipment_schedule', equipment_id=equipment_id))
+
+
+@main_bp.route('/equipment/<int:equipment_id>/bookings/<int:booking_id>/checkin', methods=['POST'])
+@login_required
+def equipment_booking_checkin(equipment_id, booking_id):
+    """Check in to a booking."""
+    db = get_db_service()
+    
+    booking = db.get_equipment_booking(booking_id)
+    if not booking:
+        flash('Booking not found', 'error')
+        return redirect(url_for('main.equipment_schedule', equipment_id=equipment_id))
+    
+    if booking['user_id'] != g.current_user['id']:
+        flash('You can only check in to your own bookings', 'error')
+        return redirect(url_for('main.equipment_booking_detail', 
+            equipment_id=equipment_id, booking_id=booking_id))
+    
+    db.checkin_booking(booking_id)
+    flash('Checked in successfully', 'success')
+    
+    return redirect(url_for('main.equipment_booking_detail', 
+        equipment_id=equipment_id, booking_id=booking_id))
+
+
+@main_bp.route('/equipment/<int:equipment_id>/bookings/<int:booking_id>/checkout', methods=['POST'])
+@login_required
+def equipment_booking_checkout(equipment_id, booking_id):
+    """Check out of a booking."""
+    db = get_db_service()
+    
+    booking = db.get_equipment_booking(booking_id)
+    if not booking:
+        flash('Booking not found', 'error')
+        return redirect(url_for('main.equipment_schedule', equipment_id=equipment_id))
+    
+    if booking['user_id'] != g.current_user['id']:
+        flash('You can only check out of your own bookings', 'error')
+        return redirect(url_for('main.equipment_booking_detail', 
+            equipment_id=equipment_id, booking_id=booking_id))
+    
+    db.checkout_booking(booking_id)
+    flash('Checked out successfully', 'success')
+    
+    return redirect(url_for('main.equipment_booking_detail', 
+        equipment_id=equipment_id, booking_id=booking_id))
+
+
+@main_bp.route('/equipment/<int:equipment_id>/schedule/settings', methods=['GET', 'POST'])
+@login_required
+def equipment_schedule_settings(equipment_id):
+    """Configure scheduling settings for equipment."""
+    db = get_db_service()
+    
+    equipment = db.get_equipment(equipment_id)
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment'))
+    
+    # Check permissions (owner or admin)
+    if equipment.get('owner_id') != g.current_user['id'] and g.current_user['role'] != 'admin':
+        flash('Only equipment owners or admins can configure scheduling', 'error')
+        return redirect(url_for('main.equipment_schedule', equipment_id=equipment_id))
+    
+    if request.method == 'POST':
+        data = {
+            'scheduling_enabled': request.form.get('scheduling_enabled') == 'on',
+            'min_booking_duration': request.form.get('min_booking_duration', type=int) or 30,
+            'max_booking_duration': request.form.get('max_booking_duration', type=int) or 480,
+            'default_booking_duration': request.form.get('default_booking_duration', type=int) or 60,
+            'min_advance_booking': request.form.get('min_advance_booking', type=int) or 0,
+            'max_advance_booking': request.form.get('max_advance_booking', type=int) or 30,
+            'buffer_time': request.form.get('buffer_time', type=int) or 0,
+            'requires_approval': request.form.get('requires_approval') == 'on',
+            'allow_recurring': request.form.get('allow_recurring') == 'on',
+            'send_confirmation_email': request.form.get('send_confirmation_email') == 'on',
+            'send_reminder_email': request.form.get('send_reminder_email') == 'on',
+            'reminder_hours_before': request.form.get('reminder_hours_before', type=int) or 24,
+        }
+        
+        # Parse availability schedule
+        availability = {}
+        for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']:
+            if request.form.get(f'{day}_enabled') == 'on':
+                availability[day] = {
+                    'start': request.form.get(f'{day}_start', '09:00'),
+                    'end': request.form.get(f'{day}_end', '17:00')
+                }
+        data['availability_schedule'] = availability if availability else None
+        
+        db.create_or_update_scheduling_config(equipment_id, data)
+        flash('Scheduling settings saved', 'success')
+        
+        return redirect(url_for('main.equipment_schedule', equipment_id=equipment_id))
+    
+    config = db.get_equipment_scheduling_config(equipment_id)
+    users = db.get_users_simple_list()
+    
+    return render_template('equipment_schedule_settings.html',
+        equipment=equipment,
+        config=config,
+        users=users
+    )
+
+
+@main_bp.route('/equipment/<int:equipment_id>/schedule/ical')
+def equipment_ical_feed(equipment_id):
+    """Generate iCal feed for equipment bookings."""
+    db = get_db_service()
+    
+    ical_content = db.generate_ical_feed(equipment_id=equipment_id)
+    
+    response = make_response(ical_content)
+    response.headers['Content-Type'] = 'text/calendar; charset=utf-8'
+    response.headers['Content-Disposition'] = f'attachment; filename=equipment-{equipment_id}-schedule.ics'
+    return response
+
+
+@main_bp.route('/my-bookings')
+@login_required
+def my_bookings():
+    """User's booking dashboard."""
+    db = get_db_service()
+    
+    page = request.args.get('page', 1, type=int)
+    include_past = request.args.get('include_past', 'false') == 'true'
+    status = request.args.get('status', '')
+    
+    bookings, total = db.get_equipment_bookings(
+        user_id=g.current_user['id'],
+        status=status if status else None,
+        include_past=include_past,
+        page=page
+    )
+    
+    total_pages = (total + 19) // 20
+    
+    # Get upcoming bookings for widget
+    upcoming = db.get_user_upcoming_bookings(g.current_user['id'], limit=5)
+    
+    return render_template('my_bookings.html',
+        bookings=bookings,
+        upcoming=upcoming,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        include_past=include_past,
+        status=status
+    )
+
+
+@main_bp.route('/my-bookings/ical')
+@login_required
+def my_bookings_ical_feed():
+    """Generate iCal feed for user's bookings."""
+    db = get_db_service()
+    
+    ical_content = db.generate_ical_feed(user_id=g.current_user['id'])
+    
+    response = make_response(ical_content)
+    response.headers['Content-Type'] = 'text/calendar; charset=utf-8'
+    response.headers['Content-Disposition'] = 'attachment; filename=my-equipment-bookings.ics'
+    return response
+
+
+@main_bp.route('/schedule')
+def lab_schedule():
+    """Lab-wide equipment schedule view."""
+    db = get_db_service()
+    
+    lab_id = session.get('filter_lab_id')
+    
+    # Get all equipment for the lab
+    equipment_list, _ = db.get_equipment_list(lab_id=lab_id, per_page=100)
+    
+    return render_template('lab_schedule.html',
+        equipment_list=equipment_list,
+        lab_id=lab_id
+    )
+
+
+@main_bp.route('/schedule/calendar-events')
+def lab_calendar_events():
+    """API endpoint for lab-wide calendar events."""
+    db = get_db_service()
+    
+    lab_id = session.get('filter_lab_id')
+    start_date = request.args.get('start')
+    end_date = request.args.get('end')
+    
+    start = datetime.fromisoformat(start_date.replace('Z', '')) if start_date else None
+    end = datetime.fromisoformat(end_date.replace('Z', '')) if end_date else None
+    
+    events = db.get_bookings_for_calendar(
+        lab_id=lab_id,
+        start_date=start,
+        end_date=end
+    )
+    
+    return jsonify(events)
+
+
+# -------------------- Calendar Integration --------------------
+
+@main_bp.route('/settings/calendar')
+@login_required
+def calendar_settings():
+    """User calendar integration settings."""
+    db = get_db_service()
+    
+    integrations = db.get_user_calendar_integrations(g.current_user['id'])
+    
+    # Check available providers
+    from database.calendar_integration import get_calendar_service
+    cal_service = get_calendar_service(db)
+    
+    available_providers = {
+        'google': cal_service.is_google_available() if cal_service else False,
+        'outlook': cal_service.is_microsoft_available() if cal_service else False,
+    }
+    
+    return render_template('calendar_settings.html',
+        integrations=integrations,
+        available_providers=available_providers
+    )
+
+
+@main_bp.route('/settings/calendar/connect/google')
+@login_required
+def connect_google_calendar():
+    """Initiate Google Calendar OAuth flow."""
+    from database.calendar_integration import get_calendar_service
+    
+    db = get_db_service()
+    cal_service = get_calendar_service(db)
+    
+    if not cal_service or not cal_service.is_google_available():
+        flash('Google Calendar integration is not configured', 'error')
+        return redirect(url_for('main.calendar_settings'))
+    
+    redirect_uri = url_for('main.google_calendar_callback', _external=True)
+    
+    try:
+        auth_url = cal_service.get_google_auth_url(g.current_user['id'], redirect_uri)
+        return redirect(auth_url)
+    except Exception as e:
+        flash(f'Error connecting to Google: {str(e)}', 'error')
+        return redirect(url_for('main.calendar_settings'))
+
+
+@main_bp.route('/settings/calendar/callback/google')
+@login_required
+def google_calendar_callback():
+    """Handle Google Calendar OAuth callback."""
+    from database.calendar_integration import get_calendar_service
+    
+    db = get_db_service()
+    cal_service = get_calendar_service(db)
+    
+    code = request.args.get('code')
+    error = request.args.get('error')
+    
+    if error:
+        flash(f'Google authorization error: {error}', 'error')
+        return redirect(url_for('main.calendar_settings'))
+    
+    if not code:
+        flash('No authorization code received', 'error')
+        return redirect(url_for('main.calendar_settings'))
+    
+    redirect_uri = url_for('main.google_calendar_callback', _external=True)
+    
+    try:
+        cal_service.handle_google_callback(g.current_user['id'], code, redirect_uri)
+        flash('Google Calendar connected successfully!', 'success')
+    except Exception as e:
+        flash(f'Error connecting Google Calendar: {str(e)}', 'error')
+    
+    return redirect(url_for('main.calendar_settings'))
+
+
+@main_bp.route('/settings/calendar/disconnect/<provider>', methods=['POST'])
+@login_required
+def disconnect_calendar(provider):
+    """Disconnect a calendar integration."""
+    db = get_db_service()
+    
+    if db.delete_calendar_integration(g.current_user['id'], provider):
+        flash(f'{provider.capitalize()} calendar disconnected', 'success')
+    else:
+        flash(f'Could not disconnect {provider} calendar', 'error')
+    
+    return redirect(url_for('main.calendar_settings'))
+
+
+@main_bp.route('/settings/calendar/sync/<provider>', methods=['POST'])
+@login_required
+def sync_calendar(provider):
+    """Manually sync bookings with external calendar."""
+    from database.calendar_integration import get_calendar_service
+    
+    db = get_db_service()
+    cal_service = get_calendar_service(db)
+    
+    if not cal_service:
+        flash('Calendar service not available', 'error')
+        return redirect(url_for('main.calendar_settings'))
+    
+    # Get user's upcoming bookings
+    bookings = db.get_user_upcoming_bookings(g.current_user['id'], limit=50)
+    
+    synced = 0
+    for booking in bookings:
+        if provider == 'google':
+            if not booking.get('google_event_id'):
+                event_id = cal_service.create_google_event(g.current_user['id'], booking)
+                if event_id:
+                    synced += 1
+    
+    if synced > 0:
+        flash(f'Synced {synced} booking(s) to {provider.capitalize()} Calendar', 'success')
+    else:
+        flash('All bookings already synced', 'info')
+    
+    return redirect(url_for('main.calendar_settings'))
+
+
+# -------------------- Shared Equipment Calendars --------------------
+
+@main_bp.route('/equipment/<int:equipment_id>/schedule/settings/shared-calendar', methods=['GET', 'POST'])
+@login_required
+def equipment_shared_calendar(equipment_id):
+    """Manage shared Google Calendar for equipment scheduling."""
+    from database.calendar_integration import get_calendar_service
+    
+    db = get_db_service()
+    equipment = db.get_equipment_by_id(equipment_id)
+    
+    if not equipment:
+        flash('Equipment not found', 'error')
+        return redirect(url_for('main.equipment_list'))
+    
+    # Check admin permission
+    if not g.current_user.get('is_admin') and equipment.get('created_by_id') != g.current_user['id']:
+        flash('Permission denied', 'error')
+        return redirect(url_for('main.equipment_schedule', equipment_id=equipment_id))
+    
+    config = db.get_equipment_scheduling_config(equipment_id)
+    cal_service = get_calendar_service(db)
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        
+        if action == 'create_calendar':
+            # Create a new shared Google Calendar
+            if not cal_service or not cal_service.is_google_available():
+                flash('Google Calendar integration not configured', 'error')
+                return redirect(url_for('main.equipment_shared_calendar', equipment_id=equipment_id))
+            
+            calendar_name = request.form.get('calendar_name', f"{equipment['name']} Schedule")
+            
+            result = cal_service.create_shared_calendar(
+                admin_user_id=g.current_user['id'],
+                calendar_name=calendar_name,
+                description=f"Equipment scheduling calendar for {equipment['name']}"
+            )
+            
+            if result:
+                # Store the calendar ID in scheduling config
+                db.update_equipment_scheduling_config(equipment_id, {
+                    'google_calendar_id': result['id'],
+                    'shared_calendar_admin_id': g.current_user['id'],
+                    'shared_calendar_name': calendar_name,
+                    'sync_to_external': True,
+                })
+                flash(f'Created shared calendar: {calendar_name}', 'success')
+            else:
+                flash('Failed to create calendar', 'error')
+        
+        elif action == 'share_domain':
+            # Share with a domain
+            domain = request.form.get('domain', '').strip()
+            role = request.form.get('role', 'reader')
+            
+            if config and config.get('google_calendar_id') and domain:
+                admin_id = config.get('shared_calendar_admin_id') or g.current_user['id']
+                success = cal_service.share_calendar_with_domain(
+                    admin_id, config['google_calendar_id'], domain, role
+                )
+                if success:
+                    db.update_equipment_scheduling_config(equipment_id, {
+                        'shared_calendar_domain': domain
+                    })
+                    flash(f'Shared calendar with {domain}', 'success')
+                else:
+                    flash('Failed to share calendar with domain', 'error')
+        
+        elif action == 'share_user':
+            # Share with specific user
+            email = request.form.get('email', '').strip()
+            role = request.form.get('role', 'reader')
+            
+            if config and config.get('google_calendar_id') and email:
+                admin_id = config.get('shared_calendar_admin_id') or g.current_user['id']
+                success = cal_service.share_calendar_with_user(
+                    admin_id, config['google_calendar_id'], email, role
+                )
+                if success:
+                    flash(f'Shared calendar with {email}', 'success')
+                else:
+                    flash('Failed to share calendar', 'error')
+        
+        elif action == 'make_public':
+            # Make calendar publicly viewable
+            if config and config.get('google_calendar_id'):
+                admin_id = config.get('shared_calendar_admin_id') or g.current_user['id']
+                success = cal_service.make_calendar_public(
+                    admin_id, config['google_calendar_id']
+                )
+                if success:
+                    db.update_equipment_scheduling_config(equipment_id, {
+                        'shared_calendar_public': True
+                    })
+                    flash('Calendar is now publicly viewable', 'success')
+                else:
+                    flash('Failed to make calendar public', 'error')
+        
+        elif action == 'populate':
+            # Populate calendar with existing bookings
+            if config and config.get('google_calendar_id'):
+                admin_id = config.get('shared_calendar_admin_id') or g.current_user['id']
+                
+                # Get all bookings for this equipment
+                bookings = db.get_equipment_bookings(
+                    equipment_id=equipment_id,
+                    status=['pending', 'confirmed', 'checked_in'],
+                    limit=500
+                )
+                
+                result = cal_service.populate_shared_calendar(
+                    admin_id, 
+                    config['google_calendar_id'],
+                    bookings,
+                    clear_existing=request.form.get('clear_existing') == '1'
+                )
+                
+                if result.get('error'):
+                    flash(f"Sync error: {result['error']}", 'error')
+                else:
+                    db.update_equipment_scheduling_config(equipment_id, {
+                        'last_calendar_sync': datetime.utcnow().isoformat()
+                    })
+                    flash(f"Synced {result['created']} new, {result['updated']} updated bookings", 'success')
+        
+        elif action == 'remove_access':
+            # Remove user/domain access
+            rule_id = request.form.get('rule_id')
+            if config and config.get('google_calendar_id') and rule_id:
+                admin_id = config.get('shared_calendar_admin_id') or g.current_user['id']
+                success = cal_service.remove_calendar_access(
+                    admin_id, config['google_calendar_id'], rule_id
+                )
+                if success:
+                    flash('Access removed', 'success')
+                else:
+                    flash('Failed to remove access', 'error')
+        
+        return redirect(url_for('main.equipment_shared_calendar', equipment_id=equipment_id))
+    
+    # GET: Display shared calendar settings
+    subscribers = []
+    share_link = None
+    embed_link = None
+    
+    if config and config.get('google_calendar_id') and cal_service:
+        admin_id = config.get('shared_calendar_admin_id') or g.current_user['id']
+        subscribers = cal_service.get_calendar_subscribers(admin_id, config['google_calendar_id'])
+        share_link = cal_service.get_calendar_share_link(config['google_calendar_id'])
+        embed_link = cal_service.get_calendar_share_link(config['google_calendar_id'], embed=True)
+    
+    google_available = cal_service and cal_service.is_google_available() if cal_service else False
+    
+    return render_template('equipment_shared_calendar.html',
+        equipment=equipment,
+        config=config,
+        subscribers=subscribers,
+        share_link=share_link,
+        embed_link=embed_link,
+        google_available=google_available,
+    )
+
+
+@main_bp.route('/lab/<int:lab_id>/shared-calendar', methods=['GET', 'POST'])
+@login_required  
+def lab_shared_calendar(lab_id):
+    """Manage shared Google Calendar for all equipment in a lab."""
+    from database.calendar_integration import get_calendar_service
+    
+    db = get_db_service()
+    lab = db.get_lab_by_id(lab_id)
+    
+    if not lab:
+        flash('Lab not found', 'error')
+        return redirect(url_for('main.labs'))
+    
+    cal_service = get_calendar_service(db)
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        
+        if action == 'create_lab_calendar':
+            # Create a unified lab equipment calendar
+            if not cal_service or not cal_service.is_google_available():
+                flash('Google Calendar integration not configured', 'error')
+                return redirect(url_for('main.lab_shared_calendar', lab_id=lab_id))
+            
+            calendar_name = request.form.get('calendar_name', f"{lab['name']} Equipment Schedule")
+            
+            result = cal_service.create_shared_calendar(
+                admin_user_id=g.current_user['id'],
+                calendar_name=calendar_name,
+                description=f"Equipment scheduling calendar for {lab['name']} lab"
+            )
+            
+            if result:
+                # Store in lab metadata (or create a new lab_calendar table)
+                # For now, store in session/flash for demo
+                flash(f"Created lab calendar: {calendar_name}. Calendar ID: {result['id']}", 'success')
+                # TODO: Store lab calendar ID in database
+            else:
+                flash('Failed to create calendar', 'error')
+        
+        elif action == 'populate_lab':
+            # Populate with all equipment bookings in the lab
+            calendar_id = request.form.get('calendar_id')
+            if calendar_id and cal_service:
+                # Get all equipment in the lab
+                equipment_list = db.get_equipment_by_lab(lab_id)
+                all_bookings = []
+                
+                for eq in equipment_list:
+                    bookings = db.get_equipment_bookings(
+                        equipment_id=eq['id'],
+                        status=['pending', 'confirmed', 'checked_in'],
+                        limit=200
+                    )
+                    all_bookings.extend(bookings)
+                
+                result = cal_service.populate_shared_calendar(
+                    g.current_user['id'],
+                    calendar_id,
+                    all_bookings,
+                    clear_existing=request.form.get('clear_existing') == '1'
+                )
+                
+                if result.get('error'):
+                    flash(f"Sync error: {result['error']}", 'error')
+                else:
+                    flash(f"Synced {result['created']} new, {result['updated']} updated bookings from {len(equipment_list)} equipment items", 'success')
+        
+        return redirect(url_for('main.lab_shared_calendar', lab_id=lab_id))
+    
+    google_available = cal_service and cal_service.is_google_available() if cal_service else False
+    
+    # Get equipment in the lab
+    equipment_list = db.get_equipment_by_lab(lab_id)
+    
+    return render_template('lab_shared_calendar.html',
+        lab=lab,
+        equipment_list=equipment_list,
+        google_available=google_available,
+    )
 
 
 # -------------------- Locations --------------------

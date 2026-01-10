@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block title %}Lab Schedule - PyBirch Database{% endblock %}
+
+{% block head %}
+<!-- FullCalendar CSS -->
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' />
+<style>
+    .schedule-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+    
+    .calendar-container {
+        background: var(--color-surface);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .fc {
+        --fc-border-color: var(--color-border);
+        --fc-button-bg-color: var(--color-primary);
+        --fc-button-border-color: var(--color-primary);
+        --fc-button-hover-bg-color: var(--color-primary-hover);
+        --fc-button-hover-border-color: var(--color-primary-hover);
+        --fc-button-active-bg-color: var(--color-primary-hover);
+        --fc-today-bg-color: rgba(59, 130, 246, 0.1);
+    }
+    
+    .fc-daygrid-day-number,
+    .fc-col-header-cell-cushion {
+        color: var(--color-text);
+    }
+    
+    .equipment-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-top: 1rem;
+        padding: 1rem;
+        background: var(--color-surface);
+        border-radius: 8px;
+    }
+    
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .legend-color {
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+    }
+    
+    .equipment-filter {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    .equipment-filter .filter-btn {
+        padding: 0.5rem 1rem;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .equipment-filter .filter-btn:hover {
+        background: var(--color-primary);
+        color: white;
+    }
+    
+    .equipment-filter .filter-btn.active {
+        background: var(--color-primary);
+        color: white;
+        border-color: var(--color-primary);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-page">
+    <div class="schedule-header">
+        <h1>📅 Lab Equipment Schedule</h1>
+        {% if g.current_user %}
+        <a href="{{ url_for('main.my_bookings') }}" class="btn btn-secondary">My Bookings</a>
+        {% endif %}
+    </div>
+    
+    {% if not equipment_list %}
+    <div class="empty-state">
+        <p>No equipment available for scheduling.</p>
+        <a href="{{ url_for('main.equipment') }}" class="btn btn-primary">Browse Equipment</a>
+    </div>
+    {% else %}
+    
+    <!-- Equipment Filter -->
+    <div class="equipment-filter">
+        <button type="button" class="filter-btn active" data-equipment-id="">All Equipment</button>
+        {% for equip in equipment_list %}
+        <button type="button" class="filter-btn" data-equipment-id="{{ equip.id }}">{{ equip.name }}</button>
+        {% endfor %}
+    </div>
+    
+    <!-- Calendar View -->
+    <div class="calendar-container">
+        <div id="calendar"></div>
+    </div>
+    
+    <!-- Legend -->
+    <div class="equipment-legend">
+        <strong>Equipment:</strong>
+        {% for equip in equipment_list %}
+        <div class="legend-item">
+            <a href="{{ url_for('main.equipment_schedule', equipment_id=equip.id) }}" style="display: flex; align-items: center; gap: 0.5rem; text-decoration: none;">
+                <span class="legend-color" style="background: hsl({{ loop.index0 * 47 % 360 }}, 70%, 50%);"></span>
+                <span>{{ equip.name }}</span>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var calendarEl = document.getElementById('calendar');
+    var selectedEquipmentId = '';
+    
+    // Generate colors for equipment
+    var equipmentColors = {};
+    {% for equip in equipment_list %}
+    equipmentColors[{{ equip.id }}] = 'hsl({{ loop.index0 * 47 % 360 }}, 70%, 50%)';
+    {% endfor %}
+    
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'timeGridWeek',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+        },
+        events: function(info, successCallback, failureCallback) {
+            var url = '{{ url_for("main.lab_calendar_events") }}';
+            url += '?start=' + info.startStr + '&end=' + info.endStr;
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(events => {
+                    // Apply equipment-specific colors
+                    events = events.map(function(event) {
+                        var color = equipmentColors[event.extendedProps.equipment_id] || '#4CAF50';
+                        event.backgroundColor = color;
+                        event.borderColor = color;
+                        return event;
+                    });
+                    
+                    // Filter by selected equipment
+                    if (selectedEquipmentId) {
+                        events = events.filter(function(event) {
+                            return event.extendedProps.equipment_id == selectedEquipmentId;
+                        });
+                    }
+                    
+                    successCallback(events);
+                })
+                .catch(failureCallback);
+        },
+        eventClick: function(info) {
+            window.location.href = '{{ url_for("main.equipment_booking_detail", equipment_id=0, booking_id=0) }}'
+                .replace('/equipment/0/', '/equipment/' + info.event.extendedProps.equipment_id + '/')
+                .replace('/0', '/' + info.event.id);
+        },
+        slotMinTime: '06:00:00',
+        slotMaxTime: '22:00:00',
+        allDaySlot: false,
+        nowIndicator: true,
+        weekends: true,
+        height: 'auto',
+        eventTimeFormat: {
+            hour: '2-digit',
+            minute: '2-digit',
+            meridiem: false,
+            hour12: false
+        }
+    });
+    calendar.render();
+    
+    // Equipment filter buttons
+    document.querySelectorAll('.equipment-filter .filter-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.equipment-filter .filter-btn').forEach(function(b) {
+                b.classList.remove('active');
+            });
+            this.classList.add('active');
+            selectedEquipmentId = this.dataset.equipmentId;
+            calendar.refetchEvents();
+        });
+    });
+});
+</script>
+{% endblock %}

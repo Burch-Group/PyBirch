@@ -288,9 +288,13 @@
                 <img src="{{ url_for('static', filename='images/computers.svg') }}" class="nav-icon" alt="">
                 <span>Computers</span>
             </a>
-            <a href="{{ url_for('main.equipment') }}" class="nav-drawer-link {% if request.endpoint and 'equipment' in request.endpoint %}active{% endif %}">
+            <a href="{{ url_for('main.equipment') }}" class="nav-drawer-link {% if request.endpoint and 'equipment' in request.endpoint and 'schedule' not in request.endpoint and 'book' not in request.endpoint %}active{% endif %}">
                 <img src="{{ url_for('static', filename='images/equipment.svg') }}" class="nav-icon" alt="">
                 <span>Equipment</span>
+            </a>
+            <a href="{{ url_for('main.lab_schedule') }}" class="nav-drawer-link {% if request.endpoint and ('schedule' in request.endpoint or 'booking' in request.endpoint) %}active{% endif %}">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span>Schedule</span>
             </a>
             <a href="{{ url_for('main.locations') }}" class="nav-drawer-link {% if request.endpoint and 'location' in request.endpoint %}active{% endif %}">
                 <img src="{{ url_for('static', filename='images/locations.svg') }}" class="nav-icon" alt="">

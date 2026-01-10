@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}My Bookings - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="content-page">
+    <div class="page-header-main">
+        <h1>📅 My Bookings</h1>
+        <div class="page-actions">
+            <a href="{{ url_for('main.my_bookings_ical_feed') }}" class="btn btn-secondary">
+                📥 Export to Calendar (iCal)
+            </a>
+        </div>
+    </div>
+    
+    <!-- Upcoming Bookings Widget -->
+    {% if upcoming %}
+    <div class="upcoming-widget" style="margin-bottom: 2rem; padding: 1.5rem; background: var(--color-surface); border-radius: 8px; border-left: 4px solid var(--color-primary);">
+        <h2 style="margin-top: 0;">⏰ Upcoming</h2>
+        <div class="upcoming-list">
+            {% for booking in upcoming %}
+            <div style="display: flex; align-items: center; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--color-border);">
+                <div style="min-width: 120px;">
+                    <strong>{{ booking.start_time[:10] }}</strong><br>
+                    <span class="text-secondary">{{ booking.start_time[11:16] }}</span>
+                </div>
+                <div style="flex: 1;">
+                    <strong>{{ booking.title }}</strong><br>
+                    <span class="text-secondary">{{ booking.equipment_name }}</span>
+                </div>
+                <a href="{{ url_for('main.equipment_booking_detail', equipment_id=booking.equipment_id, booking_id=booking.id) }}" class="btn btn-small btn-secondary">View</a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Filters -->
+    <div class="filter-bar">
+        <form method="GET" class="filter-form">
+            <div class="filter-group">
+                <label for="status">Status</label>
+                <select id="status" name="status" onchange="this.form.submit()">
+                    <option value="">All Statuses</option>
+                    <option value="confirmed" {% if status == 'confirmed' %}selected{% endif %}>Confirmed</option>
+                    <option value="pending" {% if status == 'pending' %}selected{% endif %}>Pending</option>
+                    <option value="in_progress" {% if status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                    <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
+                    <option value="cancelled" {% if status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="include_past" value="true" 
+                           {% if include_past %}checked{% endif %} onchange="this.form.submit()">
+                    Include past bookings
+                </label>
+            </div>
+        </form>
+    </div>
+    
+    <!-- Bookings Table -->
+    {% if bookings %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Equipment</th>
+                <th>Title</th>
+                <th>Duration</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for booking in bookings %}
+            <tr {% if booking.is_past %}class="past-booking"{% endif %}>
+                <td>{{ booking.start_time[:10] }}</td>
+                <td>{{ booking.start_time[11:16] }} - {{ booking.end_time[11:16] }}</td>
+                <td><a href="{{ url_for('main.equipment_detail', equipment_id=booking.equipment_id) }}">{{ booking.equipment_name }}</a></td>
+                <td>{{ booking.title }}</td>
+                <td>{{ booking.duration_minutes }} min</td>
+                <td><span class="status-badge status-{{ booking.status }}">{{ booking.status }}</span></td>
+                <td>
+                    <a href="{{ url_for('main.equipment_booking_detail', equipment_id=booking.equipment_id, booking_id=booking.id) }}" class="btn btn-small btn-secondary">View</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="?page={{ page - 1 }}&status={{ status }}&include_past={{ include_past }}" class="btn btn-secondary">← Previous</a>
+        {% endif %}
+        
+        <span class="pagination-info">Page {{ page }} of {{ total_pages }}</span>
+        
+        {% if page < total_pages %}
+        <a href="?page={{ page + 1 }}&status={{ status }}&include_past={{ include_past }}" class="btn btn-secondary">Next →</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+    {% else %}
+    <div class="empty-state">
+        <p>No bookings found.</p>
+        <a href="{{ url_for('main.equipment') }}" class="btn btn-primary">Browse Equipment</a>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.past-booking {
+    opacity: 0.7;
+}
+
+.upcoming-widget {
+    animation: pulse-border 2s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+    0%, 100% { border-left-color: var(--color-primary); }
+    50% { border-left-color: var(--color-primary-hover); }
+}
+</style>
+{% endblock %}

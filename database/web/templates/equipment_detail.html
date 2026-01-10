@@ -15,6 +15,10 @@
         <h1>{{ equipment.name }}</h1>
         <div class="detail-actions">
             <span class="status-badge status-{{ equipment.status }}">{{ equipment.status }}</span>
+            <a href="{{ url_for('main.equipment_schedule', equipment_id=equipment.id) }}" class="btn btn-primary">📅 Schedule</a>
+            {% if g.current_user %}
+            <a href="{{ url_for('main.equipment_book', equipment_id=equipment.id) }}" class="btn btn-success">Book Equipment</a>
+            {% endif %}
             {{ detail_action_buttons(
                 edit_url=url_for('main.equipment_edit', equipment_id=equipment.id),
                 issues_url=url_for('main.equipment_issues', equipment_id=equipment.id),

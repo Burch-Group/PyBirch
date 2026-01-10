@@ -22,7 +22,8 @@ from database.models import (
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
     DriverIssue, Location, ObjectLocation, MaintenanceTask, QrCodeScan, PageView,
     Waste, WastePrecursor, WasteHazardClass,
-    Subscriber, NotificationRule, NotificationLog
+    Subscriber, NotificationRule, NotificationLog,
+    EquipmentBooking, EquipmentSchedulingConfig, CalendarIntegration
 )
 from database.session import get_session, init_db
 
@@ -3343,6 +3344,691 @@ class DatabaseService:
             'created_at': task.created_at.isoformat() if task.created_at else None,
             'updated_at': task.updated_at.isoformat() if task.updated_at else None,
         }
+
+    # ==================== Equipment Bookings & Scheduling ====================
+    
+    def get_equipment_bookings(
+        self,
+        equipment_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+        status: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        include_past: bool = False,
+        page: int = 1,
+        per_page: int = 50
+    ) -> Tuple[List[Dict], int]:
+        """Get paginated list of equipment bookings with filters."""
+        with self.session_scope() as session:
+            query = session.query(EquipmentBooking).filter(
+                EquipmentBooking.trashed_at.is_(None)
+            )
+            
+            if equipment_id:
+                query = query.filter(EquipmentBooking.equipment_id == equipment_id)
+            
+            if user_id:
+                query = query.filter(EquipmentBooking.user_id == user_id)
+            
+            if status:
+                query = query.filter(EquipmentBooking.status == status)
+            
+            if not include_past:
+                query = query.filter(EquipmentBooking.end_time >= datetime.utcnow())
+            
+            if start_date:
+                query = query.filter(EquipmentBooking.start_time >= start_date)
+            
+            if end_date:
+                query = query.filter(EquipmentBooking.end_time <= end_date)
+            
+            # Get total count
+            total = query.count()
+            
+            # Apply pagination and ordering
+            query = query.order_by(EquipmentBooking.start_time.asc())
+            offset = (page - 1) * per_page
+            bookings = query.offset(offset).limit(per_page).all()
+            
+            return [self._booking_to_dict(b) for b in bookings], total
+    
+    def get_equipment_booking(self, booking_id: int) -> Optional[Dict]:
+        """Get a single booking by ID."""
+        with self.session_scope() as session:
+            booking = session.query(EquipmentBooking).filter(
+                EquipmentBooking.id == booking_id,
+                EquipmentBooking.trashed_at.is_(None)
+            ).first()
+            return self._booking_to_dict(booking) if booking else None
+    
+    def get_bookings_for_calendar(
+        self,
+        equipment_id: Optional[int] = None,
+        lab_id: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[Dict]:
+        """Get bookings formatted for calendar display."""
+        with self.session_scope() as session:
+            query = session.query(EquipmentBooking).join(Equipment).filter(
+                EquipmentBooking.trashed_at.is_(None),
+                EquipmentBooking.status.in_(['confirmed', 'in_progress', 'pending'])
+            )
+            
+            if equipment_id:
+                query = query.filter(EquipmentBooking.equipment_id == equipment_id)
+            
+            if lab_id:
+                query = query.filter(Equipment.lab_id == lab_id)
+            
+            if start_date:
+                query = query.filter(EquipmentBooking.end_time >= start_date)
+            
+            if end_date:
+                query = query.filter(EquipmentBooking.start_time <= end_date)
+            
+            bookings = query.order_by(EquipmentBooking.start_time.asc()).all()
+            
+            # Format for FullCalendar.js
+            return [{
+                'id': b.id,
+                'title': f"{b.equipment.name}: {b.title}",
+                'start': b.start_time.isoformat(),
+                'end': b.end_time.isoformat(),
+                'resourceId': b.equipment_id,
+                'extendedProps': {
+                    'equipment_id': b.equipment_id,
+                    'equipment_name': b.equipment.name if b.equipment else None,
+                    'user_id': b.user_id,
+                    'user_name': b.user.name or b.user.username if b.user else None,
+                    'status': b.status,
+                    'description': b.description,
+                },
+                'backgroundColor': self._get_booking_color(b.status),
+                'borderColor': self._get_booking_color(b.status),
+            } for b in bookings]
+    
+    def _get_booking_color(self, status: str) -> str:
+        """Get color for booking based on status."""
+        colors = {
+            'pending': '#FFA500',  # Orange
+            'confirmed': '#4CAF50',  # Green
+            'in_progress': '#2196F3',  # Blue
+            'completed': '#9E9E9E',  # Gray
+            'cancelled': '#F44336',  # Red
+            'no_show': '#795548',  # Brown
+        }
+        return colors.get(status, '#4CAF50')
+    
+    def create_equipment_booking(self, data: Dict[str, Any]) -> Dict:
+        """Create a new equipment booking."""
+        with self.session_scope() as session:
+            # Check for conflicts
+            conflicts = self._check_booking_conflicts(
+                session,
+                data['equipment_id'],
+                data['start_time'],
+                data['end_time']
+            )
+            if conflicts:
+                raise ValueError(f"Booking conflicts with {len(conflicts)} existing booking(s)")
+            
+            # Get scheduling config for approval settings
+            config = session.query(EquipmentSchedulingConfig).filter(
+                EquipmentSchedulingConfig.equipment_id == data['equipment_id']
+            ).first()
+            
+            status = 'confirmed'
+            if config and config.requires_approval:
+                status = 'pending'
+            
+            booking = EquipmentBooking(
+                equipment_id=data['equipment_id'],
+                user_id=data['user_id'],
+                title=data['title'],
+                description=data.get('description'),
+                start_time=data['start_time'],
+                end_time=data['end_time'],
+                status=status,
+                project_id=data.get('project_id'),
+                sample_ids=data.get('sample_ids'),
+                is_recurring=data.get('is_recurring', False),
+                recurrence_rule=data.get('recurrence_rule'),
+                notes=data.get('notes'),
+                created_by=data.get('created_by'),
+            )
+            session.add(booking)
+            session.flush()
+            
+            # Generate recurring instances if applicable
+            if booking.is_recurring and booking.recurrence_rule:
+                self._generate_recurring_bookings(session, booking)
+            
+            return self._booking_to_dict(booking)
+    
+    def _check_booking_conflicts(
+        self,
+        session: Session,
+        equipment_id: int,
+        start_time: datetime,
+        end_time: datetime,
+        exclude_booking_id: Optional[int] = None
+    ) -> List[EquipmentBooking]:
+        """Check for conflicting bookings."""
+        query = session.query(EquipmentBooking).filter(
+            EquipmentBooking.equipment_id == equipment_id,
+            EquipmentBooking.trashed_at.is_(None),
+            EquipmentBooking.status.in_(['confirmed', 'in_progress', 'pending']),
+            # Time overlap: existing.start < new.end AND existing.end > new.start
+            EquipmentBooking.start_time < end_time,
+            EquipmentBooking.end_time > start_time
+        )
+        
+        if exclude_booking_id:
+            query = query.filter(EquipmentBooking.id != exclude_booking_id)
+        
+        return query.all()
+    
+    def check_booking_availability(
+        self,
+        equipment_id: int,
+        start_time: datetime,
+        end_time: datetime,
+        exclude_booking_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Check if a time slot is available for booking."""
+        with self.session_scope() as session:
+            conflicts = self._check_booking_conflicts(
+                session, equipment_id, start_time, end_time, exclude_booking_id
+            )
+            
+            # Get scheduling config
+            config = session.query(EquipmentSchedulingConfig).filter(
+                EquipmentSchedulingConfig.equipment_id == equipment_id
+            ).first()
+            
+            issues = []
+            
+            if conflicts:
+                issues.append({
+                    'type': 'conflict',
+                    'message': f'Conflicts with {len(conflicts)} existing booking(s)',
+                    'conflicting_bookings': [self._booking_to_dict(c) for c in conflicts]
+                })
+            
+            if config:
+                # Check duration limits
+                duration_minutes = (end_time - start_time).total_seconds() / 60
+                if duration_minutes < config.min_booking_duration:
+                    issues.append({
+                        'type': 'duration',
+                        'message': f'Minimum booking duration is {config.min_booking_duration} minutes'
+                    })
+                if duration_minutes > config.max_booking_duration:
+                    issues.append({
+                        'type': 'duration',
+                        'message': f'Maximum booking duration is {config.max_booking_duration} minutes'
+                    })
+                
+                # Check advance booking limits
+                days_advance = (start_time - datetime.utcnow()).days
+                if days_advance < config.min_advance_booking:
+                    issues.append({
+                        'type': 'advance',
+                        'message': f'Minimum advance booking is {config.min_advance_booking} days'
+                    })
+                if days_advance > config.max_advance_booking:
+                    issues.append({
+                        'type': 'advance',
+                        'message': f'Maximum advance booking is {config.max_advance_booking} days'
+                    })
+                
+                # Check availability schedule
+                if config.availability_schedule:
+                    day_name = start_time.strftime('%A').lower()
+                    if day_name in config.availability_schedule:
+                        day_schedule = config.availability_schedule[day_name]
+                        # Simple time check (could be enhanced)
+                        start_hour = start_time.hour
+                        end_hour = end_time.hour
+                        sched_start = int(day_schedule.get('start', '00:00').split(':')[0])
+                        sched_end = int(day_schedule.get('end', '23:59').split(':')[0])
+                        if start_hour < sched_start or end_hour > sched_end:
+                            issues.append({
+                                'type': 'schedule',
+                                'message': f'Equipment not available at requested time on {day_name}'
+                            })
+                    else:
+                        issues.append({
+                            'type': 'schedule',
+                            'message': f'Equipment not available on {day_name}'
+                        })
+            
+            return {
+                'available': len(issues) == 0,
+                'issues': issues
+            }
+    
+    def update_equipment_booking(self, booking_id: int, data: Dict[str, Any]) -> Optional[Dict]:
+        """Update an existing booking."""
+        with self.session_scope() as session:
+            booking = session.query(EquipmentBooking).filter(
+                EquipmentBooking.id == booking_id,
+                EquipmentBooking.trashed_at.is_(None)
+            ).first()
+            
+            if not booking:
+                return None
+            
+            # Check for conflicts if times are being changed
+            if 'start_time' in data or 'end_time' in data:
+                start = data.get('start_time', booking.start_time)
+                end = data.get('end_time', booking.end_time)
+                conflicts = self._check_booking_conflicts(
+                    session, booking.equipment_id, start, end, booking_id
+                )
+                if conflicts:
+                    raise ValueError(f"Booking conflicts with {len(conflicts)} existing booking(s)")
+            
+            # Update fields
+            for key in ['title', 'description', 'start_time', 'end_time', 'status',
+                       'project_id', 'sample_ids', 'notes', 'actual_start_time',
+                       'actual_end_time', 'cancellation_reason']:
+                if key in data:
+                    setattr(booking, key, data[key])
+            
+            session.flush()
+            return self._booking_to_dict(booking)
+    
+    def cancel_booking(self, booking_id: int, reason: Optional[str] = None, cancelled_by: Optional[str] = None) -> Optional[Dict]:
+        """Cancel a booking."""
+        with self.session_scope() as session:
+            booking = session.query(EquipmentBooking).filter(
+                EquipmentBooking.id == booking_id,
+                EquipmentBooking.trashed_at.is_(None)
+            ).first()
+            
+            if not booking:
+                return None
+            
+            booking.status = 'cancelled'
+            booking.cancellation_reason = reason
+            session.flush()
+            return self._booking_to_dict(booking)
+    
+    def approve_booking(self, booking_id: int, approved_by_id: int) -> Optional[Dict]:
+        """Approve a pending booking."""
+        with self.session_scope() as session:
+            booking = session.query(EquipmentBooking).filter(
+                EquipmentBooking.id == booking_id,
+                EquipmentBooking.status == 'pending',
+                EquipmentBooking.trashed_at.is_(None)
+            ).first()
+            
+            if not booking:
+                return None
+            
+            booking.status = 'confirmed'
+            booking.approved_by_id = approved_by_id
+            booking.approved_at = datetime.utcnow()
+            session.flush()
+            return self._booking_to_dict(booking)
+    
+    def reject_booking(self, booking_id: int, rejected_by_id: int, reason: str) -> Optional[Dict]:
+        """Reject a pending booking."""
+        with self.session_scope() as session:
+            booking = session.query(EquipmentBooking).filter(
+                EquipmentBooking.id == booking_id,
+                EquipmentBooking.status == 'pending',
+                EquipmentBooking.trashed_at.is_(None)
+            ).first()
+            
+            if not booking:
+                return None
+            
+            booking.status = 'cancelled'
+            booking.rejection_reason = reason
+            session.flush()
+            return self._booking_to_dict(booking)
+    
+    def checkin_booking(self, booking_id: int) -> Optional[Dict]:
+        """Check in to a booking (mark as in progress)."""
+        with self.session_scope() as session:
+            booking = session.query(EquipmentBooking).filter(
+                EquipmentBooking.id == booking_id,
+                EquipmentBooking.status == 'confirmed',
+                EquipmentBooking.trashed_at.is_(None)
+            ).first()
+            
+            if not booking:
+                return None
+            
+            booking.status = 'in_progress'
+            booking.actual_start_time = datetime.utcnow()
+            session.flush()
+            return self._booking_to_dict(booking)
+    
+    def checkout_booking(self, booking_id: int) -> Optional[Dict]:
+        """Check out of a booking (mark as completed)."""
+        with self.session_scope() as session:
+            booking = session.query(EquipmentBooking).filter(
+                EquipmentBooking.id == booking_id,
+                EquipmentBooking.status == 'in_progress',
+                EquipmentBooking.trashed_at.is_(None)
+            ).first()
+            
+            if not booking:
+                return None
+            
+            booking.status = 'completed'
+            booking.actual_end_time = datetime.utcnow()
+            session.flush()
+            return self._booking_to_dict(booking)
+    
+    def get_user_upcoming_bookings(self, user_id: int, limit: int = 10) -> List[Dict]:
+        """Get upcoming bookings for a user."""
+        with self.session_scope() as session:
+            bookings = session.query(EquipmentBooking).filter(
+                EquipmentBooking.user_id == user_id,
+                EquipmentBooking.start_time >= datetime.utcnow(),
+                EquipmentBooking.status.in_(['confirmed', 'pending']),
+                EquipmentBooking.trashed_at.is_(None)
+            ).order_by(EquipmentBooking.start_time.asc()).limit(limit).all()
+            
+            return [self._booking_to_dict(b) for b in bookings]
+    
+    def _generate_recurring_bookings(self, session: Session, parent_booking: EquipmentBooking):
+        """Generate recurring booking instances from RRULE."""
+        if not parent_booking.recurrence_rule:
+            return
+        
+        # Parse RRULE and generate instances
+        # Using dateutil for RRULE parsing
+        try:
+            from dateutil.rrule import rrulestr
+            
+            rule = rrulestr(parent_booking.recurrence_rule, dtstart=parent_booking.start_time)
+            duration = parent_booking.end_time - parent_booking.start_time
+            
+            # Get config for max recurring weeks
+            config = session.query(EquipmentSchedulingConfig).filter(
+                EquipmentSchedulingConfig.equipment_id == parent_booking.equipment_id
+            ).first()
+            max_weeks = config.max_recurring_weeks if config else 12
+            max_date = parent_booking.start_time + timedelta(weeks=max_weeks)
+            
+            # Generate instances (skip first as it's the parent)
+            instances = list(rule.between(
+                parent_booking.start_time + timedelta(minutes=1),
+                max_date,
+                inc=True
+            ))[:52]  # Max 52 instances (1 year of weekly)
+            
+            for start in instances:
+                instance = EquipmentBooking(
+                    equipment_id=parent_booking.equipment_id,
+                    user_id=parent_booking.user_id,
+                    title=parent_booking.title,
+                    description=parent_booking.description,
+                    start_time=start,
+                    end_time=start + duration,
+                    status=parent_booking.status,
+                    project_id=parent_booking.project_id,
+                    parent_booking_id=parent_booking.id,
+                    created_by=parent_booking.created_by,
+                )
+                session.add(instance)
+        except ImportError:
+            # dateutil not available, skip recurring generation
+            pass
+        except Exception:
+            # Invalid RRULE or other error
+            pass
+    
+    def _booking_to_dict(self, booking: EquipmentBooking) -> Dict:
+        """Convert EquipmentBooking model to dictionary."""
+        return {
+            'id': booking.id,
+            'equipment_id': booking.equipment_id,
+            'equipment_name': booking.equipment.name if booking.equipment else None,
+            'user_id': booking.user_id,
+            'user_name': booking.user.name or booking.user.username if booking.user else None,
+            'user_email': booking.user.email if booking.user else None,
+            'title': booking.title,
+            'description': booking.description,
+            'start_time': booking.start_time.isoformat() if booking.start_time else None,
+            'end_time': booking.end_time.isoformat() if booking.end_time else None,
+            'status': booking.status,
+            'is_recurring': booking.is_recurring,
+            'recurrence_rule': booking.recurrence_rule,
+            'parent_booking_id': booking.parent_booking_id,
+            'project_id': booking.project_id,
+            'project_name': booking.project.name if booking.project else None,
+            'sample_ids': booking.sample_ids,
+            'google_event_id': booking.google_event_id,
+            'outlook_event_id': booking.outlook_event_id,
+            'ical_uid': booking.ical_uid,
+            'requires_approval': booking.requires_approval,
+            'approved_by_id': booking.approved_by_id,
+            'approved_at': booking.approved_at.isoformat() if booking.approved_at else None,
+            'rejection_reason': booking.rejection_reason,
+            'actual_start_time': booking.actual_start_time.isoformat() if booking.actual_start_time else None,
+            'actual_end_time': booking.actual_end_time.isoformat() if booking.actual_end_time else None,
+            'notes': booking.notes,
+            'cancellation_reason': booking.cancellation_reason,
+            'duration_minutes': booking.duration_minutes,
+            'is_past': booking.is_past,
+            'is_current': booking.is_current,
+            'created_by': booking.created_by,
+            'created_at': booking.created_at.isoformat() if booking.created_at else None,
+            'updated_at': booking.updated_at.isoformat() if booking.updated_at else None,
+        }
+    
+    # ==================== Scheduling Configuration ====================
+    
+    def get_equipment_scheduling_config(self, equipment_id: int) -> Optional[Dict]:
+        """Get scheduling configuration for equipment."""
+        with self.session_scope() as session:
+            config = session.query(EquipmentSchedulingConfig).filter(
+                EquipmentSchedulingConfig.equipment_id == equipment_id
+            ).first()
+            return self._scheduling_config_to_dict(config) if config else None
+    
+    def create_or_update_scheduling_config(self, equipment_id: int, data: Dict[str, Any]) -> Dict:
+        """Create or update scheduling configuration for equipment."""
+        with self.session_scope() as session:
+            config = session.query(EquipmentSchedulingConfig).filter(
+                EquipmentSchedulingConfig.equipment_id == equipment_id
+            ).first()
+            
+            if not config:
+                config = EquipmentSchedulingConfig(equipment_id=equipment_id)
+                session.add(config)
+            
+            # Update fields - includes shared calendar settings
+            for key in ['scheduling_enabled', 'min_booking_duration', 'max_booking_duration',
+                       'default_booking_duration', 'min_advance_booking', 'max_advance_booking',
+                       'buffer_time', 'requires_approval', 'auto_approve_lab_members',
+                       'approver_user_id', 'availability_schedule', 'blocked_dates',
+                       'allow_recurring', 'max_recurring_weeks', 'google_calendar_id',
+                       'outlook_calendar_id', 'sync_to_external',
+                       # Shared calendar fields
+                       'shared_calendar_admin_id', 'shared_calendar_name', 
+                       'shared_calendar_public', 'shared_calendar_domain', 'last_calendar_sync',
+                       # Notification settings
+                       'send_confirmation_email', 'send_reminder_email', 'reminder_hours_before']:
+                if key in data:
+                    setattr(config, key, data[key])
+            
+            session.flush()
+            return self._scheduling_config_to_dict(config)
+    
+    # Alias for routes
+    def update_equipment_scheduling_config(self, equipment_id: int, data: Dict[str, Any]) -> Dict:
+        """Alias for create_or_update_scheduling_config."""
+        return self.create_or_update_scheduling_config(equipment_id, data)
+    
+    def _scheduling_config_to_dict(self, config: EquipmentSchedulingConfig) -> Dict:
+        """Convert EquipmentSchedulingConfig model to dictionary."""
+        return {
+            'id': config.id,
+            'equipment_id': config.equipment_id,
+            'scheduling_enabled': config.scheduling_enabled,
+            'min_booking_duration': config.min_booking_duration,
+            'max_booking_duration': config.max_booking_duration,
+            'default_booking_duration': config.default_booking_duration,
+            'min_advance_booking': config.min_advance_booking,
+            'max_advance_booking': config.max_advance_booking,
+            'buffer_time': config.buffer_time,
+            'requires_approval': config.requires_approval,
+            'auto_approve_lab_members': config.auto_approve_lab_members,
+            'approver_user_id': config.approver_user_id,
+            'availability_schedule': config.availability_schedule,
+            'blocked_dates': config.blocked_dates,
+            'allow_recurring': config.allow_recurring,
+            'max_recurring_weeks': config.max_recurring_weeks,
+            'google_calendar_id': config.google_calendar_id,
+            'outlook_calendar_id': config.outlook_calendar_id,
+            'sync_to_external': config.sync_to_external,
+            # Shared calendar fields
+            'shared_calendar_admin_id': config.shared_calendar_admin_id,
+            'shared_calendar_name': config.shared_calendar_name,
+            'shared_calendar_public': config.shared_calendar_public,
+            'shared_calendar_domain': config.shared_calendar_domain,
+            'last_calendar_sync': config.last_calendar_sync.isoformat() if config.last_calendar_sync else None,
+            # Notification settings
+            'send_confirmation_email': config.send_confirmation_email,
+            'send_reminder_email': config.send_reminder_email,
+            'reminder_hours_before': config.reminder_hours_before,
+            'created_at': config.created_at.isoformat() if config.created_at else None,
+            'updated_at': config.updated_at.isoformat() if config.updated_at else None,
+        }
+    
+    # ==================== Calendar Integration ====================
+    
+    def get_user_calendar_integrations(self, user_id: int) -> List[Dict]:
+        """Get all calendar integrations for a user."""
+        with self.session_scope() as session:
+            integrations = session.query(CalendarIntegration).filter(
+                CalendarIntegration.user_id == user_id
+            ).all()
+            return [self._calendar_integration_to_dict(i) for i in integrations]
+    
+    def get_calendar_integration(self, user_id: int, provider: str) -> Optional[Dict]:
+        """Get a specific calendar integration."""
+        with self.session_scope() as session:
+            integration = session.query(CalendarIntegration).filter(
+                CalendarIntegration.user_id == user_id,
+                CalendarIntegration.provider == provider
+            ).first()
+            return self._calendar_integration_to_dict(integration) if integration else None
+    
+    def create_or_update_calendar_integration(self, user_id: int, provider: str, data: Dict[str, Any]) -> Dict:
+        """Create or update a calendar integration."""
+        with self.session_scope() as session:
+            integration = session.query(CalendarIntegration).filter(
+                CalendarIntegration.user_id == user_id,
+                CalendarIntegration.provider == provider
+            ).first()
+            
+            if not integration:
+                integration = CalendarIntegration(user_id=user_id, provider=provider)
+                session.add(integration)
+            
+            # Update fields
+            for key in ['access_token', 'refresh_token', 'token_expires_at',
+                       'calendar_id', 'calendar_name', 'is_active', 'sync_bookings',
+                       'two_way_sync', 'last_sync_at', 'last_error']:
+                if key in data:
+                    setattr(integration, key, data[key])
+            
+            session.flush()
+            return self._calendar_integration_to_dict(integration)
+    
+    def delete_calendar_integration(self, user_id: int, provider: str) -> bool:
+        """Delete a calendar integration."""
+        with self.session_scope() as session:
+            integration = session.query(CalendarIntegration).filter(
+                CalendarIntegration.user_id == user_id,
+                CalendarIntegration.provider == provider
+            ).first()
+            if not integration:
+                return False
+            session.delete(integration)
+            return True
+    
+    def _calendar_integration_to_dict(self, integration: CalendarIntegration) -> Dict:
+        """Convert CalendarIntegration model to dictionary."""
+        return {
+            'id': integration.id,
+            'user_id': integration.user_id,
+            'provider': integration.provider,
+            'calendar_id': integration.calendar_id,
+            'calendar_name': integration.calendar_name,
+            'is_active': integration.is_active,
+            'sync_bookings': integration.sync_bookings,
+            'two_way_sync': integration.two_way_sync,
+            'last_sync_at': integration.last_sync_at.isoformat() if integration.last_sync_at else None,
+            'last_error': integration.last_error,
+            'token_expires_at': integration.token_expires_at.isoformat() if integration.token_expires_at else None,
+            'has_valid_token': integration.token_expires_at and integration.token_expires_at > datetime.utcnow() if integration.token_expires_at else False,
+            'created_at': integration.created_at.isoformat() if integration.created_at else None,
+            'updated_at': integration.updated_at.isoformat() if integration.updated_at else None,
+        }
+    
+    def generate_ical_feed(self, equipment_id: Optional[int] = None, user_id: Optional[int] = None) -> str:
+        """Generate an iCalendar feed for bookings."""
+        with self.session_scope() as session:
+            query = session.query(EquipmentBooking).filter(
+                EquipmentBooking.trashed_at.is_(None),
+                EquipmentBooking.status.in_(['confirmed', 'in_progress'])
+            )
+            
+            if equipment_id:
+                query = query.filter(EquipmentBooking.equipment_id == equipment_id)
+            
+            if user_id:
+                query = query.filter(EquipmentBooking.user_id == user_id)
+            
+            # Only include future bookings and recent past (30 days)
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            query = query.filter(EquipmentBooking.end_time >= thirty_days_ago)
+            
+            bookings = query.order_by(EquipmentBooking.start_time.asc()).all()
+            
+            # Build iCalendar content
+            lines = [
+                'BEGIN:VCALENDAR',
+                'VERSION:2.0',
+                'PRODID:-//PyBirch//Equipment Scheduling//EN',
+                'CALSCALE:GREGORIAN',
+                'METHOD:PUBLISH',
+                'X-WR-CALNAME:PyBirch Equipment Bookings',
+            ]
+            
+            for booking in bookings:
+                uid = booking.ical_uid or f"booking-{booking.id}@pybirch"
+                dtstart = booking.start_time.strftime('%Y%m%dT%H%M%SZ')
+                dtend = booking.end_time.strftime('%Y%m%dT%H%M%SZ')
+                dtstamp = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+                
+                summary = f"{booking.equipment.name}: {booking.title}" if booking.equipment else booking.title
+                description = booking.description or ''
+                
+                lines.extend([
+                    'BEGIN:VEVENT',
+                    f'UID:{uid}',
+                    f'DTSTAMP:{dtstamp}',
+                    f'DTSTART:{dtstart}',
+                    f'DTEND:{dtend}',
+                    f'SUMMARY:{summary}',
+                    f'DESCRIPTION:{description}',
+                    f'STATUS:{"CONFIRMED" if booking.status == "confirmed" else "TENTATIVE"}',
+                    'END:VEVENT',
+                ])
+            
+            lines.append('END:VCALENDAR')
+            return '\r\n'.join(lines)
 
     # ==================== Driver Issues ====================
     

@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+
+{% block title %}Lab Calendar - {{ lab.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.labs') }}">Labs</a> /
+            <a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}">{{ lab.name }}</a> /
+            Shared Calendar
+        </div>
+    </div>
+    
+    <h1>📅 Lab Equipment Calendar</h1>
+    <p class="section-description">
+        Create and manage a shared Google Calendar showing all equipment schedules for {{ lab.name }}.
+    </p>
+    
+    {% if not google_available %}
+    <div class="alert alert-warning">
+        <strong>Google Calendar not configured.</strong>
+        To enable shared calendars, set the <code>GOOGLE_CALENDAR_CLIENT_ID</code> and 
+        <code>GOOGLE_CALENDAR_CLIENT_SECRET</code> environment variables.
+    </div>
+    {% else %}
+    
+    <div class="settings-grid" style="display: grid; gap: 1.5rem; max-width: 900px;">
+        
+        <!-- Create Lab Calendar -->
+        <div class="card">
+            <h2>🏢 Create Lab-Wide Equipment Calendar</h2>
+            <p>
+                Create a single Google Calendar that shows bookings for all equipment in this lab.
+                Perfect for sharing with the entire lab team.
+            </p>
+            
+            <form method="POST" action="{{ url_for('main.lab_shared_calendar', lab_id=lab.id) }}">
+                <input type="hidden" name="action" value="create_lab_calendar">
+                
+                <div class="form-group">
+                    <label for="calendar_name">Calendar Name</label>
+                    <input type="text" id="calendar_name" name="calendar_name" 
+                           value="{{ lab.name }} Equipment Schedule" class="form-control"
+                           placeholder="e.g., Burch Lab Equipment Schedule">
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    📅 Create Lab Calendar
+                </button>
+            </form>
+            
+            <div class="info-box" style="margin-top: 1rem;">
+                <strong>💡 Tip:</strong> After creating the calendar, use the sync feature below 
+                to populate it with all equipment bookings from this lab.
+            </div>
+        </div>
+        
+        <!-- Populate Existing Calendar -->
+        <div class="card">
+            <h2>🔄 Populate Lab Calendar</h2>
+            <p>
+                If you already have a shared calendar, enter its ID below to populate it with 
+                all equipment bookings from this lab.
+            </p>
+            
+            <form method="POST" action="{{ url_for('main.lab_shared_calendar', lab_id=lab.id) }}">
+                <input type="hidden" name="action" value="populate_lab">
+                
+                <div class="form-group">
+                    <label for="calendar_id">Google Calendar ID</label>
+                    <input type="text" id="calendar_id" name="calendar_id" class="form-control"
+                           placeholder="e.g., abc123@group.calendar.google.com">
+                    <p class="text-secondary" style="font-size: 0.75rem; margin-top: 0.25rem;">
+                        Find this in Google Calendar → Calendar settings → Integrate calendar → Calendar ID
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="clear_existing" value="1">
+                        Clear existing PyBirch events first
+                    </label>
+                </div>
+                
+                <button type="submit" class="btn btn-secondary">
+                    🔄 Sync All Equipment Bookings
+                </button>
+            </form>
+        </div>
+        
+        <!-- Equipment in Lab -->
+        <div class="card">
+            <h2>🔬 Equipment in {{ lab.name }}</h2>
+            <p>This calendar will include bookings from the following equipment:</p>
+            
+            {% if equipment_list %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Equipment</th>
+                        <th>Status</th>
+                        <th>Individual Calendar</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for eq in equipment_list %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('main.equipment_detail', equipment_id=eq.id) }}">
+                                {{ eq.name }}
+                            </a>
+                        </td>
+                        <td>
+                            <span class="status-badge status-{{ eq.status | lower }}">
+                                {{ eq.status }}
+                            </span>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('main.equipment_shared_calendar', equipment_id=eq.id) }}" 
+                               class="btn btn-sm btn-secondary">
+                                ⚙️ Manage
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-secondary">No equipment found in this lab.</p>
+            {% endif %}
+        </div>
+        
+        <!-- How It Works -->
+        <div class="card">
+            <h2>ℹ️ How Shared Calendars Work</h2>
+            
+            <div class="feature-list">
+                <div class="feature-item">
+                    <span class="feature-icon">1️⃣</span>
+                    <div>
+                        <strong>Create Calendar</strong>
+                        <p>A new Google Calendar is created in your account with lab equipment bookings.</p>
+                    </div>
+                </div>
+                
+                <div class="feature-item">
+                    <span class="feature-icon">2️⃣</span>
+                    <div>
+                        <strong>Share with Team</strong>
+                        <p>Share the calendar with individual users, your organization's domain, or make it public.</p>
+                    </div>
+                </div>
+                
+                <div class="feature-item">
+                    <span class="feature-icon">3️⃣</span>
+                    <div>
+                        <strong>Auto-Sync</strong>
+                        <p>New bookings are automatically added. Users see real-time availability in their calendar app.</p>
+                    </div>
+                </div>
+                
+                <div class="feature-item">
+                    <span class="feature-icon">4️⃣</span>
+                    <div>
+                        <strong>Color-Coded Status</strong>
+                        <p>Events are color-coded by status: pending (yellow), confirmed (green), checked-in (sage), cancelled (red).</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+    {% endif %}
+    
+    <div class="page-actions" style="margin-top: 2rem;">
+        <a href="{{ url_for('main.lab_detail', lab_id=lab.id) }}" class="btn btn-secondary">
+            ← Back to Lab
+        </a>
+        <a href="{{ url_for('main.lab_schedule', lab_id=lab.id) }}" class="btn btn-primary">
+            📅 View Lab Schedule
+        </a>
+    </div>
+</div>
+
+<style>
+.card {
+    background: var(--color-surface);
+    border-radius: 8px;
+    padding: 1.5rem;
+    border: 1px solid var(--color-border);
+}
+
+.card h2 {
+    margin-top: 0;
+    font-size: 1.25rem;
+}
+
+.info-box {
+    background: var(--color-background);
+    border-left: 4px solid var(--color-primary);
+    padding: 1rem;
+    border-radius: 0 4px 4px 0;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.data-table th {
+    font-weight: 600;
+    background: var(--color-background);
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.status-available {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+}
+
+.status-in_use {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+}
+
+.status-maintenance {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+}
+
+.feature-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.feature-item {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.feature-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.feature-item p {
+    margin: 0.25rem 0 0 0;
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+}
+</style>
+{% endblock %}

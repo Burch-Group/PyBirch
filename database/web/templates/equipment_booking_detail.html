@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}Booking: {{ booking.title }} - {{ equipment.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.equipment') }}">Equipment</a> / 
+            <a href="{{ url_for('main.equipment_detail', equipment_id=equipment.id) }}">{{ equipment.name }}</a> / 
+            <a href="{{ url_for('main.equipment_schedule', equipment_id=equipment.id) }}">Schedule</a> /
+            Booking #{{ booking.id }}
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <h1>{{ booking.title }}</h1>
+        <div class="detail-actions">
+            <span class="status-badge status-{{ booking.status }}">{{ booking.status }}</span>
+            
+            {% if g.current_user and (booking.user_id == g.current_user.id or g.current_user.role == 'admin') %}
+                {% if booking.status == 'confirmed' %}
+                <form action="{{ url_for('main.equipment_booking_checkin', equipment_id=equipment.id, booking_id=booking.id) }}" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-success">✓ Check In</button>
+                </form>
+                {% elif booking.status == 'in_progress' %}
+                <form action="{{ url_for('main.equipment_booking_checkout', equipment_id=equipment.id, booking_id=booking.id) }}" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-success">✓ Check Out</button>
+                </form>
+                {% endif %}
+                
+                {% if booking.status in ['confirmed', 'pending'] %}
+                <a href="{{ url_for('main.equipment_booking_edit', equipment_id=equipment.id, booking_id=booking.id) }}" class="btn btn-secondary">Edit</a>
+                <button type="button" class="btn btn-danger" onclick="showCancelModal()">Cancel Booking</button>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="detail-grid">
+        <div class="detail-section">
+            <h2>Booking Information</h2>
+            <dl class="detail-list">
+                <dt>Equipment</dt>
+                <dd><a href="{{ url_for('main.equipment_detail', equipment_id=equipment.id) }}">{{ equipment.name }}</a></dd>
+                
+                <dt>Booked By</dt>
+                <dd>{{ booking.user_name }} ({{ booking.user_email }})</dd>
+                
+                {% if booking.project_name %}
+                <dt>Project</dt>
+                <dd>{{ booking.project_name }}</dd>
+                {% endif %}
+                
+                <dt>Description</dt>
+                <dd>{{ booking.description or '-' }}</dd>
+                
+                {% if booking.notes %}
+                <dt>Notes</dt>
+                <dd>{{ booking.notes }}</dd>
+                {% endif %}
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Schedule</h2>
+            <dl class="detail-list">
+                <dt>Start Time</dt>
+                <dd>{{ booking.start_time | replace('T', ' ') }}</dd>
+                
+                <dt>End Time</dt>
+                <dd>{{ booking.end_time | replace('T', ' ') }}</dd>
+                
+                <dt>Duration</dt>
+                <dd>{{ booking.duration_minutes }} minutes</dd>
+                
+                {% if booking.is_recurring %}
+                <dt>Recurring</dt>
+                <dd>Yes ({{ booking.recurrence_rule }})</dd>
+                {% endif %}
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Status</h2>
+            <dl class="detail-list">
+                <dt>Current Status</dt>
+                <dd><span class="status-badge status-{{ booking.status }}">{{ booking.status }}</span></dd>
+                
+                {% if booking.actual_start_time %}
+                <dt>Actual Start</dt>
+                <dd>{{ booking.actual_start_time | replace('T', ' ') }}</dd>
+                {% endif %}
+                
+                {% if booking.actual_end_time %}
+                <dt>Actual End</dt>
+                <dd>{{ booking.actual_end_time | replace('T', ' ') }}</dd>
+                {% endif %}
+                
+                {% if booking.cancellation_reason %}
+                <dt>Cancellation Reason</dt>
+                <dd>{{ booking.cancellation_reason }}</dd>
+                {% endif %}
+                
+                {% if booking.rejection_reason %}
+                <dt>Rejection Reason</dt>
+                <dd>{{ booking.rejection_reason }}</dd>
+                {% endif %}
+                
+                {% if booking.approved_by_id %}
+                <dt>Approved At</dt>
+                <dd>{{ booking.approved_at | replace('T', ' ') }}</dd>
+                {% endif %}
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Calendar Integration</h2>
+            <dl class="detail-list">
+                {% if booking.google_event_id %}
+                <dt>Google Calendar</dt>
+                <dd>Synced ✓</dd>
+                {% endif %}
+                
+                {% if booking.outlook_event_id %}
+                <dt>Outlook Calendar</dt>
+                <dd>Synced ✓</dd>
+                {% endif %}
+                
+                <dt>iCal UID</dt>
+                <dd><code>{{ booking.ical_uid or 'booking-' ~ booking.id ~ '@pybirch' }}</code></dd>
+            </dl>
+            
+            <div style="margin-top: 1rem;">
+                <p class="text-secondary">Add to your calendar:</p>
+                <a href="{{ url_for('main.equipment_ical_feed', equipment_id=equipment.id) }}" class="btn btn-small btn-secondary">📥 Download .ics</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="detail-section">
+        <h2>Audit</h2>
+        <dl class="detail-list">
+            <dt>Created</dt>
+            <dd>{{ booking.created_at | replace('T', ' ') }} by {{ booking.created_by or 'Unknown' }}</dd>
+            
+            <dt>Last Updated</dt>
+            <dd>{{ booking.updated_at | replace('T', ' ') }}</dd>
+        </dl>
+    </div>
+</div>
+
+<!-- Cancel Modal -->
+<div id="cancel-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h2>Cancel Booking</h2>
+        <p>Are you sure you want to cancel this booking?</p>
+        <form action="{{ url_for('main.equipment_booking_cancel', equipment_id=equipment.id, booking_id=booking.id) }}" method="POST">
+            <div class="form-group">
+                <label for="reason">Reason (optional)</label>
+                <textarea id="reason" name="reason" rows="2" placeholder="Why are you cancelling?"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="hideCancelModal()">Keep Booking</button>
+                <button type="submit" class="btn btn-danger">Cancel Booking</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showCancelModal() {
+    document.getElementById('cancel-modal').style.display = 'flex';
+}
+
+function hideCancelModal() {
+    document.getElementById('cancel-modal').style.display = 'none';
+}
+
+// Close modal on outside click
+document.getElementById('cancel-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideCancelModal();
+    }
+});
+</script>
+
+<style>
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--color-surface);
+    padding: 2rem;
+    border-radius: 8px;
+    max-width: 500px;
+    width: 90%;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+</style>
+{% endblock %}
