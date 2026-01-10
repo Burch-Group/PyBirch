@@ -21,7 +21,7 @@ from database.models import (
     User, UserPin, Issue, IssueUpdate, EntityImage, Attachment,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
     DriverIssue, Location, ObjectLocation, MaintenanceTask, QrCodeScan, PageView,
-    Waste, WastePrecursor,
+    Waste, WastePrecursor, WasteHazardClass,
     Subscriber, NotificationRule, NotificationLog
 )
 from database.session import get_session, init_db
@@ -130,6 +130,12 @@ class DatabaseService:
             
             stats['computers'] = {
                 'total': session.query(func.count(Computer.id)).scalar() or 0,
+            }
+            
+            stats['waste'] = {
+                'total': session.query(func.count(Waste.id)).filter(Waste.is_trashed == False).scalar() or 0,
+                'active': session.query(func.count(Waste.id)).filter(Waste.is_trashed == False, Waste.status == 'active').scalar() or 0,
+                'awaiting_collection': session.query(func.count(Waste.id)).filter(Waste.is_trashed == False, Waste.status == 'awaiting_collection').scalar() or 0,
             }
             
             # Recent activity
@@ -3782,9 +3788,21 @@ class DatabaseService:
                         from datetime import date as date_type
                         data[date_field] = date_type.fromisoformat(data[date_field])
             
+            # Extract hazard_classes for separate handling
+            hazard_classes = data.pop('hazard_classes', None)
+            
             waste = Waste(**data)
             session.add(waste)
             session.flush()
+            
+            # Add hazard class associations if provided
+            if hazard_classes:
+                for hc in hazard_classes:
+                    if hc:  # Skip empty strings
+                        hazard_assoc = WasteHazardClass(waste_id=waste.id, hazard_class=hc)
+                        session.add(hazard_assoc)
+                session.flush()
+            
             return self._waste_to_dict(waste)
     
     def update_waste(self, waste_id: int, data: Dict) -> Optional[Dict]:
@@ -3802,6 +3820,9 @@ class DatabaseService:
                         from datetime import date as date_type
                         data[date_field] = date_type.fromisoformat(data[date_field])
             
+            # Extract hazard_classes for separate handling
+            hazard_classes = data.pop('hazard_classes', None)
+            
             update_fields = [
                 'name', 'waste_type', 'hazard_class', 'container_type', 'container_size',
                 'current_fill_percent', 'fill_status', 'status', 'contents_description',
@@ -3815,6 +3836,19 @@ class DatabaseService:
             for field in update_fields:
                 if field in data:
                     setattr(waste, field, data[field])
+            
+            # Update hazard class associations if provided
+            if hazard_classes is not None:
+                # Remove existing hazard class associations
+                session.query(WasteHazardClass).filter(
+                    WasteHazardClass.waste_id == waste_id
+                ).delete()
+                
+                # Add new hazard class associations
+                for hc in hazard_classes:
+                    if hc:  # Skip empty strings
+                        hazard_assoc = WasteHazardClass(waste_id=waste_id, hazard_class=hc)
+                        session.add(hazard_assoc)
             
             # Auto-update fill_status based on fill_percent
             if 'current_fill_percent' in data and data['current_fill_percent'] is not None:
@@ -4042,6 +4076,8 @@ class DatabaseService:
             'project': project_info,
             'trashed_at': waste.trashed_at.isoformat() if waste.trashed_at else None,
             'archived_at': waste.archived_at.isoformat() if waste.archived_at else None,
+            # Multiple hazard classes support
+            'hazard_classes': waste.hazard_classes,  # List of hazard class strings
         }
     
     # ==================== Procedures ====================
@@ -7600,6 +7636,10 @@ class DatabaseService:
                 Template.created_by == user_name
             ).scalar() or 0
             
+            wastes_created = session.query(func.count(Waste.id)).filter(
+                Waste.created_by == user_name
+            ).scalar() or 0
+            
             # Issue statistics
             issues_created = session.query(func.count(Issue.id)).filter(
                 Issue.reporter_id == user_id
@@ -7719,7 +7759,8 @@ class DatabaseService:
             total_items_created = (
                 samples_created + scans_created + queues_created + 
                 procedures_created + fabrication_runs_created + equipment_created +
-                precursors_created + instruments_created + locations_created + templates_created
+                precursors_created + instruments_created + locations_created + templates_created +
+                wastes_created
             )
             
             total_issues_resolved = issues_resolved + equipment_issues_resolved
@@ -7771,6 +7812,7 @@ class DatabaseService:
                     'instruments': instruments_created,
                     'locations': locations_created,
                     'templates': templates_created,
+                    'wastes': wastes_created,
                     'total': total_items_created,
                 },
                 

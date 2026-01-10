@@ -167,6 +167,15 @@
             </div>
             <a href="{{ url_for('main.computers') }}" class="stat-link">View all →</a>
         </div>
+        
+        <div class="stat-card {% if stats.waste.awaiting_collection > 0 %}stat-card-warning{% endif %}">
+            <div class="stat-title">🗑️ Waste</div>
+            <div class="stat-content">
+                <div class="stat-value">{{ stats.waste.total }}</div>
+                <div class="stat-detail">{{ stats.waste.awaiting_collection }} awaiting collection</div>
+            </div>
+            <a href="{{ url_for('main.waste_list') }}" class="stat-link">View all →</a>
+        </div>
     </div>
     
     <div class="dashboard-row">

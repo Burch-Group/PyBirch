@@ -67,8 +67,10 @@
                     <td><a href="{{ url_for('main.waste_detail', waste_id=item.id) }}">{{ item.name }}</a></td>
                     <td>{{ (item.waste_type or '-') | replace('_', ' ') | title }}</td>
                     <td>
-                        {% if item.hazard_class %}
-                        <span class="hazard-badge hazard-{{ item.hazard_class }}">{{ item.hazard_class | replace('_', ' ') | title }}</span>
+                        {% if item.hazard_classes %}
+                        {% for hc in item.hazard_classes %}
+                        <span class="hazard-badge hazard-{{ hc }}">{{ hc | replace('_', ' ') | title }}</span>
+                        {% endfor %}
                         {% else %}
                         -
                         {% endif %}

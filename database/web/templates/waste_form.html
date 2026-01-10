@@ -31,7 +31,7 @@
                         <option value="">-- Select Lab --</option>
                         {% for lab in labs %}
                         <option value="{{ lab.id }}" 
-                                {% if (waste and waste.lab_id == lab.id) %}selected{% endif %}>
+                                {% if (waste and waste.lab_id == lab.id) or (default_lab_id == lab.id and (not waste or not waste.lab_id)) %}selected{% endif %}>
                             {{ lab.name }}
                         </option>
                         {% endfor %}
@@ -44,7 +44,7 @@
                         <option value="">-- No Project --</option>
                         {% for project in projects %}
                         <option value="{{ project.id }}" 
-                                {% if (waste and waste.project_id == project.id) %}selected{% endif %}>
+                                {% if (waste and waste.project_id == project.id) or (default_project_id == project.id and (not waste or not waste.project_id)) %}selected{% endif %}>
                             {{ project.display }}
                         </option>
                         {% endfor %}
@@ -91,15 +91,15 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="hazard_class">Hazard Class</label>
-                    <select id="hazard_class" name="hazard_class">
-                        <option value="">Select hazard class...</option>
+                    <label for="hazard_classes">Hazard Classes</label>
+                    <select id="hazard_classes" name="hazard_classes" multiple class="multi-select" size="4">
                         {% for hc in hazard_classes %}
-                        <option value="{{ hc }}" {% if waste and waste.hazard_class == hc %}selected{% endif %}>
+                        <option value="{{ hc }}" {% if waste and hc in waste.hazard_classes %}selected{% endif %}>
                             {{ hc | replace('_', ' ') | title }}
                         </option>
                         {% endfor %}
                     </select>
+                    <small>Hold Ctrl/Cmd to select multiple</small>
                 </div>
                 
                 <div class="form-group">

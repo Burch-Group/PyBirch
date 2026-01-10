@@ -3172,7 +3172,7 @@ def waste_detail(waste_id):
     
     # Get images and files
     images = db.get_entity_images('waste', waste_id)
-    files = db.get_attachments('waste', waste_id)
+    files = db.get_entity_attachments('waste', waste_id)
     
     # Get location
     locations = db.get_object_locations('waste', waste_id)
@@ -3207,7 +3207,7 @@ def waste_new():
         data = {
             'name': request.form.get('name'),
             'waste_type': request.form.get('waste_type'),
-            'hazard_class': request.form.get('hazard_class'),
+            'hazard_classes': request.form.getlist('hazard_classes'),  # Multiple hazard classes
             'container_type': request.form.get('container_type'),
             'container_size': request.form.get('container_size'),
             'current_fill_percent': float(request.form.get('current_fill_percent', 0) or 0),
@@ -3244,6 +3244,14 @@ def waste_new():
     users = db.get_users_simple_list()
     locations = db.get_locations_simple_list()
     
+    # Get user defaults for lab/project
+    default_lab_id = None
+    default_project_id = None
+    if g.current_user:
+        user_prefs = db.get_user_preferences(g.current_user['id'])
+        default_lab_id = user_prefs.get('default_lab_id')
+        default_project_id = user_prefs.get('default_project_id')
+    
     # Waste options
     waste_types = ['chemical', 'biological', 'sharps', 'general', 'radioactive', 'electronic']
     hazard_classes = ['flammable', 'corrosive', 'toxic', 'oxidizer', 'reactive', 'non-hazardous']
@@ -3264,6 +3272,8 @@ def waste_new():
         status_options=status_options,
         fill_status_options=fill_status_options,
         current_user_id=g.current_user['id'],
+        default_lab_id=default_lab_id,
+        default_project_id=default_project_id,
     )
 
 
@@ -3291,7 +3301,7 @@ def waste_edit(waste_id):
         data = {
             'name': request.form.get('name'),
             'waste_type': request.form.get('waste_type'),
-            'hazard_class': request.form.get('hazard_class'),
+            'hazard_classes': request.form.getlist('hazard_classes'),  # Multiple hazard classes
             'container_type': request.form.get('container_type'),
             'container_size': request.form.get('container_size'),
             'current_fill_percent': float(request.form.get('current_fill_percent', 0) or 0),

@@ -1335,6 +1335,7 @@ class Waste(TrashableMixin, ArchivableMixin, Base):
     owner: Mapped[Optional["User"]] = relationship("User", foreign_keys=[owner_id])
     template: Mapped[Optional["Template"]] = relationship("Template", foreign_keys=[template_id])
     precursor_associations: Mapped[List["WastePrecursor"]] = relationship("WastePrecursor", back_populates="waste", cascade="all, delete-orphan")
+    hazard_class_associations: Mapped[List["WasteHazardClass"]] = relationship("WasteHazardClass", back_populates="waste", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('idx_wastes_lab', 'lab_id'),
@@ -1343,8 +1344,38 @@ class Waste(TrashableMixin, ArchivableMixin, Base):
         Index('idx_wastes_owner', 'owner_id'),
     )
     
+    @property
+    def hazard_classes(self) -> List[str]:
+        """Get list of hazard class names for this waste."""
+        return [hc.hazard_class for hc in self.hazard_class_associations]
+    
     def __repr__(self):
         return f"<Waste(id={self.id}, name='{self.name}', status='{self.status}', fill='{self.fill_status}')>"
+
+
+class WasteHazardClass(Base):
+    """
+    Junction table linking waste containers to multiple hazard classes.
+    Allows waste to have multiple hazard classifications.
+    """
+    __tablename__ = "waste_hazard_classes"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    waste_id: Mapped[int] = mapped_column(Integer, ForeignKey('wastes.id'), nullable=False)
+    hazard_class: Mapped[str] = mapped_column(String(100), nullable=False)  # 'flammable', 'corrosive', 'toxic', 'oxidizer', 'reactive', 'non-hazardous'
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    waste: Mapped["Waste"] = relationship("Waste", back_populates="hazard_class_associations")
+    
+    __table_args__ = (
+        UniqueConstraint('waste_id', 'hazard_class', name='uq_waste_hazard_class'),
+        Index('idx_waste_hazard_classes_waste', 'waste_id'),
+        Index('idx_waste_hazard_classes_class', 'hazard_class'),
+    )
+    
+    def __repr__(self):
+        return f"<WasteHazardClass(waste_id={self.waste_id}, hazard_class='{self.hazard_class}')>"
 
 
 class WastePrecursor(Base):
