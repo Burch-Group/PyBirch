@@ -115,12 +115,14 @@ class SimpleDatabaseScan:
         db_service: DatabaseService,
         sample_id: Optional[int] = None,
         queue_id: Optional[int] = None,
+        lab_id: Optional[int] = None,
         owner: str = "test_operator"
     ):
         self.scan_settings = settings
         self.db = db_service
         self.sample_id = sample_id
         self.queue_id = queue_id
+        self.lab_id = lab_id
         self.owner = owner
         
         # State
@@ -150,6 +152,7 @@ class SimpleDatabaseScan:
             'additional_tags': self.scan_settings.additional_tags,
             'sample_id': self.sample_id,
             'queue_id': self.queue_id,
+            'lab_id': self.lab_id,
             'extra_data': {'user_fields': self.scan_settings.user_fields},
         }
         self._db_scan = self.db.create_scan(scan_data)
@@ -323,12 +326,14 @@ class SimpleDatabaseQueue:
         db_service: DatabaseService,
         sample_id: Optional[int] = None,
         project_id: Optional[int] = None,
+        lab_id: Optional[int] = None,
         operator: Optional[str] = None,
     ):
         self.QID = QID
         self.db_service = db_service
         self.sample_id = sample_id
         self.project_id = project_id
+        self.lab_id = lab_id
         self.operator = operator
         self.state = "idle"
         self._scan_handles: List[SimpleScanHandle] = []
@@ -339,6 +344,7 @@ class SimpleDatabaseQueue:
             'name': f"Queue {QID}",
             'sample_id': sample_id,
             'project_id': project_id,
+            'lab_id': lab_id,
             'status': 'pending',
             'execution_mode': 'serial',
             'created_by': operator,  # Use created_by, not operator
@@ -415,6 +421,7 @@ def create_iv_scan(
     db: DatabaseService,
     sample_id: Optional[int] = None,
     queue_id: Optional[int] = None,
+    lab_id: Optional[int] = None,
 ) -> SimpleDatabaseScan:
     """
     Create an IV (Current-Voltage) scan.
@@ -426,6 +433,7 @@ def create_iv_scan(
         db: Database service for creating database records
         sample_id: Sample ID to associate with scan
         queue_id: Queue ID if part of a queue
+        lab_id: Lab ID to associate with scan
     
     Returns:
         SimpleDatabaseScan configured for IV sweep
@@ -461,6 +469,7 @@ def create_iv_scan(
         db_service=db,
         sample_id=sample_id,
         queue_id=queue_id,
+        lab_id=lab_id,
         owner="test_operator"
     )
 
@@ -469,6 +478,7 @@ def create_raman_scan(
     db: DatabaseService,
     sample_id: Optional[int] = None,
     queue_id: Optional[int] = None,
+    lab_id: Optional[int] = None,
 ) -> SimpleDatabaseScan:
     """
     Create a Raman spectrum scan.
@@ -479,6 +489,7 @@ def create_raman_scan(
         db: Database service for creating database records
         sample_id: Sample ID to associate with scan
         queue_id: Queue ID if part of a queue
+        lab_id: Lab ID to associate with scan
     
     Returns:
         SimpleDatabaseScan configured for Raman spectrum acquisition
@@ -510,6 +521,7 @@ def create_raman_scan(
         db_service=db,
         sample_id=sample_id,
         queue_id=queue_id,
+        lab_id=lab_id,
         owner="test_operator"
     )
 
@@ -526,6 +538,14 @@ class TestQueueDatabaseIntegration:
         self.db_path = os.path.join(self.temp_dir, "test_queue_integration.db")
         self.db = DatabaseService(self.db_path)
         
+        # Create test lab (required for sample)
+        lab_data = {
+            "name": "Test Lab for Queue Integration",
+            "university": "Test University",
+            "department": "Physics",
+        }
+        self.lab = self.db.create_lab(lab_data)
+        
         # Create test sample
         sample_data = {
             "sample_id": f"TEST_SAMPLE_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
@@ -536,6 +556,7 @@ class TestQueueDatabaseIntegration:
             "status": "active",
             "dimensions": {"length": 10, "width": 10, "thickness": 0.1, "unit": "mm"},
             "additional_tags": ["test", "integration"],
+            "lab_id": self.lab['id'],
         }
         self.sample = self.db.create_sample(sample_data)
     
@@ -549,7 +570,7 @@ class TestQueueDatabaseIntegration:
     
     def test_create_iv_scan(self):
         """Test IV scan creation."""
-        scan = create_iv_scan(self.db, sample_id=self.sample['id'])
+        scan = create_iv_scan(self.db, sample_id=self.sample['id'], lab_id=self.lab['id'])
         
         assert scan is not None
         assert scan.scan_settings.scan_name.startswith("IV_Sweep")
@@ -561,7 +582,7 @@ class TestQueueDatabaseIntegration:
     
     def test_create_raman_scan(self):
         """Test Raman scan creation."""
-        scan = create_raman_scan(self.db, sample_id=self.sample['id'])
+        scan = create_raman_scan(self.db, sample_id=self.sample['id'], lab_id=self.lab['id'])
         
         assert scan is not None
         assert scan.scan_settings.scan_name.startswith("Raman_Spectrum")
@@ -577,6 +598,7 @@ class TestQueueDatabaseIntegration:
             QID=f"TEST_QUEUE_{datetime.now().strftime('%H%M%S')}",
             db_service=self.db,
             sample_id=self.sample['id'],
+            lab_id=self.lab['id'],
             operator="test_operator",
         )
         
@@ -604,18 +626,19 @@ class TestQueueDatabaseIntegration:
             QID=f"Integration_Test_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             db_service=self.db,
             sample_id=self.sample['id'],
+            lab_id=self.lab['id'],
             operator="test_operator",
         )
         
         print(f"\n1. Created queue: {queue.db_queue_uuid}")
         
         # Create and enqueue IV scan
-        iv_scan = create_iv_scan(self.db, sample_id=self.sample['id'], queue_id=queue.db_queue_id)
+        iv_scan = create_iv_scan(self.db, sample_id=self.sample['id'], queue_id=queue.db_queue_id, lab_id=self.lab['id'])
         queue.enqueue(iv_scan)
         print(f"2. Enqueued IV scan: {iv_scan.scan_settings.scan_name}")
         
         # Create and enqueue Raman scan
-        raman_scan = create_raman_scan(self.db, sample_id=self.sample['id'], queue_id=queue.db_queue_id)
+        raman_scan = create_raman_scan(self.db, sample_id=self.sample['id'], queue_id=queue.db_queue_id, lab_id=self.lab['id'])
         queue.enqueue(raman_scan)
         print(f"3. Enqueued Raman scan: {raman_scan.scan_settings.scan_name}")
         

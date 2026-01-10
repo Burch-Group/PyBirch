@@ -80,7 +80,7 @@ Items:
 - [x] add a legend option to line & scatter visualizations. <10 datapoints it plots each line/ set of points & gives a regular legend (sorted by color (same setting as heatmap color) in numerical or alphabetical order), or as a colorbar legend on the side if >10 datapoints, labeled with letters or numbers. clicking on a datapoint will give a small tooltip of the item it comes from.
 
 
-- [ ] add config or something to drivers for reference files (all in python). folder or file upload. driver file must follow a naming convention so it can be found.
+- [x] change drivers to accept folders as well as individual files, to allow for dependencies to be included. create a file naming convention for the file in which the instrument definition resides, and specify it on the driver page. add a "files" section with all the files (keeping in mind there may be folders within the uploaded folder). keep the source code section, display the source code of the file with the instrument definition.
 
 
 - [ ] add characterizations. connect to equipment, samples. Have type, json results, files & images
@@ -98,7 +98,7 @@ Items:
 
 - [ ] allow to share equipment with users or with labs. They may create issues and view the equipment & its issues, but that is all.
 - [ ] Allow users to make issues open to public suggestions, or publically visible, both resolved and unresolved. Add forum pages.
-- [ ] add multiple y values and legend for line plot
+- [x] add multiple y values and legend for line plot
 - [ ] Automations -- emails, slack notifications, api calls to other databases; simple / template configurable
 - [ ] notifications for users (essentially preset automations) which can be enables in email or slack for any of: scan status change, queue status change, issue assignment, assigned issue status change, assigned equipment status change, site-wide issue status change, new creation of new issues).
 - [ ] notifications for a slack channel as well, with the same settings as if it were a user, minus the assignment specific notifications. Objects are hyperlinked as with references. Includes user who made the change, if applicable
@@ -119,7 +119,7 @@ Items:
 - [ ] separate axis names and units, these should be added to the downloadable csv file in the form name (units). Fix automatic visualization titles & axes appropriately.
 - [] add description field to images
 - [x] add ability to upload other files (.kdf, gwiddeon, pdf, json, etc.) with name & description
-- [ ] add a team to the member heirarchy
+- [z] add a team to the member heirarchy
 - [ ] allow sharing between labs, when accepted will add the other lab as a link to the object, and give permissions to related objects (scans, samples)
 - [x] allow users to add sample/project after a scan/queue is run by editing in the db.
 - [ ] Add a "number of measurements" option for measurement objects. This will be configured like movement object positions (will require similar cards to be made for the scan setup page, that are visible when the measurement is selected in the scan tree GUI).
@@ -129,7 +129,7 @@ Items:
 - [x] make equipment types dynamic & configurable within a lab (i.e. should be able to add new types, which will populate in the dropdown.)
 
 - [x] Add images and files to labs and projects (like other database items)
-- [ ] Troubleshooting (draft name) page for fabrication runs. Able to plot statistics by parameter, histograms or lineplots if numerical. statistics by user (instances of the error, in sorted error). statistics by substrate & sample material, by precursor id, plots by time of day and by time in general. plots by weather
+- [ ] Diagnostics page for fabrication runs. Able to plot statistics by parameter, histograms or lineplots if numerical. statistics by user (instances of the error, in sorted error). statistics by substrate & sample material, by precursor id, plots by time of day and by time in general. plots by weather
 
 - [x] Site-wide filters need to be edited -- the button is visible longer than the Ui bar that it opens (frustrating)
 - [ ] allow users to choose a lab in their profile, filters everything. allow labs to turn on/off database items they don't use -- wont show up in navlinks or index when that lab is selected for viewing in the user profile. allow labs to configure a custom color theme (three or four primary colors) that will be used when that lab is selected for viewing.
@@ -141,3 +141,4 @@ Items:
 - [ ] Eventually: add the possibility to configure a small subset of lab objects to be made public  (available to all users to view, not just those with permissions). This will be like a lab website or group page. 
 - [ ] Eventually: live polling to connected computers, ability to query to instruments from instrument detail page & check connection there. ability to start scans from other devices via connection through pybirch. Ability to check whether computers are connected. of course, computers need to be first class database objects for this to make sense.
 - [ ] Eventually: migrate pybirch to jshtml with api
+- [ ] Change "University" to "Institution"

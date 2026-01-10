@@ -4,6 +4,8 @@ PyBirch Database Web Routes
 Flask route handlers for the web UI and REST API.
 """
 
+import os
+import shutil
 from datetime import datetime
 from functools import wraps
 from io import BytesIO
@@ -6748,6 +6750,169 @@ def api_get_allowed_file_types():
     })
 
 
+# -------------------- Driver Folder Upload --------------------
+
+@api_bp.route('/drivers/upload-folder', methods=['POST'])
+@api_login_required
+def api_upload_driver_folder():
+    """Upload multiple files for a driver (folder upload).
+    
+    Files should be sent with their relative paths preserved.
+    The main instrument definition file must be named 'driver.py' or '<ClassName>_driver.py'.
+    
+    Returns:
+        JSON with file list and detected main file
+    """
+    import os
+    import uuid
+    from werkzeug.utils import secure_filename
+    
+    if 'files[]' not in request.files:
+        return jsonify({'success': False, 'error': 'No files provided'}), 400
+    
+    files = request.files.getlist('files[]')
+    paths = request.form.getlist('paths[]')  # Relative paths from the folder
+    
+    if not files:
+        return jsonify({'success': False, 'error': 'No files selected'}), 400
+    
+    # Generate unique folder ID for this upload
+    upload_id = uuid.uuid4().hex[:12]
+    driver_folder = os.path.join(current_app.root_path, 'static', 'uploads', 'drivers', upload_id)
+    os.makedirs(driver_folder, exist_ok=True)
+    
+    file_list = []
+    main_file_path = None
+    main_file_content = None
+    
+    try:
+        for i, file in enumerate(files):
+            if file.filename == '':
+                continue
+            
+            # Get relative path (from JavaScript webkitRelativePath)
+            rel_path = paths[i] if i < len(paths) else file.filename
+            
+            # Remove leading folder name if present (e.g., "MyDriver/driver.py" -> "driver.py")
+            path_parts = rel_path.replace('\\', '/').split('/')
+            if len(path_parts) > 1:
+                # Remove the root folder name
+                rel_path = '/'.join(path_parts[1:])
+            
+            # Secure each path component
+            safe_parts = [secure_filename(p) for p in rel_path.split('/') if p]
+            safe_rel_path = '/'.join(safe_parts)
+            
+            if not safe_rel_path:
+                continue
+            
+            # Create subdirectories if needed
+            file_dir = os.path.join(driver_folder, os.path.dirname(safe_rel_path))
+            os.makedirs(file_dir, exist_ok=True)
+            
+            # Save file
+            file_path = os.path.join(driver_folder, safe_rel_path)
+            file.save(file_path)
+            
+            file_size = os.path.getsize(file_path)
+            
+            file_info = {
+                'path': safe_rel_path,
+                'size': file_size,
+                'is_python': safe_rel_path.endswith('.py'),
+            }
+            file_list.append(file_info)
+            
+            # Check if this is the main driver file
+            filename = os.path.basename(safe_rel_path)
+            if filename == 'driver.py' or filename.endswith('_driver.py'):
+                main_file_path = safe_rel_path
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    main_file_content = f.read()
+        
+        if not file_list:
+            return jsonify({'success': False, 'error': 'No valid files found'}), 400
+        
+        # If no main file found with naming convention, check for a .py file with a class definition
+        if not main_file_path:
+            for f in file_list:
+                if f['is_python']:
+                    fpath = os.path.join(driver_folder, f['path'])
+                    with open(fpath, 'r', encoding='utf-8', errors='replace') as pf:
+                        content = pf.read()
+                        if 'class ' in content and ('Measurement' in content or 'Movement' in content):
+                            main_file_path = f['path']
+                            main_file_content = content
+                            break
+        
+        return jsonify({
+            'success': True,
+            'upload_id': upload_id,
+            'files': file_list,
+            'main_file_path': main_file_path,
+            'main_file_content': main_file_content,
+            'folder_path': driver_folder,
+        })
+        
+    except Exception as e:
+        # Clean up on error
+        import shutil
+        if os.path.exists(driver_folder):
+            shutil.rmtree(driver_folder)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/drivers/<int:driver_id>/files/<path:file_path>')
+def api_get_driver_file_content(driver_id, file_path):
+    """Get content of a specific file in a driver folder."""
+    import os
+    
+    db = get_db_service()
+    driver = db.get_driver(driver_id)
+    
+    if not driver:
+        return jsonify({'success': False, 'error': 'Driver not found'}), 404
+    
+    if not driver.get('has_folder_upload'):
+        return jsonify({'success': False, 'error': 'Driver does not have folder files'}), 400
+    
+    # Find the upload folder for this driver
+    upload_folder = os.path.join(current_app.root_path, 'static', 'uploads', 'drivers')
+    
+    # Look through driver_files to find a matching folder
+    driver_files = driver.get('driver_files', [])
+    if not driver_files:
+        return jsonify({'success': False, 'error': 'No files found for this driver'}), 404
+    
+    # The upload_id should be stored somewhere - for now, we'll look for it based on driver_id
+    # In a production system, you'd store the upload_id in the driver record
+    driver_folder = os.path.join(upload_folder, f"driver_{driver_id}")
+    
+    if not os.path.exists(driver_folder):
+        return jsonify({'success': False, 'error': 'Driver folder not found'}), 404
+    
+    file_full_path = os.path.join(driver_folder, file_path)
+    
+    # Security check - make sure the path doesn't escape the driver folder
+    if not os.path.realpath(file_full_path).startswith(os.path.realpath(driver_folder)):
+        return jsonify({'success': False, 'error': 'Invalid file path'}), 400
+    
+    if not os.path.exists(file_full_path):
+        return jsonify({'success': False, 'error': 'File not found'}), 404
+    
+    try:
+        with open(file_full_path, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
+        
+        return jsonify({
+            'success': True,
+            'path': file_path,
+            'content': content,
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # -------------------- Instruments --------------------
 
 @main_bp.route('/instruments')
@@ -7108,9 +7273,19 @@ def driver_detail(driver_id):
 @login_required
 def driver_new():
     """Create new driver page."""
+    import os
+    import shutil
+    import json
+    
     db = get_db_service()
     
     if request.method == 'POST':
+        # Check if this is a folder upload
+        upload_id = request.form.get('upload_id', '').strip()
+        driver_files_json = request.form.get('driver_files', '')
+        main_file_path = request.form.get('main_file_path', '').strip()
+        has_folder_upload = upload_id and driver_files_json
+        
         data = {
             'name': request.form.get('name', '').strip(),
             'display_name': request.form.get('display_name', '').strip(),
@@ -7124,6 +7299,10 @@ def driver_new():
             'is_public': request.form.get('is_public') == 'on',
             'status': request.form.get('status', 'operational'),
             'created_by': g.current_user.get('username') if g.current_user else None,
+            # Multi-file driver support
+            'has_folder_upload': has_folder_upload,
+            'main_file_path': main_file_path if has_folder_upload else None,
+            'driver_files': json.loads(driver_files_json) if driver_files_json else None,
         }
         
         # Validate required fields
@@ -7157,6 +7336,24 @@ def driver_new():
         
         try:
             driver = db.create_driver(data)
+            
+            # If folder upload, rename temp folder to use driver ID
+            if upload_id and has_folder_upload:
+                temp_folder = os.path.join(current_app.root_path, 'static', 'uploads', 'drivers', upload_id)
+                permanent_folder = os.path.join(current_app.root_path, 'static', 'uploads', 'drivers', f'driver_{driver["id"]}')
+                if os.path.exists(temp_folder):
+                    if os.path.exists(permanent_folder):
+                        shutil.rmtree(permanent_folder)
+                    os.rename(temp_folder, permanent_folder)
+                    
+                    # Update driver with new folder path references
+                    if driver_files_json:
+                        # Update file paths to use permanent folder
+                        updated_files = []
+                        for f in json.loads(driver_files_json):
+                            updated_files.append(f)  # Paths are relative, no update needed
+                        db.update_driver(driver['id'], {'driver_files': updated_files})
+            
             flash(f'Driver "{driver["display_name"]}" created successfully', 'success')
             return redirect(url_for('main.driver_detail', driver_id=driver['id']))
         except Exception as e:

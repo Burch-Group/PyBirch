@@ -239,6 +239,80 @@
     .driver-status.testing { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
     .driver-status.deprecated { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
     .driver-status.experimental { background: rgba(168, 85, 247, 0.1); color: #a855f7; }
+    /* Files section */
+    .files-section {
+        margin: 24px 0;
+    }
+    .files-section h3 {
+        margin-bottom: 12px;
+    }
+    .naming-convention-info {
+        background: #f0f9ff;
+        border: 1px solid #bae6fd;
+        border-radius: 6px;
+        padding: 12px;
+        margin-bottom: 16px;
+    }
+    .naming-convention-info h4 {
+        margin: 0 0 8px 0;
+        color: #0369a1;
+        font-size: 0.9rem;
+    }
+    .naming-convention-info code {
+        background: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+    .file-tree-container {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        overflow: hidden;
+        background: white;
+    }
+    .file-tree-list {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    .file-tree-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        border-bottom: 1px solid #f1f5f9;
+        font-family: monospace;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .file-tree-item:hover {
+        background: #f8fafc;
+    }
+    .file-tree-item:last-child {
+        border-bottom: none;
+    }
+    .file-tree-item.main-file {
+        background: rgba(16, 185, 129, 0.08);
+    }
+    .file-tree-item.main-file:hover {
+        background: rgba(16, 185, 129, 0.15);
+    }
+    .file-tree-item .badge {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        border-radius: 10px;
+        background: #10b981;
+        color: white;
+        font-family: system-ui;
+    }
+    .file-tree-item .file-size {
+        color: #9ca3af;
+        font-size: 0.8rem;
+        margin-left: auto;
+    }
+    .file-icon {
+        font-size: 1.1rem;
+    }
 </style>
 {% endblock %}
 
@@ -304,9 +378,45 @@
     </div>
     {% endif %}
     
+    {% if driver.has_folder_upload and driver.driver_files %}
+    <!-- Files Section for Folder Uploads -->
+    <div class="files-section">
+        <h3>📁 Driver Files</h3>
+        
+        <div class="naming-convention-info">
+            <h4>📋 File Naming Convention</h4>
+            <p style="margin: 0;">The main driver file must be named <code>driver.py</code> or <code>&lt;ClassName&gt;_driver.py</code></p>
+            {% if driver.main_file_path %}
+            <p style="margin: 8px 0 0 0;"><strong>Main file:</strong> <code>{{ driver.main_file_path }}</code></p>
+            {% endif %}
+        </div>
+        
+        <div class="file-tree-container">
+            <div class="file-tree-list">
+                {% for file in driver.driver_files|sort(attribute='path') %}
+                <div class="file-tree-item {% if file.path == driver.main_file_path %}main-file{% endif %}"
+                     onclick="viewFileContent('{{ file.path }}')"
+                     title="Click to view file contents">
+                    <span class="file-icon">
+                        {% if file.path.endswith('.py') %}🐍{% elif file.path.endswith('/') %}📁{% else %}📄{% endif %}
+                    </span>
+                    <span>{{ file.path }}</span>
+                    {% if file.path == driver.main_file_path %}
+                    <span class="badge">Main Driver</span>
+                    {% endif %}
+                    {% if file.size %}
+                    <span class="file-size">{{ (file.size / 1024)|round(1) }} KB</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
     <div class="source-code-container">
         <div class="source-code-header">
-            <h3>Source Code</h3>
+            <h3>{% if driver.has_folder_upload and driver.main_file_path %}Main Driver Code ({{ driver.main_file_path }}){% else %}Source Code{% endif %}</h3>
             <button class="btn btn-sm btn-secondary" onclick="copySourceCode()">Copy Code</button>
         </div>
         <div class="source-code">
@@ -466,6 +576,43 @@
         navigator.clipboard.writeText(code).then(() => {
             alert('Source code copied to clipboard!');
         });
+    }
+    
+    // View file content from folder upload
+    async function viewFileContent(filePath) {
+        try {
+            const response = await fetch('/api/v1/drivers/{{ driver.id }}/file/' + encodeURIComponent(filePath));
+            const result = await response.json();
+            
+            if (result.success && result.content) {
+                // Update the source code view
+                const codeEl = document.getElementById('source-code');
+                codeEl.textContent = result.content;
+                
+                // Re-apply syntax highlighting
+                delete codeEl.dataset.highlighted;
+                hljs.highlightElement(codeEl);
+                
+                // Update header
+                const header = document.querySelector('.source-code-header h3');
+                if (header) {
+                    header.textContent = 'Viewing: ' + filePath;
+                }
+                
+                // Scroll to source code section
+                document.querySelector('.source-code-container').scrollIntoView({ behavior: 'smooth' });
+                
+                // Update active state in file tree
+                document.querySelectorAll('.file-tree-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                event.currentTarget.classList.add('active');
+            } else {
+                alert('Could not load file content: ' + (result.error || 'Unknown error'));
+            }
+        } catch (error) {
+            alert('Error loading file: ' + error.message);
+        }
     }
 </script>
 {% endblock %}

@@ -723,9 +723,15 @@ class Driver(TrashableMixin, ArchivableMixin, Base):
     manufacturer: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
     # The actual code
-    source_code: Mapped[str] = mapped_column(Text, nullable=False)  # Full Python class definition
+    source_code: Mapped[str] = mapped_column(Text, nullable=False)  # Full Python class definition (main file)
     base_class: Mapped[str] = mapped_column(String(100), nullable=False)  # 'FakeMeasurementInstrument', etc.
     dependencies: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # ['pyvisa', 'numpy', ...]
+    
+    # Multi-file driver support (for drivers with dependencies)
+    # Naming convention: Main file must be named 'driver.py' or '<ClassName>_driver.py'
+    driver_files: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # [{path: str, size: int, modified: str}, ...]
+    main_file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Path to main file within the folder (e.g., 'driver.py' or 'MyInstrument_driver.py')
+    has_folder_upload: Mapped[bool] = mapped_column(Boolean, default=False)  # True if driver was uploaded as a folder
     
     # Configuration schema
     settings_schema: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # JSON Schema for settings

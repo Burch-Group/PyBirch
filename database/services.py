@@ -1973,6 +1973,10 @@ class DatabaseService:
                 is_builtin=data.get('is_builtin', False),
                 is_approved=data.get('is_approved', True),
                 created_by=data.get('created_by'),
+                # Multi-file driver support
+                driver_files=data.get('driver_files'),
+                main_file_path=data.get('main_file_path'),
+                has_folder_upload=data.get('has_folder_upload', False),
             )
             session.add(driver)
             session.flush()
@@ -2112,6 +2116,8 @@ class DatabaseService:
                 'source_code', 'base_class', 'dependencies', 'settings_schema',
                 'default_settings', 'data_columns', 'data_units',
                 'position_column', 'position_units', 'is_public', 'is_approved',
+                # Multi-file driver support
+                'driver_files', 'main_file_path', 'has_folder_upload',
             ]
             
             for field in updatable_fields:
@@ -2198,6 +2204,10 @@ class DatabaseService:
             'created_by': driver.created_by,
             'created_at': driver.created_at.isoformat() if driver.created_at else None,
             'updated_at': driver.updated_at.isoformat() if driver.updated_at else None,
+            # Multi-file driver support
+            'driver_files': driver.driver_files,
+            'main_file_path': driver.main_file_path,
+            'has_folder_upload': driver.has_folder_upload or False,
         }
     
     # ==================== Computer Bindings ====================

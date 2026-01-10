@@ -124,6 +124,107 @@
         font-weight: 600;
         color: #059669;
     }
+    /* Upload mode toggle */
+    .upload-mode-toggle {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    .upload-mode-toggle .btn {
+        flex: 1;
+        padding: 10px 16px;
+        border: 2px solid #e2e8f0;
+        background: white;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .upload-mode-toggle .btn.active {
+        border-color: #3b82f6;
+        background: rgba(59, 130, 246, 0.1);
+        color: #2563eb;
+    }
+    .upload-mode-toggle .btn:hover:not(.active) {
+        border-color: #94a3b8;
+    }
+    /* Folder upload section */
+    .folder-upload-area {
+        border: 2px dashed #d1d5db;
+        border-radius: 8px;
+        padding: 32px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .folder-upload-area:hover {
+        border-color: #3b82f6;
+        background: rgba(59, 130, 246, 0.02);
+    }
+    .folder-upload-area.uploading {
+        border-color: #f59e0b;
+        background: rgba(245, 158, 11, 0.05);
+    }
+    .folder-upload-area.success {
+        border-color: #10b981;
+        background: rgba(16, 185, 129, 0.05);
+    }
+    .folder-upload-area i {
+        font-size: 48px;
+        color: #9ca3af;
+        margin-bottom: 12px;
+    }
+    .folder-upload-area.uploading i,
+    .folder-upload-area.success i {
+        color: #3b82f6;
+    }
+    .naming-convention {
+        background: #f0f9ff;
+        border: 1px solid #bae6fd;
+        border-radius: 6px;
+        padding: 12px;
+        margin-bottom: 16px;
+    }
+    .naming-convention h4 {
+        margin: 0 0 8px 0;
+        color: #0369a1;
+        font-size: 0.9rem;
+    }
+    .naming-convention code {
+        background: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+    .uploaded-files-list {
+        text-align: left;
+        max-height: 300px;
+        overflow-y: auto;
+        margin-top: 16px;
+    }
+    .file-tree {
+        font-family: monospace;
+        font-size: 0.9rem;
+    }
+    .file-tree-item {
+        padding: 4px 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .file-tree-item.main-file {
+        background: rgba(16, 185, 129, 0.1);
+        border-radius: 4px;
+    }
+    .file-tree-item .badge {
+        font-size: 0.7rem;
+        padding: 2px 6px;
+        border-radius: 10px;
+        background: #10b981;
+        color: white;
+    }
+    .hidden {
+        display: none !important;
+    }
 </style>
 {% endblock %}
 
@@ -137,22 +238,70 @@
     
     <form method="POST" action="{{ form_action }}" id="driver-form">
         <div class="form-grid">
-            <!-- Source Code Editor - First! -->
+            <!-- Source Code / Folder Upload Section -->
             <div class="form-section code-editor-section">
-                <h3>Source Code <span class="required">*</span></h3>
-                <p class="help-text" style="margin-top: 0; margin-bottom: 12px;">Paste your Python driver class below. Class name, base class, and type will be auto-detected.</p>
+                <h3>Driver Source <span class="required">*</span></h3>
                 
-                <div id="validation-status" class="validation-status pending">
-                    <span>⏳</span> Paste code to auto-detect class info
+                <!-- Upload Mode Toggle -->
+                <div class="upload-mode-toggle">
+                    <button type="button" class="btn active" id="mode-paste" onclick="setUploadMode('paste')">
+                        📝 Paste Code
+                    </button>
+                    <button type="button" class="btn" id="mode-folder" onclick="setUploadMode('folder')">
+                        📁 Upload Folder
+                    </button>
                 </div>
                 
-                <div class="code-editor-container">
-                    <textarea name="source_code" id="source-code">{{ driver.source_code or '' }}</textarea>
+                <!-- Paste Code Mode -->
+                <div id="paste-mode-section">
+                    <p class="help-text" style="margin-top: 0; margin-bottom: 12px;">Paste your Python driver class below. Class name, base class, and type will be auto-detected.</p>
+                    
+                    <div id="validation-status" class="validation-status pending">
+                        <span>⏳</span> Paste code to auto-detect class info
+                    </div>
+                    
+                    <div class="code-editor-container">
+                        <textarea name="source_code" id="source-code">{{ driver.source_code or '' }}</textarea>
+                    </div>
+                    
+                    <div style="margin-top: 12px;">
+                        <button type="button" class="btn btn-secondary" onclick="validateCode()">Validate Syntax</button>
+                    </div>
                 </div>
                 
-                <div style="margin-top: 12px;">
-                    <button type="button" class="btn btn-secondary" onclick="validateCode()">Validate Syntax</button>
+                <!-- Folder Upload Mode -->
+                <div id="folder-mode-section" class="hidden">
+                    <div class="naming-convention">
+                        <h4>📋 File Naming Convention</h4>
+                        <p style="margin: 0;">The main driver file must be named:</p>
+                        <ul style="margin: 8px 0 0 0; padding-left: 24px;">
+                            <li><code>driver.py</code> (preferred)</li>
+                            <li><code>&lt;ClassName&gt;_driver.py</code> (e.g., <code>MyLockIn_driver.py</code>)</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="folder-upload-area" id="folder-upload-area" onclick="document.getElementById('folder-input').click()">
+                        <input type="file" id="folder-input" webkitdirectory directory multiple style="display: none;" onchange="handleFolderUpload(this)">
+                        <div style="font-size: 48px; margin-bottom: 12px;">📁</div>
+                        <p style="margin: 0; color: #374151; font-weight: 500;">Click to select a folder</p>
+                        <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.9rem;">or drag and drop a folder here</p>
+                    </div>
+                    
+                    <div id="uploaded-files-container" class="uploaded-files-list hidden">
+                        <h4 style="margin: 0 0 8px 0;">Uploaded Files:</h4>
+                        <div id="file-tree" class="file-tree"></div>
+                    </div>
+                    
+                    <div id="folder-validation-status" class="validation-status pending hidden">
+                        <span>⏳</span> Upload a folder to detect driver info
+                    </div>
                 </div>
+                
+                <!-- Hidden fields for folder upload data -->
+                <input type="hidden" name="upload_id" id="upload-id" value="">
+                <input type="hidden" name="driver_files_json" id="driver-files-json" value="">
+                <input type="hidden" name="main_file_path" id="main-file-path" value="">
+                <input type="hidden" name="has_folder_upload" id="has-folder-upload" value="false">
             </div>
             
             <!-- Auto-detected Info (read-only) -->
@@ -261,6 +410,9 @@
 </div>
 
 <script>
+    // Upload mode state
+    let currentMode = 'paste';
+    
     // Known base classes that map to instrument types
     const BASE_CLASS_TYPES = {
         'Measurement': 'measurement',
@@ -269,6 +421,143 @@
         'MovementInstrument': 'movement',
         'Instrument': 'measurement',  // default
     };
+    
+    // Upload mode switching
+    function setUploadMode(mode) {
+        currentMode = mode;
+        document.getElementById('mode-paste').classList.toggle('active', mode === 'paste');
+        document.getElementById('mode-folder').classList.toggle('active', mode === 'folder');
+        document.getElementById('paste-mode-section').classList.toggle('hidden', mode !== 'paste');
+        document.getElementById('folder-mode-section').classList.toggle('hidden', mode !== 'folder');
+        document.getElementById('has-folder-upload').value = (mode === 'folder') ? 'true' : 'false';
+        
+        // Clear source code if switching to folder mode
+        if (mode === 'folder') {
+            // Keep editor content but don't require it for validation
+        }
+    }
+    
+    // Handle folder upload
+    async function handleFolderUpload(input) {
+        const files = input.files;
+        if (!files || files.length === 0) return;
+        
+        const uploadArea = document.getElementById('folder-upload-area');
+        uploadArea.classList.add('uploading');
+        uploadArea.innerHTML = '<div style="font-size: 48px; margin-bottom: 12px;">⏳</div><p style="margin: 0;">Uploading files...</p>';
+        
+        // Create FormData with all files
+        const formData = new FormData();
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            formData.append('files', file, file.webkitRelativePath || file.name);
+        }
+        
+        try {
+            const response = await fetch('/api/v1/drivers/upload-folder', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                uploadArea.classList.remove('uploading');
+                uploadArea.classList.add('success');
+                uploadArea.innerHTML = '<div style="font-size: 48px; margin-bottom: 12px;">✅</div><p style="margin: 0; color: #059669;">Folder uploaded successfully!</p><p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.9rem;">Click to select a different folder</p>';
+                
+                // Store upload data
+                document.getElementById('upload-id').value = result.upload_id;
+                document.getElementById('driver-files-json').value = JSON.stringify(result.files);
+                document.getElementById('main-file-path').value = result.main_file || '';
+                
+                // Display file tree
+                displayFileTree(result.files, result.main_file);
+                
+                // Update source code textarea with main file content
+                if (result.main_file_content) {
+                    editor.setValue(result.main_file_content);
+                    document.getElementById('source-code').value = result.main_file_content;
+                    updateDetectedFields();
+                }
+                
+                // Update validation status
+                const validationEl = document.getElementById('folder-validation-status');
+                validationEl.classList.remove('hidden');
+                if (result.main_file) {
+                    validationEl.className = 'validation-status valid';
+                    validationEl.innerHTML = '<span>✓</span> Main driver file detected: ' + result.main_file;
+                } else {
+                    validationEl.className = 'validation-status invalid';
+                    validationEl.innerHTML = '<span>⚠️</span> No main driver file found. Please ensure you have a driver.py or &lt;ClassName&gt;_driver.py file.';
+                }
+            } else {
+                throw new Error(result.error || 'Upload failed');
+            }
+        } catch (error) {
+            uploadArea.classList.remove('uploading');
+            uploadArea.innerHTML = '<div style="font-size: 48px; margin-bottom: 12px;">❌</div><p style="margin: 0; color: #dc2626;">Upload failed: ' + error.message + '</p><p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.9rem;">Click to try again</p>';
+        }
+    }
+    
+    // Display uploaded file tree
+    function displayFileTree(files, mainFile) {
+        const container = document.getElementById('uploaded-files-container');
+        const treeEl = document.getElementById('file-tree');
+        container.classList.remove('hidden');
+        
+        // Sort files by path
+        files.sort((a, b) => a.path.localeCompare(b.path));
+        
+        let html = '';
+        for (const file of files) {
+            const isMain = file.path === mainFile;
+            const icon = file.path.endsWith('/') ? '📁' : (file.path.endsWith('.py') ? '🐍' : '📄');
+            const indent = (file.path.split('/').length - 1) * 16;
+            const fileName = file.path.split('/').pop();
+            
+            html += '<div class="file-tree-item' + (isMain ? ' main-file' : '') + '" style="padding-left: ' + indent + 'px;">';
+            html += '<span>' + icon + '</span>';
+            html += '<span>' + fileName + '</span>';
+            if (isMain) {
+                html += '<span class="badge">Main Driver</span>';
+            }
+            if (file.size) {
+                html += '<span style="color: #9ca3af; font-size: 0.8rem; margin-left: auto;">' + formatFileSize(file.size) + '</span>';
+            }
+            html += '</div>';
+        }
+        
+        treeEl.innerHTML = html;
+    }
+    
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    
+    // Drag and drop support
+    const folderArea = document.getElementById('folder-upload-area');
+    if (folderArea) {
+        folderArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            folderArea.style.borderColor = '#3b82f6';
+            folderArea.style.background = 'rgba(59, 130, 246, 0.05)';
+        });
+        folderArea.addEventListener('dragleave', () => {
+            folderArea.style.borderColor = '';
+            folderArea.style.background = '';
+        });
+        folderArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            folderArea.style.borderColor = '';
+            folderArea.style.background = '';
+            // Note: Folder drop is complex and may not work in all browsers
+            // For now, prompt user to use the click method
+            alert('Please click to select a folder. Drag and drop for folders has limited browser support.');
+        });
+    }
     
     // Initialize CodeMirror
     const editor = CodeMirror.fromTextArea(document.getElementById('source-code'), {
@@ -452,6 +741,24 @@
         // Ensure detected fields are populated
         const className = document.getElementById('detected-class-name').value;
         const baseClass = document.getElementById('detected-base-class').value;
+        
+        // For folder upload mode, check that a folder was uploaded
+        if (currentMode === 'folder') {
+            const uploadId = document.getElementById('upload-id').value;
+            const mainFilePath = document.getElementById('main-file-path').value;
+            
+            if (!uploadId) {
+                e.preventDefault();
+                alert('Please upload a folder containing your driver files.');
+                return false;
+            }
+            
+            if (!mainFilePath) {
+                e.preventDefault();
+                alert('No main driver file found. Please ensure your folder contains driver.py or <ClassName>_driver.py');
+                return false;
+            }
+        }
         
         if (!className || !baseClass) {
             e.preventDefault();
