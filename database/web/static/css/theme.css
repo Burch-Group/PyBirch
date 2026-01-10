@@ -1,0 +1,418 @@
+/**
+ * PyBirch Theme System
+ * ====================
+ * Industry-standard CSS Custom Properties (CSS Variables) based theming.
+ * Supports light mode, dark mode, system preference, and custom themes.
+ * 
+ * Based on:
+ * - W3C CSS Custom Properties specification
+ * - prefers-color-scheme media query (W3C Media Queries Level 5)
+ * - Material Design color system principles
+ * - Tailwind CSS color palette conventions
+ */
+
+/* ==================== Light Mode (Default) ==================== */
+:root {
+    /* Color scheme hint for browser */
+    color-scheme: light dark;
+    
+    /* Brand Colors */
+    --color-primary: #0078d4;
+    --color-primary-dark: #106ebe;
+    --color-primary-light: #4da3ff;
+    --color-secondary: #5c6bc0;
+    
+    /* Status Colors */
+    --color-success: #28a745;
+    --color-warning: #ffc107;
+    --color-error: #dc3545;
+    --color-info: #17a2b8;
+    
+    /* Background Colors */
+    --color-bg-primary: #ffffff;
+    --color-bg-secondary: #f8f9fa;
+    --color-bg-tertiary: #e9ecef;
+    --color-bg-hover: #f1f3f5;
+    
+    /* Text Colors */
+    --color-text-primary: #212529;
+    --color-text-secondary: #6c757d;
+    --color-text-muted: #adb5bd;
+    --color-text-inverse: #ffffff;
+    
+    /* Border Colors */
+    --color-border: #dee2e6;
+    --color-border-dark: #ced4da;
+    
+    /* Shadow */
+    --shadow-color: rgba(0, 0, 0, 0.1);
+    --shadow-sm: 0 1px 2px var(--shadow-color);
+    --shadow: 0 1px 3px var(--shadow-color);
+    --shadow-lg: 0 4px 6px var(--shadow-color);
+    
+    /* Overlay */
+    --color-overlay: rgba(0, 0, 0, 0.5);
+    
+    /* Code/Pre */
+    --color-code-bg: #f4f4f4;
+    --color-code-text: #d63384;
+    
+    /* Focus Ring */
+    --color-focus-ring: rgba(0, 120, 212, 0.25);
+    
+    /* Scrollbar (for WebKit browsers) */
+    --scrollbar-track: #f1f1f1;
+    --scrollbar-thumb: #c1c1c1;
+    --scrollbar-thumb-hover: #a1a1a1;
+}
+
+/* ==================== Dark Mode ==================== */
+[data-theme="dark"],
+:root.dark-mode {
+    color-scheme: dark;
+    
+    /* Brand Colors - Lighter for dark backgrounds */
+    --color-primary: #4da3ff;
+    --color-primary-dark: #2d8cf0;
+    --color-primary-light: #7fc4ff;
+    --color-secondary: #7c8adb;
+    
+    /* Status Colors - Adjusted for dark mode contrast */
+    --color-success: #34d058;
+    --color-warning: #ffdf5d;
+    --color-error: #f97583;
+    --color-info: #39c5cf;
+    
+    /* Background Colors - Dark surfaces */
+    --color-bg-primary: #1e1e1e;
+    --color-bg-secondary: #252526;
+    --color-bg-tertiary: #2d2d30;
+    --color-bg-hover: #37373d;
+    
+    /* Text Colors - Light text on dark */
+    --color-text-primary: #e4e4e4;
+    --color-text-secondary: #a0a0a0;
+    --color-text-muted: #6e6e6e;
+    --color-text-inverse: #1e1e1e;
+    
+    /* Border Colors */
+    --color-border: #3c3c3c;
+    --color-border-dark: #4a4a4a;
+    
+    /* Shadow - More subtle in dark mode */
+    --shadow-color: rgba(0, 0, 0, 0.3);
+    
+    /* Overlay */
+    --color-overlay: rgba(0, 0, 0, 0.7);
+    
+    /* Code/Pre */
+    --color-code-bg: #2d2d30;
+    --color-code-text: #ce9178;
+    
+    /* Focus Ring */
+    --color-focus-ring: rgba(77, 163, 255, 0.35);
+    
+    /* Scrollbar */
+    --scrollbar-track: #2d2d30;
+    --scrollbar-thumb: #4a4a4a;
+    --scrollbar-thumb-hover: #5a5a5a;
+}
+
+/* ==================== System Preference Detection ==================== */
+/* Only apply when data-theme is "system" or not set */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]):not(.light-mode) {
+        color-scheme: dark;
+        
+        --color-primary: #4da3ff;
+        --color-primary-dark: #2d8cf0;
+        --color-primary-light: #7fc4ff;
+        --color-secondary: #7c8adb;
+        
+        --color-success: #34d058;
+        --color-warning: #ffdf5d;
+        --color-error: #f97583;
+        --color-info: #39c5cf;
+        
+        --color-bg-primary: #1e1e1e;
+        --color-bg-secondary: #252526;
+        --color-bg-tertiary: #2d2d30;
+        --color-bg-hover: #37373d;
+        
+        --color-text-primary: #e4e4e4;
+        --color-text-secondary: #a0a0a0;
+        --color-text-muted: #6e6e6e;
+        --color-text-inverse: #1e1e1e;
+        
+        --color-border: #3c3c3c;
+        --color-border-dark: #4a4a4a;
+        
+        --shadow-color: rgba(0, 0, 0, 0.3);
+        --color-overlay: rgba(0, 0, 0, 0.7);
+        
+        --color-code-bg: #2d2d30;
+        --color-code-text: #ce9178;
+        
+        --color-focus-ring: rgba(77, 163, 255, 0.35);
+        
+        --scrollbar-track: #2d2d30;
+        --scrollbar-thumb: #4a4a4a;
+        --scrollbar-thumb-hover: #5a5a5a;
+    }
+}
+
+/* ==================== Smooth Transitions ==================== */
+/* Apply smooth transitions when theme changes */
+html.theme-transition,
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+    transition: background-color 0.3s ease,
+                color 0.3s ease,
+                border-color 0.3s ease,
+                box-shadow 0.3s ease !important;
+}
+
+/* ==================== Dark Mode Toggle Button ==================== */
+.theme-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius, 6px);
+    background: var(--color-bg-primary);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.theme-toggle:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+    border-color: var(--color-primary);
+}
+
+.theme-toggle:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+/* Sun icon (shown in dark mode) */
+.theme-toggle .icon-sun {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    transform: translateY(-50px);
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+/* Moon icon (shown in light mode) */
+.theme-toggle .icon-moon {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    transform: translateY(0);
+    opacity: 1;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+/* Swap icons when dark mode is active */
+[data-theme="dark"] .theme-toggle .icon-sun,
+.dark-mode .theme-toggle .icon-sun {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+[data-theme="dark"] .theme-toggle .icon-moon,
+.dark-mode .theme-toggle .icon-moon {
+    transform: translateY(50px);
+    opacity: 0;
+}
+
+/* System preference detection for icon swap */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]):not(.light-mode) .theme-toggle .icon-sun {
+        transform: translateY(0);
+        opacity: 1;
+    }
+    
+    :root:not([data-theme="light"]):not(.light-mode) .theme-toggle .icon-moon {
+        transform: translateY(50px);
+        opacity: 0;
+    }
+}
+
+/* ==================== Scrollbar Styling ==================== */
+/* WebKit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+}
+
+/* Firefox */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* ==================== Form Elements Dark Mode Fixes ==================== */
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea,
+.dark-mode input,
+.dark-mode select,
+.dark-mode textarea {
+    background-color: var(--color-bg-tertiary);
+    border-color: var(--color-border);
+    color: var(--color-text-primary);
+}
+
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder,
+.dark-mode input::placeholder,
+.dark-mode textarea::placeholder {
+    color: var(--color-text-muted);
+}
+
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus,
+.dark-mode input:focus,
+.dark-mode select:focus,
+.dark-mode textarea:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+/* Option elements in dark mode */
+[data-theme="dark"] option,
+.dark-mode option {
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+}
+
+/* ==================== Code/Pre Elements ==================== */
+[data-theme="dark"] code,
+[data-theme="dark"] pre,
+.dark-mode code,
+.dark-mode pre {
+    background-color: var(--color-code-bg);
+    color: var(--color-code-text);
+}
+
+/* ==================== Table Styling for Dark Mode ==================== */
+[data-theme="dark"] table,
+.dark-mode table {
+    border-color: var(--color-border);
+}
+
+[data-theme="dark"] th,
+[data-theme="dark"] td,
+.dark-mode th,
+.dark-mode td {
+    border-color: var(--color-border);
+}
+
+[data-theme="dark"] tr:hover,
+.dark-mode tr:hover {
+    background-color: var(--color-bg-hover);
+}
+
+/* ==================== Status Badge Adjustments ==================== */
+[data-theme="dark"] .status-badge,
+.dark-mode .status-badge {
+    /* Ensure badges remain readable in dark mode */
+}
+
+/* Warning badge text color fix */
+[data-theme="dark"] .status-badge.status-warning,
+[data-theme="dark"] .preview-badge.warning,
+.dark-mode .status-badge.status-warning,
+.dark-mode .preview-badge.warning {
+    color: var(--color-text-inverse);
+}
+
+/* ==================== SVG Icon Colors ==================== */
+[data-theme="dark"] .nav-icon,
+.dark-mode .nav-icon {
+    filter: brightness(0.9);
+}
+
+[data-theme="dark"] .nav-drawer-link.active .nav-icon,
+.dark-mode .nav-drawer-link.active .nav-icon {
+    filter: brightness(0) invert(1);
+}
+
+/* ==================== Modal/Dialog Dark Mode ==================== */
+[data-theme="dark"] .modal-content,
+[data-theme="dark"] .dialog,
+.dark-mode .modal-content,
+.dark-mode .dialog {
+    background-color: var(--color-bg-primary);
+    border-color: var(--color-border);
+}
+
+/* ==================== Card/Panel Dark Mode ==================== */
+[data-theme="dark"] .card,
+[data-theme="dark"] .panel,
+[data-theme="dark"] .data-card,
+.dark-mode .card,
+.dark-mode .panel,
+.dark-mode .data-card {
+    background-color: var(--color-bg-primary);
+    border-color: var(--color-border);
+}
+
+/* ==================== Dropdown Menu Dark Mode ==================== */
+[data-theme="dark"] .user-menu,
+[data-theme="dark"] .dropdown-menu,
+.dark-mode .user-menu,
+.dark-mode .dropdown-menu {
+    background-color: var(--color-bg-primary);
+    border-color: var(--color-border);
+}
+
+[data-theme="dark"] .user-menu a:hover,
+[data-theme="dark"] .dropdown-menu a:hover,
+.dark-mode .user-menu a:hover,
+.dark-mode .dropdown-menu a:hover {
+    background-color: var(--color-bg-hover);
+}
+
+/* ==================== Toast/Flash Messages ==================== */
+[data-theme="dark"] .flash-message,
+.dark-mode .flash-message {
+    border-color: var(--color-border);
+}
+
+/* ==================== Custom Theme Variables Injection ==================== */
+/* These can be overridden by custom themes via JavaScript */
+:root {
+    /* Custom theme placeholder variables */
+    --custom-primary: var(--color-primary);
+    --custom-secondary: var(--color-secondary);
+    --custom-bg-primary: var(--color-bg-primary);
+    --custom-bg-secondary: var(--color-bg-secondary);
+    --custom-text-primary: var(--color-text-primary);
+    --custom-text-secondary: var(--color-text-secondary);
+    --custom-border: var(--color-border);
+}

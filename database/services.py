@@ -7466,6 +7466,320 @@ class DatabaseService:
                     'contribution_streak': days_active if total_items_created > 0 else 0,
                 },
             }
+    
+    # ============================================================
+    # USER SETTINGS & THEMES
+    # ============================================================
+    
+    def get_user_settings(self, user_id: int) -> Dict:
+        """Get user settings, creating default settings if none exist.
+        
+        Args:
+            user_id: The user's ID
+            
+        Returns:
+            Dictionary with user settings including theme preferences
+        """
+        from .models import UserSettings, UserTheme
+        
+        with self.session_scope() as session:
+            settings = session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            
+            if not settings:
+                # Create default settings
+                settings = UserSettings(
+                    user_id=user_id,
+                    theme_mode='system',
+                    settings={
+                        'compact_tables': False,
+                        'show_notifications': True,
+                        'default_page_size': 20,
+                        'sidebar_collapsed': False,
+                        'date_format': 'YYYY-MM-DD',
+                        'time_format': '24h'
+                    }
+                )
+                session.add(settings)
+                session.flush()
+            
+            return self._user_settings_to_dict(settings)
+    
+    def _user_settings_to_dict(self, settings) -> Dict:
+        """Convert UserSettings model to dictionary."""
+        return {
+            'id': settings.id,
+            'user_id': settings.user_id,
+            'theme_mode': settings.theme_mode,
+            'active_theme_id': settings.active_theme_id,
+            'settings': settings.settings or {},
+            'created_at': settings.created_at.isoformat() if settings.created_at else None,
+            'updated_at': settings.updated_at.isoformat() if settings.updated_at else None,
+        }
+    
+    def update_user_settings(self, user_id: int, **kwargs) -> Optional[Dict]:
+        """Update user settings.
+        
+        Args:
+            user_id: The user's ID
+            **kwargs: Fields to update (theme_mode, active_theme_id, settings)
+            
+        Returns:
+            Updated settings dict or None if not found
+        """
+        from .models import UserSettings
+        
+        with self.session_scope() as session:
+            settings = session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            
+            if not settings:
+                # Create settings if they don't exist
+                settings = UserSettings(user_id=user_id)
+                session.add(settings)
+            
+            # Update allowed fields
+            if 'theme_mode' in kwargs and kwargs['theme_mode'] in ('light', 'dark', 'system'):
+                settings.theme_mode = kwargs['theme_mode']
+            
+            if 'active_theme_id' in kwargs:
+                settings.active_theme_id = kwargs['active_theme_id']
+            
+            if 'settings' in kwargs and isinstance(kwargs['settings'], dict):
+                # Merge settings rather than replace
+                current = settings.settings or {}
+                current.update(kwargs['settings'])
+                settings.settings = current
+            
+            session.flush()
+            return self._user_settings_to_dict(settings)
+    
+    def get_user_themes(self, user_id: int, include_public: bool = True) -> List[Dict]:
+        """Get all themes available to a user.
+        
+        Args:
+            user_id: The user's ID
+            include_public: Whether to include public themes from other users
+            
+        Returns:
+            List of theme dictionaries
+        """
+        from .models import UserTheme
+        
+        with self.session_scope() as session:
+            query = session.query(UserTheme)
+            
+            if include_public:
+                query = query.filter(
+                    (UserTheme.user_id == user_id) | (UserTheme.is_public == True)
+                )
+            else:
+                query = query.filter(UserTheme.user_id == user_id)
+            
+            themes = query.order_by(UserTheme.name).all()
+            return [self._user_theme_to_dict(t) for t in themes]
+    
+    def _user_theme_to_dict(self, theme) -> Dict:
+        """Convert UserTheme model to dictionary."""
+        return {
+            'id': theme.id,
+            'user_id': theme.user_id,
+            'name': theme.name,
+            'description': theme.description,
+            'light_palette': theme.light_palette or {},
+            'dark_palette': theme.dark_palette or {},
+            'is_public': theme.is_public,
+            'is_default': theme.is_default,
+            'created_at': theme.created_at.isoformat() if theme.created_at else None,
+            'updated_at': theme.updated_at.isoformat() if theme.updated_at else None,
+        }
+    
+    def get_user_theme(self, theme_id: int) -> Optional[Dict]:
+        """Get a specific theme by ID.
+        
+        Args:
+            theme_id: The theme's ID
+            
+        Returns:
+            Theme dictionary or None if not found
+        """
+        from .models import UserTheme
+        
+        with self.session_scope() as session:
+            theme = session.query(UserTheme).filter(UserTheme.id == theme_id).first()
+            return self._user_theme_to_dict(theme) if theme else None
+    
+    def create_user_theme(self, user_id: int, data: Dict) -> Dict:
+        """Create a new custom theme.
+        
+        Args:
+            user_id: The user's ID
+            data: Theme data (name, description, light_palette, dark_palette, is_public)
+            
+        Returns:
+            Created theme dictionary
+        """
+        from .models import UserTheme
+        
+        # Default palettes based on industry-standard design systems
+        default_light_palette = {
+            'primary': '#0078d4',
+            'primary_dark': '#106ebe',
+            'secondary': '#5c6bc0',
+            'success': '#28a745',
+            'warning': '#ffc107',
+            'error': '#dc3545',
+            'info': '#17a2b8',
+            'bg_primary': '#ffffff',
+            'bg_secondary': '#f8f9fa',
+            'bg_tertiary': '#e9ecef',
+            'text_primary': '#212529',
+            'text_secondary': '#6c757d',
+            'text_muted': '#adb5bd',
+            'border': '#dee2e6',
+            'border_dark': '#ced4da'
+        }
+        
+        default_dark_palette = {
+            'primary': '#4da3ff',
+            'primary_dark': '#2d8cf0',
+            'secondary': '#7c8adb',
+            'success': '#34d058',
+            'warning': '#ffdf5d',
+            'error': '#f97583',
+            'info': '#39c5cf',
+            'bg_primary': '#1e1e1e',
+            'bg_secondary': '#252526',
+            'bg_tertiary': '#2d2d30',
+            'text_primary': '#e4e4e4',
+            'text_secondary': '#a0a0a0',
+            'text_muted': '#6e6e6e',
+            'border': '#3c3c3c',
+            'border_dark': '#4a4a4a'
+        }
+        
+        with self.session_scope() as session:
+            theme = UserTheme(
+                user_id=user_id,
+                name=data.get('name', 'New Theme'),
+                description=data.get('description'),
+                light_palette=data.get('light_palette') or default_light_palette,
+                dark_palette=data.get('dark_palette') or default_dark_palette,
+                is_public=data.get('is_public', False),
+                is_default=data.get('is_default', False)
+            )
+            session.add(theme)
+            session.flush()
+            return self._user_theme_to_dict(theme)
+    
+    def update_user_theme(self, theme_id: int, user_id: int, data: Dict) -> Optional[Dict]:
+        """Update a custom theme.
+        
+        Args:
+            theme_id: The theme's ID
+            user_id: The user's ID (for ownership verification)
+            data: Fields to update
+            
+        Returns:
+            Updated theme dictionary or None if not found/not owned
+        """
+        from .models import UserTheme
+        
+        with self.session_scope() as session:
+            theme = session.query(UserTheme).filter(
+                UserTheme.id == theme_id,
+                UserTheme.user_id == user_id
+            ).first()
+            
+            if not theme:
+                return None
+            
+            if 'name' in data:
+                theme.name = data['name']
+            if 'description' in data:
+                theme.description = data['description']
+            if 'light_palette' in data:
+                theme.light_palette = data['light_palette']
+            if 'dark_palette' in data:
+                theme.dark_palette = data['dark_palette']
+            if 'is_public' in data:
+                theme.is_public = data['is_public']
+            if 'is_default' in data:
+                theme.is_default = data['is_default']
+            
+            session.flush()
+            return self._user_theme_to_dict(theme)
+    
+    def delete_user_theme(self, theme_id: int, user_id: int) -> bool:
+        """Delete a custom theme.
+        
+        Args:
+            theme_id: The theme's ID
+            user_id: The user's ID (for ownership verification)
+            
+        Returns:
+            True if deleted, False if not found/not owned
+        """
+        from .models import UserTheme, UserSettings
+        
+        with self.session_scope() as session:
+            theme = session.query(UserTheme).filter(
+                UserTheme.id == theme_id,
+                UserTheme.user_id == user_id
+            ).first()
+            
+            if not theme:
+                return False
+            
+            # Clear this theme from any user settings that reference it
+            session.query(UserSettings).filter(
+                UserSettings.active_theme_id == theme_id
+            ).update({'active_theme_id': None})
+            
+            session.delete(theme)
+            session.flush()
+            return True
+    
+    def get_default_theme_palettes(self) -> Dict:
+        """Get the default light and dark palettes for theme creation.
+        
+        Returns:
+            Dictionary with 'light' and 'dark' palette templates
+        """
+        return {
+            'light': {
+                'primary': '#0078d4',
+                'primary_dark': '#106ebe',
+                'secondary': '#5c6bc0',
+                'success': '#28a745',
+                'warning': '#ffc107',
+                'error': '#dc3545',
+                'info': '#17a2b8',
+                'bg_primary': '#ffffff',
+                'bg_secondary': '#f8f9fa',
+                'bg_tertiary': '#e9ecef',
+                'text_primary': '#212529',
+                'text_secondary': '#6c757d',
+                'text_muted': '#adb5bd',
+                'border': '#dee2e6',
+                'border_dark': '#ced4da'
+            },
+            'dark': {
+                'primary': '#4da3ff',
+                'primary_dark': '#2d8cf0',
+                'secondary': '#7c8adb',
+                'success': '#34d058',
+                'warning': '#ffdf5d',
+                'error': '#f97583',
+                'info': '#39c5cf',
+                'bg_primary': '#1e1e1e',
+                'bg_secondary': '#252526',
+                'bg_tertiary': '#2d2d30',
+                'text_primary': '#e4e4e4',
+                'text_secondary': '#a0a0a0',
+                'text_muted': '#6e6e6e',
+                'border': '#3c3c3c',
+                'border_dark': '#4a4a4a'
+            }
+        }
 
 
 # Singleton instance for easy import

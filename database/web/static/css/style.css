@@ -295,6 +295,9 @@ code {
 /* User dropdown in navbar */
 .nav-user {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
 }
 
 .user-dropdown {

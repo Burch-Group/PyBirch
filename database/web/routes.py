@@ -4600,6 +4600,232 @@ def change_password():
     return redirect(url_for('main.profile'))
 
 
+# -------------------- User Settings & Themes --------------------
+
+@main_bp.route('/settings', methods=['GET', 'POST'])
+@login_required
+def settings():
+    """User settings page for theme and preferences management."""
+    db = get_db_service()
+    
+    # Safety check - g.current_user may be None if user was deleted
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    if request.method == 'POST':
+        form_type = request.form.get('form_type')
+        
+        if form_type == 'theme_mode':
+            # Update theme mode (light/dark/system)
+            theme_mode = request.form.get('theme_mode', 'system')
+            db.update_user_settings(g.current_user['id'], theme_mode=theme_mode)
+            flash('Theme mode updated', 'success')
+            return redirect(url_for('main.settings'))
+        
+        elif form_type == 'active_theme':
+            # Set active custom theme
+            theme_id = request.form.get('active_theme_id')
+            theme_id = int(theme_id) if theme_id else None
+            db.update_user_settings(g.current_user['id'], active_theme_id=theme_id)
+            flash('Active theme updated', 'success')
+            return redirect(url_for('main.settings'))
+        
+        elif form_type == 'general_settings':
+            # Update general settings
+            settings_data = {
+                'compact_tables': 'compact_tables' in request.form,
+                'show_notifications': 'show_notifications' in request.form,
+                'default_page_size': int(request.form.get('default_page_size', 20)),
+                'sidebar_collapsed': 'sidebar_collapsed' in request.form,
+                'date_format': request.form.get('date_format', 'YYYY-MM-DD'),
+                'time_format': request.form.get('time_format', '24h'),
+            }
+            db.update_user_settings(g.current_user['id'], settings=settings_data)
+            flash('Settings saved', 'success')
+            return redirect(url_for('main.settings'))
+    
+    user_settings = db.get_user_settings(g.current_user['id'])
+    user_themes = db.get_user_themes(g.current_user['id'])
+    default_palettes = db.get_default_theme_palettes()
+    
+    return render_template('settings.html',
+        user_settings=user_settings,
+        user_themes=user_themes,
+        default_palettes=default_palettes
+    )
+
+
+@main_bp.route('/settings/theme/new', methods=['GET', 'POST'])
+@login_required
+def new_theme():
+    """Create a new custom theme."""
+    db = get_db_service()
+    
+    # Safety check - g.current_user may be None if user was deleted
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    if request.method == 'POST':
+        data = {
+            'name': request.form.get('name', 'New Theme'),
+            'description': request.form.get('description'),
+            'is_public': 'is_public' in request.form,
+        }
+        
+        # Parse light palette
+        light_palette = {}
+        dark_palette = {}
+        for key in ['primary', 'primary_dark', 'secondary', 'success', 'warning', 'error', 'info',
+                    'bg_primary', 'bg_secondary', 'bg_tertiary', 'text_primary', 'text_secondary',
+                    'text_muted', 'border', 'border_dark']:
+            if request.form.get(f'light_{key}'):
+                light_palette[key] = request.form.get(f'light_{key}')
+            if request.form.get(f'dark_{key}'):
+                dark_palette[key] = request.form.get(f'dark_{key}')
+        
+        if light_palette:
+            data['light_palette'] = light_palette
+        if dark_palette:
+            data['dark_palette'] = dark_palette
+        
+        theme = db.create_user_theme(g.current_user['id'], data)
+        flash(f'Theme "{theme["name"]}" created', 'success')
+        return redirect(url_for('main.settings'))
+    
+    default_palettes = db.get_default_theme_palettes()
+    return render_template('theme_form.html',
+        theme=None,
+        default_palettes=default_palettes,
+        is_new=True
+    )
+
+
+@main_bp.route('/settings/theme/<int:theme_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_theme(theme_id):
+    """Edit an existing custom theme."""
+    db = get_db_service()
+    
+    # Safety check - g.current_user may be None if user was deleted
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    theme = db.get_user_theme(theme_id)
+    
+    if not theme:
+        flash('Theme not found', 'error')
+        return redirect(url_for('main.settings'))
+    
+    if theme['user_id'] != g.current_user['id']:
+        flash('You can only edit your own themes', 'error')
+        return redirect(url_for('main.settings'))
+    
+    if request.method == 'POST':
+        data = {
+            'name': request.form.get('name', theme['name']),
+            'description': request.form.get('description'),
+            'is_public': 'is_public' in request.form,
+        }
+        
+        # Parse palettes
+        light_palette = {}
+        dark_palette = {}
+        for key in ['primary', 'primary_dark', 'secondary', 'success', 'warning', 'error', 'info',
+                    'bg_primary', 'bg_secondary', 'bg_tertiary', 'text_primary', 'text_secondary',
+                    'text_muted', 'border', 'border_dark']:
+            if request.form.get(f'light_{key}'):
+                light_palette[key] = request.form.get(f'light_{key}')
+            if request.form.get(f'dark_{key}'):
+                dark_palette[key] = request.form.get(f'dark_{key}')
+        
+        if light_palette:
+            data['light_palette'] = light_palette
+        if dark_palette:
+            data['dark_palette'] = dark_palette
+        
+        db.update_user_theme(theme_id, g.current_user['id'], data)
+        flash(f'Theme "{data["name"]}" updated', 'success')
+        return redirect(url_for('main.settings'))
+    
+    default_palettes = db.get_default_theme_palettes()
+    return render_template('theme_form.html',
+        theme=theme,
+        default_palettes=default_palettes,
+        is_new=False
+    )
+
+
+@main_bp.route('/settings/theme/<int:theme_id>/delete', methods=['POST'])
+@login_required
+def delete_theme(theme_id):
+    """Delete a custom theme."""
+    db = get_db_service()
+    
+    # Safety check - g.current_user may be None if user was deleted
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    if db.delete_user_theme(theme_id, g.current_user['id']):
+        flash('Theme deleted', 'success')
+    else:
+        flash('Theme not found or you do not have permission to delete it', 'error')
+    
+    return redirect(url_for('main.settings'))
+
+
+@main_bp.route('/api/v1/settings/theme-mode', methods=['POST'])
+def api_set_theme_mode():
+    """API endpoint to set theme mode (for toggle button)."""
+    db = get_db_service()
+    data = request.get_json() or {}
+    theme_mode = data.get('theme_mode', 'system')
+    
+    if theme_mode not in ('light', 'dark', 'system'):
+        return jsonify({'success': False, 'error': 'Invalid theme mode'}), 400
+    
+    if g.current_user:
+        db.update_user_settings(g.current_user['id'], theme_mode=theme_mode)
+        return jsonify({'success': True, 'theme_mode': theme_mode})
+    else:
+        # For non-logged-in users, just return success (handled by localStorage)
+        return jsonify({'success': True, 'theme_mode': theme_mode, 'stored': 'client'})
+
+
+@main_bp.route('/api/v1/settings/theme', methods=['GET'])
+def api_get_theme():
+    """API endpoint to get current user's theme settings."""
+    db = get_db_service()
+    
+    if g.current_user:
+        settings = db.get_user_settings(g.current_user['id'])
+        theme_data = {
+            'theme_mode': settings.get('theme_mode', 'system'),
+            'active_theme_id': settings.get('active_theme_id'),
+        }
+        
+        # Include active theme palette if custom theme selected
+        if settings.get('active_theme_id'):
+            theme = db.get_user_theme(settings['active_theme_id'])
+            if theme:
+                theme_data['light_palette'] = theme.get('light_palette', {})
+                theme_data['dark_palette'] = theme.get('dark_palette', {})
+        
+        return jsonify(theme_data)
+    else:
+        return jsonify({
+            'theme_mode': 'system',
+            'active_theme_id': None
+        })
+
+
 @main_bp.route('/auth/google')
 def google_login():
     """Handle Google OAuth callback."""

@@ -1,0 +1,705 @@
+{% extends "base.html" %}
+
+{% block title %}{% if is_new %}Create Theme{% else %}Edit Theme{% endif %} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="theme-form-page">
+    <div class="page-header">
+        <h1>{% if is_new %}Create New Theme{% else %}Edit Theme{% endif %}</h1>
+        <a href="{{ url_for('main.settings') }}" class="btn btn-secondary">← Back to Settings</a>
+    </div>
+    
+    <form method="POST" class="data-form theme-editor-form">
+        <div class="theme-form-grid">
+            <!-- Theme Info -->
+            <div class="form-section">
+                <h2>Theme Information</h2>
+                
+                <div class="form-group">
+                    <label for="name">Theme Name *</label>
+                    <input type="text" id="name" name="name" 
+                           value="{{ theme.name if theme else '' }}" 
+                           placeholder="My Custom Theme" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" rows="2"
+                              placeholder="Optional description of your theme">{{ theme.description if theme else '' }}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="is_public" 
+                               {% if theme and theme.is_public %}checked{% endif %}>
+                        <span>Make this theme public</span>
+                    </label>
+                    <small>Public themes can be used by other users.</small>
+                </div>
+            </div>
+            
+            <!-- Live Preview -->
+            <div class="form-section theme-preview-section">
+                <h2>Live Preview</h2>
+                <div class="preview-toggle">
+                    <button type="button" class="preview-mode-btn active" data-mode="light">Light</button>
+                    <button type="button" class="preview-mode-btn" data-mode="dark">Dark</button>
+                </div>
+                <div class="theme-preview-box" id="theme-preview">
+                    <div class="preview-navbar">
+                        <span class="preview-brand">🌳 PyBirch</span>
+                        <span class="preview-btn primary">Primary</span>
+                        <span class="preview-btn secondary">Secondary</span>
+                    </div>
+                    <div class="preview-content">
+                        <div class="preview-card">
+                            <h3>Sample Card</h3>
+                            <p class="preview-text">This is how your theme will look.</p>
+                            <div class="preview-badges">
+                                <span class="preview-badge success">Success</span>
+                                <span class="preview-badge warning">Warning</span>
+                                <span class="preview-badge error">Error</span>
+                                <span class="preview-badge info">Info</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Color Palettes -->
+        <div class="palette-sections">
+            <!-- Light Mode Palette -->
+            <div class="form-section palette-section">
+                <h2>☀️ Light Mode Palette</h2>
+                <p class="section-description">Colors used when light mode is active.</p>
+                
+                <div class="color-grid">
+                    <div class="color-group">
+                        <h4>Brand Colors</h4>
+                        <div class="color-picker-row">
+                            <label for="light_primary">Primary</label>
+                            <input type="color" id="light_primary" name="light_primary" 
+                                   value="{{ theme.light_palette.primary if theme else default_palettes.light.primary }}"
+                                   data-palette="light" data-key="primary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.primary if theme else default_palettes.light.primary }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="light_primary_dark">Primary Dark</label>
+                            <input type="color" id="light_primary_dark" name="light_primary_dark" 
+                                   value="{{ theme.light_palette.primary_dark if theme else default_palettes.light.primary_dark }}"
+                                   data-palette="light" data-key="primary_dark">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.primary_dark if theme else default_palettes.light.primary_dark }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="light_secondary">Secondary</label>
+                            <input type="color" id="light_secondary" name="light_secondary" 
+                                   value="{{ theme.light_palette.secondary if theme else default_palettes.light.secondary }}"
+                                   data-palette="light" data-key="secondary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.secondary if theme else default_palettes.light.secondary }}">
+                        </div>
+                    </div>
+                    
+                    <div class="color-group">
+                        <h4>Status Colors</h4>
+                        <div class="color-picker-row">
+                            <label for="light_success">Success</label>
+                            <input type="color" id="light_success" name="light_success" 
+                                   value="{{ theme.light_palette.success if theme else default_palettes.light.success }}"
+                                   data-palette="light" data-key="success">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.success if theme else default_palettes.light.success }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="light_warning">Warning</label>
+                            <input type="color" id="light_warning" name="light_warning" 
+                                   value="{{ theme.light_palette.warning if theme else default_palettes.light.warning }}"
+                                   data-palette="light" data-key="warning">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.warning if theme else default_palettes.light.warning }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="light_error">Error</label>
+                            <input type="color" id="light_error" name="light_error" 
+                                   value="{{ theme.light_palette.error if theme else default_palettes.light.error }}"
+                                   data-palette="light" data-key="error">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.error if theme else default_palettes.light.error }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="light_info">Info</label>
+                            <input type="color" id="light_info" name="light_info" 
+                                   value="{{ theme.light_palette.info if theme else default_palettes.light.info }}"
+                                   data-palette="light" data-key="info">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.info if theme else default_palettes.light.info }}">
+                        </div>
+                    </div>
+                    
+                    <div class="color-group">
+                        <h4>Background Colors</h4>
+                        <div class="color-picker-row">
+                            <label for="light_bg_primary">Primary BG</label>
+                            <input type="color" id="light_bg_primary" name="light_bg_primary" 
+                                   value="{{ theme.light_palette.bg_primary if theme else default_palettes.light.bg_primary }}"
+                                   data-palette="light" data-key="bg_primary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.bg_primary if theme else default_palettes.light.bg_primary }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="light_bg_secondary">Secondary BG</label>
+                            <input type="color" id="light_bg_secondary" name="light_bg_secondary" 
+                                   value="{{ theme.light_palette.bg_secondary if theme else default_palettes.light.bg_secondary }}"
+                                   data-palette="light" data-key="bg_secondary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.bg_secondary if theme else default_palettes.light.bg_secondary }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="light_bg_tertiary">Tertiary BG</label>
+                            <input type="color" id="light_bg_tertiary" name="light_bg_tertiary" 
+                                   value="{{ theme.light_palette.bg_tertiary if theme else default_palettes.light.bg_tertiary }}"
+                                   data-palette="light" data-key="bg_tertiary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.bg_tertiary if theme else default_palettes.light.bg_tertiary }}">
+                        </div>
+                    </div>
+                    
+                    <div class="color-group">
+                        <h4>Text Colors</h4>
+                        <div class="color-picker-row">
+                            <label for="light_text_primary">Primary Text</label>
+                            <input type="color" id="light_text_primary" name="light_text_primary" 
+                                   value="{{ theme.light_palette.text_primary if theme else default_palettes.light.text_primary }}"
+                                   data-palette="light" data-key="text_primary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.text_primary if theme else default_palettes.light.text_primary }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="light_text_secondary">Secondary Text</label>
+                            <input type="color" id="light_text_secondary" name="light_text_secondary" 
+                                   value="{{ theme.light_palette.text_secondary if theme else default_palettes.light.text_secondary }}"
+                                   data-palette="light" data-key="text_secondary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.text_secondary if theme else default_palettes.light.text_secondary }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="light_text_muted">Muted Text</label>
+                            <input type="color" id="light_text_muted" name="light_text_muted" 
+                                   value="{{ theme.light_palette.text_muted if theme else default_palettes.light.text_muted }}"
+                                   data-palette="light" data-key="text_muted">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.text_muted if theme else default_palettes.light.text_muted }}">
+                        </div>
+                    </div>
+                    
+                    <div class="color-group">
+                        <h4>Border Colors</h4>
+                        <div class="color-picker-row">
+                            <label for="light_border">Border</label>
+                            <input type="color" id="light_border" name="light_border" 
+                                   value="{{ theme.light_palette.border if theme else default_palettes.light.border }}"
+                                   data-palette="light" data-key="border">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.border if theme else default_palettes.light.border }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="light_border_dark">Border Dark</label>
+                            <input type="color" id="light_border_dark" name="light_border_dark" 
+                                   value="{{ theme.light_palette.border_dark if theme else default_palettes.light.border_dark }}"
+                                   data-palette="light" data-key="border_dark">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.light_palette.border_dark if theme else default_palettes.light.border_dark }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Dark Mode Palette -->
+            <div class="form-section palette-section">
+                <h2>🌙 Dark Mode Palette</h2>
+                <p class="section-description">Colors used when dark mode is active.</p>
+                
+                <div class="color-grid">
+                    <div class="color-group">
+                        <h4>Brand Colors</h4>
+                        <div class="color-picker-row">
+                            <label for="dark_primary">Primary</label>
+                            <input type="color" id="dark_primary" name="dark_primary" 
+                                   value="{{ theme.dark_palette.primary if theme else default_palettes.dark.primary }}"
+                                   data-palette="dark" data-key="primary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.primary if theme else default_palettes.dark.primary }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="dark_primary_dark">Primary Dark</label>
+                            <input type="color" id="dark_primary_dark" name="dark_primary_dark" 
+                                   value="{{ theme.dark_palette.primary_dark if theme else default_palettes.dark.primary_dark }}"
+                                   data-palette="dark" data-key="primary_dark">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.primary_dark if theme else default_palettes.dark.primary_dark }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="dark_secondary">Secondary</label>
+                            <input type="color" id="dark_secondary" name="dark_secondary" 
+                                   value="{{ theme.dark_palette.secondary if theme else default_palettes.dark.secondary }}"
+                                   data-palette="dark" data-key="secondary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.secondary if theme else default_palettes.dark.secondary }}">
+                        </div>
+                    </div>
+                    
+                    <div class="color-group">
+                        <h4>Status Colors</h4>
+                        <div class="color-picker-row">
+                            <label for="dark_success">Success</label>
+                            <input type="color" id="dark_success" name="dark_success" 
+                                   value="{{ theme.dark_palette.success if theme else default_palettes.dark.success }}"
+                                   data-palette="dark" data-key="success">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.success if theme else default_palettes.dark.success }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="dark_warning">Warning</label>
+                            <input type="color" id="dark_warning" name="dark_warning" 
+                                   value="{{ theme.dark_palette.warning if theme else default_palettes.dark.warning }}"
+                                   data-palette="dark" data-key="warning">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.warning if theme else default_palettes.dark.warning }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="dark_error">Error</label>
+                            <input type="color" id="dark_error" name="dark_error" 
+                                   value="{{ theme.dark_palette.error if theme else default_palettes.dark.error }}"
+                                   data-palette="dark" data-key="error">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.error if theme else default_palettes.dark.error }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="dark_info">Info</label>
+                            <input type="color" id="dark_info" name="dark_info" 
+                                   value="{{ theme.dark_palette.info if theme else default_palettes.dark.info }}"
+                                   data-palette="dark" data-key="info">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.info if theme else default_palettes.dark.info }}">
+                        </div>
+                    </div>
+                    
+                    <div class="color-group">
+                        <h4>Background Colors</h4>
+                        <div class="color-picker-row">
+                            <label for="dark_bg_primary">Primary BG</label>
+                            <input type="color" id="dark_bg_primary" name="dark_bg_primary" 
+                                   value="{{ theme.dark_palette.bg_primary if theme else default_palettes.dark.bg_primary }}"
+                                   data-palette="dark" data-key="bg_primary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.bg_primary if theme else default_palettes.dark.bg_primary }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="dark_bg_secondary">Secondary BG</label>
+                            <input type="color" id="dark_bg_secondary" name="dark_bg_secondary" 
+                                   value="{{ theme.dark_palette.bg_secondary if theme else default_palettes.dark.bg_secondary }}"
+                                   data-palette="dark" data-key="bg_secondary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.bg_secondary if theme else default_palettes.dark.bg_secondary }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="dark_bg_tertiary">Tertiary BG</label>
+                            <input type="color" id="dark_bg_tertiary" name="dark_bg_tertiary" 
+                                   value="{{ theme.dark_palette.bg_tertiary if theme else default_palettes.dark.bg_tertiary }}"
+                                   data-palette="dark" data-key="bg_tertiary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.bg_tertiary if theme else default_palettes.dark.bg_tertiary }}">
+                        </div>
+                    </div>
+                    
+                    <div class="color-group">
+                        <h4>Text Colors</h4>
+                        <div class="color-picker-row">
+                            <label for="dark_text_primary">Primary Text</label>
+                            <input type="color" id="dark_text_primary" name="dark_text_primary" 
+                                   value="{{ theme.dark_palette.text_primary if theme else default_palettes.dark.text_primary }}"
+                                   data-palette="dark" data-key="text_primary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.text_primary if theme else default_palettes.dark.text_primary }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="dark_text_secondary">Secondary Text</label>
+                            <input type="color" id="dark_text_secondary" name="dark_text_secondary" 
+                                   value="{{ theme.dark_palette.text_secondary if theme else default_palettes.dark.text_secondary }}"
+                                   data-palette="dark" data-key="text_secondary">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.text_secondary if theme else default_palettes.dark.text_secondary }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="dark_text_muted">Muted Text</label>
+                            <input type="color" id="dark_text_muted" name="dark_text_muted" 
+                                   value="{{ theme.dark_palette.text_muted if theme else default_palettes.dark.text_muted }}"
+                                   data-palette="dark" data-key="text_muted">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.text_muted if theme else default_palettes.dark.text_muted }}">
+                        </div>
+                    </div>
+                    
+                    <div class="color-group">
+                        <h4>Border Colors</h4>
+                        <div class="color-picker-row">
+                            <label for="dark_border">Border</label>
+                            <input type="color" id="dark_border" name="dark_border" 
+                                   value="{{ theme.dark_palette.border if theme else default_palettes.dark.border }}"
+                                   data-palette="dark" data-key="border">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.border if theme else default_palettes.dark.border }}">
+                        </div>
+                        <div class="color-picker-row">
+                            <label for="dark_border_dark">Border Dark</label>
+                            <input type="color" id="dark_border_dark" name="dark_border_dark" 
+                                   value="{{ theme.dark_palette.border_dark if theme else default_palettes.dark.border_dark }}"
+                                   data-palette="dark" data-key="border_dark">
+                            <input type="text" class="color-hex" 
+                                   value="{{ theme.dark_palette.border_dark if theme else default_palettes.dark.border_dark }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">
+                {% if is_new %}Create Theme{% else %}Save Changes{% endif %}
+            </button>
+            <a href="{{ url_for('main.settings') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<style>
+.theme-form-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.page-header h1 {
+    margin: 0;
+}
+
+.theme-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.form-section {
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+}
+
+.form-section h2 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+}
+
+.palette-sections {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.palette-section {
+    overflow-x: auto;
+}
+
+/* Preview Section */
+.theme-preview-section {
+    position: sticky;
+    top: 70px;
+}
+
+.preview-toggle {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.preview-mode-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background: var(--color-bg-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.preview-mode-btn.active {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+}
+
+.theme-preview-box {
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    transition: all 0.3s;
+}
+
+.preview-navbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid;
+}
+
+.preview-brand {
+    font-weight: 600;
+    margin-right: auto;
+}
+
+.preview-btn {
+    padding: 0.3rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: default;
+}
+
+.preview-btn.primary {
+    color: white;
+}
+
+.preview-btn.secondary {
+    color: white;
+}
+
+.preview-content {
+    padding: 1rem;
+}
+
+.preview-card {
+    padding: 1rem;
+    border-radius: 6px;
+    border: 1px solid;
+}
+
+.preview-card h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1rem;
+}
+
+.preview-text {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.9rem;
+}
+
+.preview-badges {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.preview-badge {
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    color: white;
+}
+
+/* Color Picker Grid */
+.color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+}
+
+.color-group h4 {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.9rem;
+    color: var(--color-text-secondary);
+}
+
+.color-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.color-picker-row label {
+    flex: 1;
+    font-size: 0.85rem;
+    min-width: 80px;
+}
+
+.color-picker-row input[type="color"] {
+    width: 40px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.color-hex {
+    width: 80px;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    padding: 1.5rem;
+    background: var(--color-bg-secondary);
+    border-radius: var(--border-radius);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+    .theme-form-grid,
+    .palette-sections {
+        grid-template-columns: 1fr;
+    }
+    
+    .theme-preview-section {
+        position: static;
+    }
+}
+
+@media (max-width: 600px) {
+    .theme-form-page {
+        padding: 1rem;
+    }
+    
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+    
+    .color-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+<script>
+// Store palette data for preview
+const palettes = {
+    light: {},
+    dark: {}
+};
+
+// Initialize palettes from form values
+document.querySelectorAll('input[type="color"]').forEach(input => {
+    const palette = input.dataset.palette;
+    const key = input.dataset.key;
+    if (palette && key) {
+        palettes[palette][key] = input.value;
+    }
+});
+
+// Sync color picker with hex input
+document.querySelectorAll('.color-picker-row').forEach(row => {
+    const colorInput = row.querySelector('input[type="color"]');
+    const hexInput = row.querySelector('.color-hex');
+    
+    if (colorInput && hexInput) {
+        colorInput.addEventListener('input', () => {
+            hexInput.value = colorInput.value;
+            updatePaletteValue(colorInput);
+            updatePreview();
+        });
+        
+        hexInput.addEventListener('input', () => {
+            if (/^#[0-9A-Fa-f]{6}$/.test(hexInput.value)) {
+                colorInput.value = hexInput.value;
+                updatePaletteValue(colorInput);
+                updatePreview();
+            }
+        });
+        
+        hexInput.addEventListener('blur', () => {
+            // Ensure valid hex on blur
+            if (!/^#[0-9A-Fa-f]{6}$/.test(hexInput.value)) {
+                hexInput.value = colorInput.value;
+            }
+        });
+    }
+});
+
+function updatePaletteValue(input) {
+    const palette = input.dataset.palette;
+    const key = input.dataset.key;
+    if (palette && key) {
+        palettes[palette][key] = input.value;
+    }
+}
+
+// Preview mode toggle
+let currentPreviewMode = 'light';
+
+document.querySelectorAll('.preview-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.preview-mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentPreviewMode = btn.dataset.mode;
+        updatePreview();
+    });
+});
+
+function updatePreview() {
+    const preview = document.getElementById('theme-preview');
+    const p = palettes[currentPreviewMode];
+    
+    // Apply colors to preview
+    preview.style.setProperty('--preview-bg', p.bg_primary || '#ffffff');
+    preview.style.setProperty('--preview-bg-secondary', p.bg_secondary || '#f8f9fa');
+    preview.style.setProperty('--preview-text', p.text_primary || '#212529');
+    preview.style.setProperty('--preview-text-secondary', p.text_secondary || '#6c757d');
+    preview.style.setProperty('--preview-border', p.border || '#dee2e6');
+    preview.style.setProperty('--preview-primary', p.primary || '#0078d4');
+    preview.style.setProperty('--preview-secondary', p.secondary || '#5c6bc0');
+    preview.style.setProperty('--preview-success', p.success || '#28a745');
+    preview.style.setProperty('--preview-warning', p.warning || '#ffc107');
+    preview.style.setProperty('--preview-error', p.error || '#dc3545');
+    preview.style.setProperty('--preview-info', p.info || '#17a2b8');
+    
+    // Apply to elements
+    preview.querySelector('.preview-navbar').style.background = p.bg_primary || '#ffffff';
+    preview.querySelector('.preview-navbar').style.borderColor = p.border || '#dee2e6';
+    preview.querySelector('.preview-brand').style.color = p.text_primary || '#212529';
+    preview.querySelector('.preview-btn.primary').style.background = p.primary || '#0078d4';
+    preview.querySelector('.preview-btn.secondary').style.background = p.secondary || '#5c6bc0';
+    preview.querySelector('.preview-content').style.background = p.bg_secondary || '#f8f9fa';
+    preview.querySelector('.preview-card').style.background = p.bg_primary || '#ffffff';
+    preview.querySelector('.preview-card').style.borderColor = p.border || '#dee2e6';
+    preview.querySelector('.preview-card h3').style.color = p.text_primary || '#212529';
+    preview.querySelector('.preview-text').style.color = p.text_secondary || '#6c757d';
+    preview.querySelector('.preview-badge.success').style.background = p.success || '#28a745';
+    preview.querySelector('.preview-badge.warning').style.background = p.warning || '#ffc107';
+    preview.querySelector('.preview-badge.warning').style.color = currentPreviewMode === 'light' ? '#212529' : '#ffffff';
+    preview.querySelector('.preview-badge.error').style.background = p.error || '#dc3545';
+    preview.querySelector('.preview-badge.info').style.background = p.info || '#17a2b8';
+}
+
+// Initial preview update
+updatePreview();
+</script>
+{% endblock %}

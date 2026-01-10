@@ -548,6 +548,107 @@ class PageView(Base):
         return f"<PageView(user_id={self.user_id}, path={self.page_path}, duration={self.duration_seconds}s, scroll={self.scroll_pixels}px)>"
 
 
+class UserSettings(Base):
+    """
+    User-specific settings and preferences including theme configuration.
+    
+    Industry-standard theme implementation:
+    - theme_mode: 'light', 'dark', or 'system' (follows OS preference)
+    - active_theme_id: Links to custom UserTheme, null means default theme
+    - settings stored as JSON for extensibility
+    """
+    __tablename__ = "user_settings"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False, unique=True)
+    
+    # Theme settings
+    theme_mode: Mapped[str] = mapped_column(String(20), default='system')  # 'light', 'dark', 'system'
+    active_theme_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('user_themes.id', ondelete='SET NULL'), nullable=True)
+    
+    # General settings (JSON for extensibility)
+    settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=dict)
+    # Example settings stored in JSON:
+    # {
+    #     "compact_tables": false,
+    #     "show_notifications": true,
+    #     "default_page_size": 20,
+    #     "sidebar_collapsed": false,
+    #     "date_format": "YYYY-MM-DD",
+    #     "time_format": "24h"
+    # }
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", backref="settings_obj", uselist=False)
+    active_theme = relationship("UserTheme", foreign_keys=[active_theme_id])
+    
+    def __repr__(self):
+        return f"<UserSettings(user_id={self.user_id}, theme_mode='{self.theme_mode}')>"
+
+
+class UserTheme(Base):
+    """
+    Custom user-defined themes with light and dark palettes.
+    
+    Industry-standard CSS Custom Properties (CSS Variables) format:
+    - Colors stored in HSL format for easy manipulation
+    - Separate palettes for light and dark modes
+    - Based on CSS Custom Properties specification (W3C)
+    
+    Palette structure follows Material Design / Tailwind conventions:
+    {
+        "primary": "#0078d4",
+        "primary_dark": "#106ebe",
+        "secondary": "#5c6bc0",
+        "success": "#28a745",
+        "warning": "#ffc107",
+        "error": "#dc3545",
+        "info": "#17a2b8",
+        "bg_primary": "#ffffff",
+        "bg_secondary": "#f8f9fa",
+        "bg_tertiary": "#e9ecef",
+        "text_primary": "#212529",
+        "text_secondary": "#6c757d",
+        "text_muted": "#adb5bd",
+        "border": "#dee2e6"
+    }
+    """
+    __tablename__ = "user_themes"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Light mode color palette (CSS custom properties values)
+    light_palette: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    
+    # Dark mode color palette (CSS custom properties values)
+    dark_palette: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    
+    # Theme metadata
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False)  # Allow sharing with other users
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)  # User's default theme
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", backref="themes")
+    
+    __table_args__ = (
+        UniqueConstraint('user_id', 'name', name='uq_user_theme_name'),
+        Index('idx_user_themes_user', 'user_id'),
+        Index('idx_user_themes_public', 'is_public'),
+    )
+    
+    def __repr__(self):
+        return f"<UserTheme(id={self.id}, name='{self.name}', user_id={self.user_id})>"
+
+
 # ============================================================
 # ISSUE TRACKING
 # ============================================================
