@@ -1,0 +1,387 @@
+{% extends "base.html" %}
+
+{% block title %}{{ action }} Waste Container - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="form-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.waste_list') }}">Waste Containers</a> / {{ action }}
+        </div>
+    </div>
+    
+    <h1>{{ action }} Waste Container</h1>
+    
+    {% if original_waste %}
+    <div class="replace-notice">
+        <span class="replace-badge">🔄 Replacing</span>
+        <strong>{{ original_waste.name }}</strong>
+        <p class="replace-hint">Creating a new waste container that will replace the original in all templates that reference it.</p>
+    </div>
+    {% endif %}
+    
+    <form method="POST" class="entity-form">
+        <!-- Lab & Project Assignment Section -->
+        <div class="form-section">
+            <h2>Assignment</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="lab_id">Lab *</label>
+                    <select id="lab_id" name="lab_id" class="searchable-select" data-entity-type="lab" required>
+                        <option value="">-- Select Lab --</option>
+                        {% for lab in labs %}
+                        <option value="{{ lab.id }}" 
+                                {% if (waste and waste.lab_id == lab.id) %}selected{% endif %}>
+                            {{ lab.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="project_id">Project</label>
+                    <select id="project_id" name="project_id" class="searchable-select" data-entity-type="project">
+                        <option value="">-- No Project --</option>
+                        {% for project in projects %}
+                        <option value="{{ project.id }}" 
+                                {% if (waste and waste.project_id == project.id) %}selected{% endif %}>
+                            {{ project.display }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="owner_id">Owner</label>
+                    <select id="owner_id" name="owner_id" class="searchable-select" data-entity-type="user">
+                        <option value="">-- Select Owner --</option>
+                        {% for user in users %}
+                        <option value="{{ user.id }}" 
+                                {% if (waste and waste.owner_id == user.id) or (not waste and current_user_id == user.id) %}selected{% endif %}>
+                            {{ user.name or user.email }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small>Person responsible for this waste container (defaults to you)</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Basic Information -->
+        <div class="form-section">
+            <h2>Basic Information</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="name">Name *</label>
+                    <input type="text" id="name" name="name" required
+                           value="{{ waste.name if waste else '' }}"
+                           placeholder="e.g., Organic Solvent Waste #1">
+                </div>
+                
+                <div class="form-group">
+                    <label for="waste_type">Waste Type</label>
+                    <select id="waste_type" name="waste_type">
+                        <option value="">Select type...</option>
+                        {% for type in waste_types %}
+                        <option value="{{ type }}" {% if waste and waste.waste_type == type %}selected{% endif %}>
+                            {{ type | replace('_', ' ') | title }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="hazard_class">Hazard Class</label>
+                    <select id="hazard_class" name="hazard_class">
+                        <option value="">Select hazard class...</option>
+                        {% for hc in hazard_classes %}
+                        <option value="{{ hc }}" {% if waste and waste.hazard_class == hc %}selected{% endif %}>
+                            {{ hc | replace('_', ' ') | title }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="container_type">Container Type</label>
+                    <select id="container_type" name="container_type">
+                        <option value="">Select container...</option>
+                        {% for ct in container_types %}
+                        <option value="{{ ct }}" {% if waste and waste.container_type == ct %}selected{% endif %}>
+                            {{ ct | replace('_', ' ') | title }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="container_size">Container Size</label>
+                    <input type="text" id="container_size" name="container_size"
+                           value="{{ waste.container_size if waste else '' }}"
+                           placeholder="e.g., 4L, 20L, 55gal">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Fill Level & Status -->
+        <div class="form-section">
+            <h2>Fill Level & Status</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="current_fill_percent">Current Fill Level (%)</label>
+                    <input type="number" id="current_fill_percent" name="current_fill_percent" 
+                           min="0" max="100" step="1"
+                           value="{{ waste.current_fill_percent if waste else 0 }}"
+                           placeholder="0-100">
+                    <div class="fill-preview">
+                        <div class="fill-preview-bar">
+                            <div class="fill-preview-fill" id="fill-preview-fill"></div>
+                        </div>
+                        <span id="fill-preview-text">0%</span>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="fill_status">Fill Status</label>
+                    <select id="fill_status" name="fill_status">
+                        {% for fs in fill_status_options %}
+                        <option value="{{ fs }}" {% if waste and waste.fill_status == fs %}selected{% elif not waste and fs == 'empty' %}selected{% endif %}>
+                            {{ fs | replace('_', ' ') | title }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small>Auto-updates based on fill percentage</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="status">Status</label>
+                    <select id="status" name="status">
+                        {% for st in status_options %}
+                        <option value="{{ st }}" {% if waste and waste.status == st %}selected{% elif not waste and st == 'active' %}selected{% endif %}>
+                            {{ st | replace('_', ' ') | title }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Contents -->
+        <div class="form-section">
+            <h2>Contents</h2>
+            <div class="form-grid">
+                <div class="form-group full-width">
+                    <label for="contents_description">Description of Contents</label>
+                    <textarea id="contents_description" name="contents_description" rows="3"
+                              placeholder="Describe what this waste container holds...">{{ waste.contents_description if waste else '' }}</textarea>
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="contains_chemicals">Chemicals Present</label>
+                    <textarea id="contains_chemicals" name="contains_chemicals" rows="2"
+                              placeholder="List chemicals that have been added to this container...">{{ waste.contains_chemicals if waste else '' }}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="ph_range">pH Range</label>
+                    <input type="text" id="ph_range" name="ph_range"
+                           value="{{ waste.ph_range if waste else '' }}"
+                           placeholder="e.g., 2-4, neutral, 10-12">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Regulatory Information -->
+        <div class="form-section">
+            <h2>Regulatory Information</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="epa_waste_code">EPA Waste Code</label>
+                    <input type="text" id="epa_waste_code" name="epa_waste_code"
+                           value="{{ waste.epa_waste_code if waste else '' }}"
+                           placeholder="e.g., D001, F003">
+                </div>
+                
+                <div class="form-group">
+                    <label for="un_number">UN Number</label>
+                    <input type="text" id="un_number" name="un_number"
+                           value="{{ waste.un_number if waste else '' }}"
+                           placeholder="e.g., UN1993">
+                </div>
+                
+                <div class="form-group">
+                    <label for="sds_reference">SDS Reference</label>
+                    <input type="text" id="sds_reference" name="sds_reference"
+                           value="{{ waste.sds_reference if waste else '' }}"
+                           placeholder="Reference to Safety Data Sheet">
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="special_handling">Special Handling Instructions</label>
+                    <textarea id="special_handling" name="special_handling" rows="2"
+                              placeholder="Any special handling requirements...">{{ waste.special_handling if waste else '' }}</textarea>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Dates -->
+        <div class="form-section">
+            <h2>Dates</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="opened_date">Opened Date</label>
+                    <input type="date" id="opened_date" name="opened_date"
+                           value="{{ waste.opened_date if waste else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="full_date">Full Date</label>
+                    <input type="date" id="full_date" name="full_date"
+                           value="{{ waste.full_date if waste else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="collection_requested_date">Collection Requested</label>
+                    <input type="date" id="collection_requested_date" name="collection_requested_date"
+                           value="{{ waste.collection_requested_date if waste else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="collected_date">Collected Date</label>
+                    <input type="date" id="collected_date" name="collected_date"
+                           value="{{ waste.collected_date if waste else '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="disposal_date">Disposal Date</label>
+                    <input type="date" id="disposal_date" name="disposal_date"
+                           value="{{ waste.disposal_date if waste else '' }}">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Disposal Tracking -->
+        <div class="form-section">
+            <h2>Disposal Tracking</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="disposal_vendor">Disposal Vendor</label>
+                    <input type="text" id="disposal_vendor" name="disposal_vendor"
+                           value="{{ waste.disposal_vendor if waste else '' }}"
+                           placeholder="Name of disposal company">
+                </div>
+                
+                <div class="form-group">
+                    <label for="manifest_number">Manifest Number</label>
+                    <input type="text" id="manifest_number" name="manifest_number"
+                           value="{{ waste.manifest_number if waste else '' }}"
+                           placeholder="Disposal manifest tracking number">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Notes -->
+        <div class="form-section">
+            <h2>Notes</h2>
+            <div class="form-group full-width">
+                <textarea id="notes" name="notes" rows="4"
+                          placeholder="Additional notes about this waste container...">{{ waste.notes if waste else '' }}</textarea>
+            </div>
+        </div>
+        
+        <!-- Form Actions -->
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">{{ action }} Waste Container</button>
+            <a href="{{ url_for('main.waste_list') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<style>
+.replace-notice {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.replace-badge {
+    background: #ffc107;
+    color: #856404;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-right: 0.5rem;
+}
+
+.replace-hint {
+    font-size: 0.85rem;
+    color: #666;
+    margin-top: 0.5rem;
+    margin-bottom: 0;
+}
+
+/* Fill preview */
+.fill-preview {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.fill-preview-bar {
+    flex: 1;
+    height: 20px;
+    background: var(--bg-tertiary, #e9ecef);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.fill-preview-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #27ae60 0%, #f39c12 50%, #e74c3c 100%);
+    transition: width 0.3s ease;
+    width: 0%;
+}
+
+#fill-preview-text {
+    font-weight: 600;
+    min-width: 40px;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const fillInput = document.getElementById('current_fill_percent');
+    const fillPreview = document.getElementById('fill-preview-fill');
+    const fillText = document.getElementById('fill-preview-text');
+    const fillStatusSelect = document.getElementById('fill_status');
+    
+    function updateFillPreview() {
+        const value = parseFloat(fillInput.value) || 0;
+        fillPreview.style.width = value + '%';
+        fillText.textContent = value + '%';
+        
+        // Auto-update fill status
+        if (value === 0) {
+            fillStatusSelect.value = 'empty';
+        } else if (value < 50) {
+            fillStatusSelect.value = 'partial';
+        } else if (value < 90) {
+            fillStatusSelect.value = 'nearly_full';
+        } else if (value <= 100) {
+            fillStatusSelect.value = 'full';
+        } else {
+            fillStatusSelect.value = 'overfull';
+        }
+    }
+    
+    fillInput.addEventListener('input', updateFillPreview);
+    
+    // Initialize on load
+    updateFillPreview();
+});
+</script>
+{% endblock %}

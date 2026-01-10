@@ -78,6 +78,7 @@ Items:
 - [x] Add issue timeline
 - [x] add recurring maintenance tasks to equipment, which open a predefined maintenance issue after a given wait, and begin the wait again after that issue is resolved. They should be editable and deletable add confirmation modal after loading qr code with main image (if available) name & details (optipns confirm, retry, cancel)
 - [x] add a legend option to line & scatter visualizations. <10 datapoints it plots each line/ set of points & gives a regular legend (sorted by color (same setting as heatmap color) in numerical or alphabetical order), or as a colorbar legend on the side if >10 datapoints, labeled with letters or numbers. clicking on a datapoint will give a small tooltip of the item it comes from.
+- [x] add a settings page for the user, with common settings. Implement those settings. Then add a dark mode for the website (with a dark/light mode switch button in the top right to the left of the login button -- icons should be a sun and moon, using svg styles as is standard across the website). Finally, add custom themes. The user should be able to add/save/delete/edit custom themes (with names), and in each customize all of the colors of the website with a custom palette. Each theme should have a "light mode" and a "dark mode" palette. Implement all of this using industry standard formats. Research what these are if necessary.
 
 
 - [x] change drivers to accept folders as well as individual files, to allow for dependencies to be included. create a file naming convention for the file in which the instrument definition resides, and specify it on the driver page. add a "files" section with all the files (keeping in mind there may be folders within the uploaded folder). keep the source code section, display the source code of the file with the instrument definition.
@@ -129,7 +130,7 @@ Items:
 - [x] make equipment types dynamic & configurable within a lab (i.e. should be able to add new types, which will populate in the dropdown.)
 
 - [x] Add images and files to labs and projects (like other database items)
-- [ ] Diagnostics page for fabrication runs. Able to plot statistics by parameter, histograms or lineplots if numerical. statistics by user (instances of the error, in sorted error). statistics by substrate & sample material, by precursor id, plots by time of day and by time in general. plots by weather
+- [ ] Diagnostics page for fabrication runs. Able to plot statistics by parameter, histograms or lineplots if numerical. statistics by user (instances of the error, in sorted error). statistics by substrate & sample material, by precursor id, plots by time of day and by time in general. plots by weathera
 
 - [x] Site-wide filters need to be edited -- the button is visible longer than the Ui bar that it opens (frustrating)
 - [ ] allow users to choose a lab in their profile, filters everything. allow labs to turn on/off database items they don't use -- wont show up in navlinks or index when that lab is selected for viewing in the user profile. allow labs to configure a custom color theme (three or four primary colors) that will be used when that lab is selected for viewing.

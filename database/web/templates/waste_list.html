@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% from "macros.html" import action_buttons %}
+
+{% block title %}Waste Containers - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="list-page">
+    <div class="page-header">
+        <h1>Waste Containers</h1>
+        <a href="{{ url_for('main.waste_new') }}" class="btn btn-primary">+ New Waste Container</a>
+    </div>
+    
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <input type="text" name="search" placeholder="Search waste containers..." 
+                   value="{{ search }}" class="filter-input">
+            <select name="type" class="filter-select">
+                <option value="">All Types</option>
+                {% for type in waste_types %}
+                <option value="{{ type }}" {% if waste_type == type %}selected{% endif %}>{{ type | replace('_', ' ') | title }}</option>
+                {% endfor %}
+            </select>
+            <select name="status" class="filter-select">
+                <option value="">All Statuses</option>
+                {% for st in status_options %}
+                <option value="{{ st }}" {% if status == st %}selected{% endif %}>{{ st | replace('_', ' ') | title }}</option>
+                {% endfor %}
+            </select>
+            <select name="fill_status" class="filter-select">
+                <option value="">All Fill Levels</option>
+                {% for fs in fill_status_options %}
+                <option value="{{ fs }}" {% if fill_status == fs %}selected{% endif %}>{{ fs | replace('_', ' ') | title }}</option>
+                {% endfor %}
+            </select>
+            <select name="lab_id" class="filter-select">
+                <option value="">All Labs</option>
+                {% for lab in labs %}
+                <option value="{{ lab.id }}" {% if lab_id == lab.id %}selected{% endif %}>{{ lab.name }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search or waste_type or status or fill_status or lab_id %}
+                <a href="{{ url_for('main.waste_list') }}" class="btn btn-link">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <p class="result-count">{{ total }} waste container(s) found</p>
+    
+    {% if wastes %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Hazard Class</th>
+                    <th>Container</th>
+                    <th>Fill Level</th>
+                    <th>Status</th>
+                    <th>Owner</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in wastes %}
+                <tr>
+                    <td><a href="{{ url_for('main.waste_detail', waste_id=item.id) }}">{{ item.name }}</a></td>
+                    <td>{{ (item.waste_type or '-') | replace('_', ' ') | title }}</td>
+                    <td>
+                        {% if item.hazard_class %}
+                        <span class="hazard-badge hazard-{{ item.hazard_class }}">{{ item.hazard_class | replace('_', ' ') | title }}</span>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>{{ (item.container_type or '-') | replace('_', ' ') | title }} {% if item.container_size %}({{ item.container_size }}){% endif %}</td>
+                    <td>
+                        <div class="fill-indicator">
+                            <div class="fill-bar" style="width: {{ item.current_fill_percent or 0 }}%"></div>
+                            <span class="fill-text">{{ item.current_fill_percent or 0 }}%</span>
+                        </div>
+                    </td>
+                    <td><span class="status-badge status-{{ item.status }}">{{ item.status | replace('_', ' ') | title }}</span></td>
+                    <td>{{ item.owner.name if item.owner else '-' }}</td>
+                    <td>
+                        {{ action_buttons(
+                            view_url=url_for('main.waste_detail', waste_id=item.id),
+                            edit_url=url_for('main.waste_edit', waste_id=item.id),
+                            entity_type='waste',
+                            entity_id=item.id
+                        ) }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        {# Pagination #}
+        {% if total > per_page %}
+        <div class="pagination">
+            {% if page > 1 %}
+            <a href="{{ url_for('main.waste_list', page=page-1, search=search, type=waste_type, status=status, fill_status=fill_status, lab_id=lab_id) }}" class="btn btn-secondary">← Previous</a>
+            {% endif %}
+            <span class="page-info">Page {{ page }} of {{ (total / per_page) | round(0, 'ceil') | int }}</span>
+            {% if page * per_page < total %}
+            <a href="{{ url_for('main.waste_list', page=page+1, search=search, type=waste_type, status=status, fill_status=fill_status, lab_id=lab_id) }}" class="btn btn-secondary">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <p>No waste containers found.</p>
+            <a href="{{ url_for('main.waste_new') }}" class="btn btn-primary">Create your first waste container</a>
+        </div>
+    {% endif %}
+</div>
+
+<style>
+/* Fill level indicator */
+.fill-indicator {
+    position: relative;
+    background: var(--bg-tertiary, #e9ecef);
+    border-radius: 4px;
+    height: 20px;
+    min-width: 80px;
+    overflow: hidden;
+}
+
+.fill-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #27ae60, #f39c12, #e74c3c);
+    background-size: 300% 100%;
+    background-position: left;
+    transition: width 0.3s ease;
+}
+
+.fill-bar[style*="width: 0%"],
+.fill-bar[style*="width: 1"],
+.fill-bar[style*="width: 2"],
+.fill-bar[style*="width: 3"],
+.fill-bar[style*="width: 4"] {
+    background-position: left;
+}
+
+.fill-bar[style*="width: 5"],
+.fill-bar[style*="width: 6"],
+.fill-bar[style*="width: 7"],
+.fill-bar[style*="width: 8"] {
+    background-position: center;
+}
+
+.fill-bar[style*="width: 9"],
+.fill-bar[style*="width: 100%"] {
+    background-position: right;
+}
+
+.fill-text {
+    position: relative;
+    z-index: 1;
+    display: block;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 20px;
+    color: var(--text-primary, #333);
+}
+
+/* Hazard badges */
+.hazard-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.hazard-flammable { background: #ffcccc; color: #c0392b; }
+.hazard-corrosive { background: #fff0cc; color: #d35400; }
+.hazard-toxic { background: #e0ccff; color: #8e44ad; }
+.hazard-oxidizer { background: #ccffcc; color: #27ae60; }
+.hazard-reactive { background: #cce0ff; color: #2980b9; }
+.hazard-non-hazardous { background: #e0e0e0; color: #666; }
+
+/* Status badges for waste */
+.status-active { background: #d4edda; color: #155724; }
+.status-awaiting_collection { background: #fff3cd; color: #856404; }
+.status-collected { background: #cce5ff; color: #004085; }
+.status-disposed { background: #d6d6d6; color: #383d41; }
+.status-closed { background: #f5f5f5; color: #818182; }
+</style>
+{% endblock %}

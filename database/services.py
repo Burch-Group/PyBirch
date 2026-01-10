@@ -20,7 +20,8 @@ from database.models import (
     Team, TeamMember, TeamAccess,
     User, UserPin, Issue, IssueUpdate, EntityImage, Attachment,
     EquipmentImage, EquipmentIssue, ProcedureEquipment,
-    DriverIssue, Location, ObjectLocation, MaintenanceTask, QrCodeScan, PageView
+    DriverIssue, Location, ObjectLocation, MaintenanceTask, QrCodeScan, PageView,
+    Waste, WastePrecursor
 )
 from database.session import get_session, init_db
 
@@ -3678,6 +3679,368 @@ class DatabaseService:
             'lab': lab_info,
             'project_id': precursor.project_id,
             'project': project_info,
+        }
+    
+    # ==================== Waste ====================
+    
+    def get_wastes(
+        self,
+        search: Optional[str] = None,
+        waste_type: Optional[str] = None,
+        status: Optional[str] = None,
+        fill_status: Optional[str] = None,
+        lab_id: Optional[int] = None,
+        project_id: Optional[int] = None,
+        owner_id: Optional[int] = None,
+        page: int = 1,
+        per_page: int = 20
+    ) -> Tuple[List[Dict], int]:
+        """Get paginated list of waste containers."""
+        with self.session_scope() as session:
+            query = session.query(Waste).filter(
+                Waste.trashed_at.is_(None),
+                Waste.archived_at.is_(None)
+            )
+            
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        Waste.name.ilike(search_term),
+                        Waste.contents_description.ilike(search_term),
+                        Waste.contains_chemicals.ilike(search_term)
+                    )
+                )
+            
+            if waste_type:
+                query = query.filter(Waste.waste_type == waste_type)
+            
+            if status:
+                query = query.filter(Waste.status == status)
+            
+            if fill_status:
+                query = query.filter(Waste.fill_status == fill_status)
+            
+            if owner_id:
+                query = query.filter(Waste.owner_id == owner_id)
+            
+            if project_id:
+                query = query.filter(Waste.project_id == project_id)
+            elif lab_id:
+                query = query.filter(
+                    or_(
+                        Waste.lab_id == lab_id,
+                        Waste.project_id.in_(
+                            session.query(Project.id).filter(Project.lab_id == lab_id)
+                        )
+                    )
+                )
+            
+            total = query.count()
+            offset = (page - 1) * per_page
+            wastes = query.order_by(Waste.updated_at.desc()).offset(offset).limit(per_page).all()
+            
+            return [self._waste_to_dict(w) for w in wastes], total
+    
+    def get_wastes_simple_list(self, lab_id: Optional[int] = None) -> List[Dict]:
+        """Get simple list of active waste containers for dropdowns."""
+        with self.session_scope() as session:
+            query = session.query(Waste).filter(
+                Waste.trashed_at.is_(None),
+                Waste.archived_at.is_(None),
+                Waste.status.in_(['active', 'awaiting_collection'])
+            )
+            
+            if lab_id:
+                query = query.filter(Waste.lab_id == lab_id)
+            
+            wastes = query.order_by(Waste.name).all()
+            
+            return [{
+                'id': w.id,
+                'name': w.name,
+                'waste_type': w.waste_type,
+                'status': w.status,
+                'fill_status': w.fill_status,
+            } for w in wastes]
+    
+    def get_waste(self, waste_id: int) -> Optional[Dict]:
+        """Get a single waste container by ID."""
+        with self.session_scope() as session:
+            waste = session.query(Waste).filter(Waste.id == waste_id).first()
+            return self._waste_to_dict(waste) if waste else None
+    
+    def create_waste(self, data: Dict[str, Any]) -> Dict:
+        """Create a new waste container."""
+        with self.session_scope() as session:
+            # Handle date conversions
+            for date_field in ['opened_date', 'full_date', 'collection_requested_date', 
+                               'collected_date', 'disposal_date']:
+                if date_field in data and data[date_field]:
+                    if isinstance(data[date_field], str):
+                        from datetime import date as date_type
+                        data[date_field] = date_type.fromisoformat(data[date_field])
+            
+            waste = Waste(**data)
+            session.add(waste)
+            session.flush()
+            return self._waste_to_dict(waste)
+    
+    def update_waste(self, waste_id: int, data: Dict) -> Optional[Dict]:
+        """Update an existing waste container."""
+        with self.session_scope() as session:
+            waste = session.query(Waste).filter(Waste.id == waste_id).first()
+            if not waste:
+                return None
+            
+            # Handle date conversions
+            for date_field in ['opened_date', 'full_date', 'collection_requested_date', 
+                               'collected_date', 'disposal_date']:
+                if date_field in data and data[date_field]:
+                    if isinstance(data[date_field], str):
+                        from datetime import date as date_type
+                        data[date_field] = date_type.fromisoformat(data[date_field])
+            
+            update_fields = [
+                'name', 'waste_type', 'hazard_class', 'container_type', 'container_size',
+                'current_fill_percent', 'fill_status', 'status', 'contents_description',
+                'contains_chemicals', 'ph_range', 'epa_waste_code', 'un_number',
+                'sds_reference', 'special_handling', 'opened_date', 'full_date',
+                'collection_requested_date', 'collected_date', 'disposal_date',
+                'owner_id', 'disposal_vendor', 'manifest_number', 'notes',
+                'lab_id', 'project_id', 'extra_data'
+            ]
+            
+            for field in update_fields:
+                if field in data:
+                    setattr(waste, field, data[field])
+            
+            # Auto-update fill_status based on fill_percent
+            if 'current_fill_percent' in data and data['current_fill_percent'] is not None:
+                fill = float(data['current_fill_percent'])
+                if fill == 0:
+                    waste.fill_status = 'empty'
+                elif fill < 50:
+                    waste.fill_status = 'partial'
+                elif fill < 90:
+                    waste.fill_status = 'nearly_full'
+                elif fill <= 100:
+                    waste.fill_status = 'full'
+                else:
+                    waste.fill_status = 'overfull'
+            
+            session.flush()
+            return self._waste_to_dict(waste)
+    
+    def delete_waste(self, waste_id: int) -> bool:
+        """Delete a waste container by ID."""
+        with self.session_scope() as session:
+            waste = session.query(Waste).filter(Waste.id == waste_id).first()
+            if not waste:
+                return False
+            session.delete(waste)
+            return True
+    
+    def trash_waste(self, waste_id: int, trashed_by: Optional[str] = None) -> bool:
+        """Move a waste container to trash."""
+        with self.session_scope() as session:
+            waste = session.query(Waste).filter(Waste.id == waste_id).first()
+            if not waste:
+                return False
+            waste.trashed_at = datetime.utcnow()
+            waste.trashed_by = trashed_by
+            return True
+    
+    def restore_waste(self, waste_id: int) -> bool:
+        """Restore a waste container from trash."""
+        with self.session_scope() as session:
+            waste = session.query(Waste).filter(Waste.id == waste_id).first()
+            if not waste:
+                return False
+            waste.trashed_at = None
+            waste.trashed_by = None
+            return True
+    
+    def archive_waste(self, waste_id: int, archived_by: Optional[str] = None) -> bool:
+        """Archive a waste container."""
+        with self.session_scope() as session:
+            waste = session.query(Waste).filter(Waste.id == waste_id).first()
+            if not waste:
+                return False
+            waste.archived_at = datetime.utcnow()
+            waste.archived_by = archived_by
+            return True
+    
+    def unarchive_waste(self, waste_id: int) -> bool:
+        """Unarchive a waste container."""
+        with self.session_scope() as session:
+            waste = session.query(Waste).filter(Waste.id == waste_id).first()
+            if not waste:
+                return False
+            waste.archived_at = None
+            waste.archived_by = None
+            return True
+    
+    def replace_waste_in_templates(self, old_waste_id: int, new_waste_id: int) -> int:
+        """
+        Replace references to an old waste with a new waste in all templates.
+        
+        Args:
+            old_waste_id: The ID of the waste being replaced
+            new_waste_id: The ID of the new waste to use instead
+            
+        Returns:
+            Number of templates updated
+        """
+        updated_count = 0
+        with self.session_scope() as session:
+            templates = session.query(Template).filter(Template.is_active == True).all()
+            
+            for template in templates:
+                if not template.template_data:
+                    continue
+                    
+                linked_ids = template.template_data.get('linked_waste_ids', [])
+                if old_waste_id in linked_ids:
+                    new_linked_ids = [new_waste_id if wid == old_waste_id else wid for wid in linked_ids]
+                    new_template_data = dict(template.template_data)
+                    new_template_data['linked_waste_ids'] = new_linked_ids
+                    template.template_data = new_template_data
+                    updated_count += 1
+            
+            session.flush()
+        
+        return updated_count
+    
+    # Waste-Precursor linking
+    
+    def get_waste_precursors(self, waste_id: int) -> List[Dict]:
+        """Get precursors linked to a waste container."""
+        with self.session_scope() as session:
+            associations = session.query(WastePrecursor).filter(
+                WastePrecursor.waste_id == waste_id
+            ).all()
+            
+            result = []
+            for assoc in associations:
+                precursor = session.query(Precursor).filter(Precursor.id == assoc.precursor_id).first()
+                if precursor:
+                    result.append({
+                        'id': assoc.id,
+                        'precursor_id': precursor.id,
+                        'precursor_name': precursor.name,
+                        'precursor_formula': precursor.chemical_formula,
+                        'quantity': float(assoc.quantity) if assoc.quantity else None,
+                        'quantity_unit': assoc.quantity_unit,
+                        'added_date': assoc.added_date.isoformat() if assoc.added_date else None,
+                        'notes': assoc.notes,
+                    })
+            return result
+    
+    def add_precursor_to_waste(self, waste_id: int, precursor_id: int, 
+                                quantity: Optional[float] = None,
+                                quantity_unit: Optional[str] = None,
+                                notes: Optional[str] = None) -> Optional[Dict]:
+        """Add a precursor to a waste container."""
+        with self.session_scope() as session:
+            # Check if already linked
+            existing = session.query(WastePrecursor).filter(
+                WastePrecursor.waste_id == waste_id,
+                WastePrecursor.precursor_id == precursor_id
+            ).first()
+            
+            if existing:
+                return None  # Already linked
+            
+            from datetime import date as date_type
+            assoc = WastePrecursor(
+                waste_id=waste_id,
+                precursor_id=precursor_id,
+                quantity=quantity,
+                quantity_unit=quantity_unit,
+                added_date=date_type.today(),
+                notes=notes
+            )
+            session.add(assoc)
+            session.flush()
+            
+            return {
+                'id': assoc.id,
+                'waste_id': waste_id,
+                'precursor_id': precursor_id,
+            }
+    
+    def remove_precursor_from_waste(self, waste_id: int, precursor_id: int) -> bool:
+        """Remove a precursor from a waste container."""
+        with self.session_scope() as session:
+            assoc = session.query(WastePrecursor).filter(
+                WastePrecursor.waste_id == waste_id,
+                WastePrecursor.precursor_id == precursor_id
+            ).first()
+            
+            if not assoc:
+                return False
+            
+            session.delete(assoc)
+            return True
+    
+    def _waste_to_dict(self, waste: Waste) -> Dict:
+        """Convert Waste model to dictionary."""
+        if not waste:
+            return {}
+        
+        # Get lab info
+        lab_info = None
+        if waste.lab_id and waste.lab:
+            lab_info = {'id': waste.lab.id, 'name': waste.lab.name}
+        
+        # Get project info
+        project_info = None
+        if waste.project_id and waste.project:
+            project_info = {'id': waste.project.id, 'name': waste.project.name}
+        
+        # Get owner info
+        owner_info = None
+        if waste.owner_id and waste.owner:
+            owner_info = {'id': waste.owner.id, 'name': waste.owner.name, 'email': waste.owner.email}
+        
+        return {
+            'id': waste.id,
+            'name': waste.name,
+            'waste_type': waste.waste_type,
+            'hazard_class': waste.hazard_class,
+            'container_type': waste.container_type,
+            'container_size': waste.container_size,
+            'current_fill_percent': float(waste.current_fill_percent) if waste.current_fill_percent else 0,
+            'fill_status': waste.fill_status,
+            'status': waste.status,
+            'contents_description': waste.contents_description,
+            'contains_chemicals': waste.contains_chemicals,
+            'ph_range': waste.ph_range,
+            'epa_waste_code': waste.epa_waste_code,
+            'un_number': waste.un_number,
+            'sds_reference': waste.sds_reference,
+            'special_handling': waste.special_handling,
+            'opened_date': waste.opened_date.isoformat() if waste.opened_date else None,
+            'full_date': waste.full_date.isoformat() if waste.full_date else None,
+            'collection_requested_date': waste.collection_requested_date.isoformat() if waste.collection_requested_date else None,
+            'collected_date': waste.collected_date.isoformat() if waste.collected_date else None,
+            'disposal_date': waste.disposal_date.isoformat() if waste.disposal_date else None,
+            'owner_id': waste.owner_id,
+            'owner': owner_info,
+            'created_by': waste.created_by,
+            'disposal_vendor': waste.disposal_vendor,
+            'manifest_number': waste.manifest_number,
+            'notes': waste.notes,
+            'extra_data': waste.extra_data,
+            'created_at': waste.created_at.isoformat() if waste.created_at else None,
+            'updated_at': waste.updated_at.isoformat() if waste.updated_at else None,
+            'lab_id': waste.lab_id,
+            'lab': lab_info,
+            'project_id': waste.project_id,
+            'project': project_info,
+            'trashed_at': waste.trashed_at.isoformat() if waste.trashed_at else None,
+            'archived_at': waste.archived_at.isoformat() if waste.archived_at else None,
         }
     
     # ==================== Procedures ====================

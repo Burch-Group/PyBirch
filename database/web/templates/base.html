@@ -300,6 +300,10 @@
                 <img src="{{ url_for('static', filename='images/precursors.svg') }}" class="nav-icon" alt="">
                 <span>Precursors</span>
             </a>
+            <a href="{{ url_for('main.waste_list') }}" class="nav-drawer-link {% if request.endpoint and 'waste' in request.endpoint %}active{% endif %}">
+                <img src="{{ url_for('static', filename='images/waste.svg') }}" class="nav-icon" alt="">
+                <span>Waste</span>
+            </a>
             <a href="{{ url_for('main.procedures') }}" class="nav-drawer-link {% if request.endpoint and 'procedure' in request.endpoint and 'fabrication_run' not in request.endpoint %}active{% endif %}">
                 <img src="{{ url_for('static', filename='images/procedures.svg') }}" class="nav-icon" alt="">
                 <span>Procedures</span>

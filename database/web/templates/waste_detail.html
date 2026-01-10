@@ -1,0 +1,404 @@
+{% extends "base.html" %}
+{% from "macros.html" import detail_action_buttons %}
+
+{% block title %}{{ waste.name }} - PyBirch Database{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+    <div class="page-header">
+        <div class="breadcrumb">
+            <a href="{{ url_for('main.waste_list') }}">Waste Containers</a> / {{ waste.name }}
+        </div>
+    </div>
+    
+    <div class="detail-header">
+        <h1>{{ waste.name }}</h1>
+        <div class="detail-actions">
+            {% if waste.status %}
+            <span class="status-badge status-{{ waste.status }}">{{ waste.status | replace('_', ' ') | title }}</span>
+            {% endif %}
+            {% if waste.fill_status %}
+            <span class="fill-status-badge fill-{{ waste.fill_status }}">{{ waste.fill_status | replace('_', ' ') | title }}</span>
+            {% endif %}
+            {{ detail_action_buttons(
+                edit_url=url_for('main.waste_edit', waste_id=waste.id),
+                duplicate_url=url_for('main.waste_duplicate', waste_id=waste.id),
+                entity_type='waste',
+                entity_id=waste.id,
+                show_archive=true,
+                show_trash=true
+            ) }}
+        </div>
+    </div>
+    
+    <!-- QR Code Section -->
+    <div class="qr-code-section">
+        <div class="qr-code-preview">
+            <img src="{{ url_for('main.waste_qrcode_preview', waste_id=waste.id) }}" 
+                 alt="QR Code for {{ waste.name }}" 
+                 class="qr-code-img">
+        </div>
+        <a href="{{ url_for('main.waste_qrcode', waste_id=waste.id) }}" 
+           class="btn btn-secondary btn-small" download>
+            📥 Download QR Code
+        </a>
+    </div>
+    
+    <!-- Fill Level Display -->
+    <div class="fill-level-section">
+        <h3>Fill Level</h3>
+        <div class="fill-level-display">
+            <div class="fill-level-bar-large">
+                <div class="fill-level-fill" style="width: {{ waste.current_fill_percent or 0 }}%"></div>
+            </div>
+            <span class="fill-level-text">{{ waste.current_fill_percent or 0 }}%</span>
+        </div>
+    </div>
+    
+    <div class="detail-grid">
+        <div class="detail-section">
+            <h2>Container Information</h2>
+            <dl class="detail-list">
+                <dt>Waste Type</dt>
+                <dd>{{ (waste.waste_type or '-') | replace('_', ' ') | title }}</dd>
+                
+                <dt>Hazard Class</dt>
+                <dd>
+                    {% if waste.hazard_class %}
+                    <span class="hazard-badge hazard-{{ waste.hazard_class }}">{{ waste.hazard_class | replace('_', ' ') | title }}</span>
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
+                
+                <dt>Container Type</dt>
+                <dd>{{ (waste.container_type or '-') | replace('_', ' ') | title }}</dd>
+                
+                <dt>Container Size</dt>
+                <dd>{{ waste.container_size or '-' }}</dd>
+                
+                <dt>pH Range</dt>
+                <dd>{{ waste.ph_range or '-' }}</dd>
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Contents</h2>
+            <dl class="detail-list">
+                <dt>Description</dt>
+                <dd>{{ waste.contents_description or '-' }}</dd>
+                
+                <dt>Contains Chemicals</dt>
+                <dd>{{ waste.contains_chemicals or '-' }}</dd>
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Regulatory Information</h2>
+            <dl class="detail-list">
+                <dt>EPA Waste Code</dt>
+                <dd>{{ waste.epa_waste_code or '-' }}</dd>
+                
+                <dt>UN Number</dt>
+                <dd>{{ waste.un_number or '-' }}</dd>
+                
+                <dt>SDS Reference</dt>
+                <dd>{{ waste.sds_reference or '-' }}</dd>
+                
+                <dt>Special Handling</dt>
+                <dd>{{ waste.special_handling or '-' }}</dd>
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Dates</h2>
+            <dl class="detail-list">
+                <dt>Opened</dt>
+                <dd>{{ waste.opened_date or '-' }}</dd>
+                
+                <dt>Full Date</dt>
+                <dd>{{ waste.full_date or '-' }}</dd>
+                
+                <dt>Collection Requested</dt>
+                <dd>{{ waste.collection_requested_date or '-' }}</dd>
+                
+                <dt>Collected</dt>
+                <dd>{{ waste.collected_date or '-' }}</dd>
+                
+                <dt>Disposed</dt>
+                <dd>{{ waste.disposal_date or '-' }}</dd>
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Tracking</h2>
+            <dl class="detail-list">
+                <dt>Owner</dt>
+                <dd>
+                    {% if waste.owner %}
+                    {{ waste.owner.name }}
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
+                
+                <dt>Created By</dt>
+                <dd>{{ waste.created_by or '-' }}</dd>
+                
+                <dt>Disposal Vendor</dt>
+                <dd>{{ waste.disposal_vendor or '-' }}</dd>
+                
+                <dt>Manifest Number</dt>
+                <dd>{{ waste.manifest_number or '-' }}</dd>
+                
+                <dt>Created</dt>
+                <dd>{{ waste.created_at[:10] if waste.created_at else '-' }}</dd>
+                
+                <dt>Updated</dt>
+                <dd>{{ waste.updated_at[:10] if waste.updated_at else '-' }}</dd>
+            </dl>
+        </div>
+        
+        <div class="detail-section">
+            <h2>Organization</h2>
+            <dl class="detail-list">
+                <dt>Lab</dt>
+                <dd>
+                    {% if waste.lab %}
+                    <a href="{{ url_for('main.lab_detail', lab_id=waste.lab.id) }}">{{ waste.lab.name }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
+                
+                <dt>Project</dt>
+                <dd>
+                    {% if waste.project %}
+                    <a href="{{ url_for('main.project_detail', project_id=waste.project.id) }}">{{ waste.project.name }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </dd>
+            </dl>
+        </div>
+    </div>
+    
+    {% if waste.notes %}
+    <div class="detail-section full-width">
+        <h2>Notes</h2>
+        <div class="notes-content">{{ waste.notes }}</div>
+    </div>
+    {% endif %}
+    
+    <!-- Linked Precursors Section -->
+    <div class="detail-section full-width">
+        <h2>Source Precursors</h2>
+        {% if linked_precursors %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Precursor</th>
+                    <th>Formula</th>
+                    <th>Quantity</th>
+                    <th>Added</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lp in linked_precursors %}
+                <tr>
+                    <td><a href="{{ url_for('main.precursor_detail', precursor_id=lp.precursor_id) }}">{{ lp.precursor_name }}</a></td>
+                    <td><code>{{ lp.precursor_formula or '-' }}</code></td>
+                    <td>{{ lp.quantity or '-' }} {{ lp.quantity_unit or '' }}</td>
+                    <td>{{ lp.added_date or '-' }}</td>
+                    <td>{{ lp.notes or '-' }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('main.waste_remove_precursor', waste_id=waste.id, precursor_id=lp.precursor_id) }}" 
+                              style="display: inline;">
+                            <button type="submit" class="btn btn-danger btn-small" 
+                                    onclick="return confirm('Remove this precursor from the waste container?')">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-message">No precursors linked to this waste container.</p>
+        {% endif %}
+        
+        <!-- Add Precursor Form -->
+        <form method="POST" action="{{ url_for('main.waste_add_precursor', waste_id=waste.id) }}" class="inline-form">
+            <h4>Add Source Precursor</h4>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="precursor_id">Precursor</label>
+                    <select name="precursor_id" id="precursor_id" required class="form-select">
+                        <option value="">Select precursor...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="quantity">Quantity</label>
+                    <input type="number" name="quantity" id="quantity" step="0.0001" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label for="quantity_unit">Unit</label>
+                    <select name="quantity_unit" id="quantity_unit" class="form-select">
+                        <option value="">Select...</option>
+                        <option value="mL">mL</option>
+                        <option value="L">L</option>
+                        <option value="g">g</option>
+                        <option value="kg">kg</option>
+                        <option value="mol">mol</option>
+                        <option value="mmol">mmol</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="notes">Notes</label>
+                    <input type="text" name="notes" id="notes" class="form-input" placeholder="Optional notes...">
+                </div>
+                <button type="submit" class="btn btn-primary">Add</button>
+            </div>
+        </form>
+    </div>
+    
+    <!-- Location Section -->
+    {% include 'partials/location_section.html' %}
+    
+    <!-- Images Section -->
+    {% include 'partials/image_gallery.html' %}
+    
+    <!-- Files Section -->
+    {% include 'partials/file_gallery.html' %}
+    
+    <!-- Replace Button -->
+    <div class="detail-section full-width">
+        <h2>Replacement</h2>
+        <p>When this waste container is full and ready for disposal, you can create a replacement container that inherits this container's settings.</p>
+        <a href="{{ url_for('main.waste_replace', waste_id=waste.id) }}" class="btn btn-secondary">
+            🔄 Create Replacement Container
+        </a>
+    </div>
+</div>
+
+<style>
+/* Fill level display */
+.fill-level-section {
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border, #ddd);
+}
+
+.fill-level-display {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.fill-level-bar-large {
+    flex: 1;
+    height: 30px;
+    background: var(--bg-tertiary, #e9ecef);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.fill-level-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #27ae60 0%, #f39c12 50%, #e74c3c 100%);
+    transition: width 0.3s ease;
+}
+
+.fill-level-text {
+    font-size: 1.5rem;
+    font-weight: bold;
+    min-width: 60px;
+}
+
+/* Fill status badges */
+.fill-status-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.fill-empty { background: #d4edda; color: #155724; }
+.fill-partial { background: #fff3cd; color: #856404; }
+.fill-nearly_full { background: #ffe0b3; color: #cc6600; }
+.fill-full { background: #f8d7da; color: #721c24; }
+.fill-overfull { background: #c00000; color: #fff; }
+
+/* Status badges */
+.status-active { background: #d4edda; color: #155724; }
+.status-awaiting_collection { background: #fff3cd; color: #856404; }
+.status-collected { background: #cce5ff; color: #004085; }
+.status-disposed { background: #d6d6d6; color: #383d41; }
+.status-closed { background: #f5f5f5; color: #818182; }
+
+/* Hazard badges */
+.hazard-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.hazard-flammable { background: #ffcccc; color: #c0392b; }
+.hazard-corrosive { background: #fff0cc; color: #d35400; }
+.hazard-toxic { background: #e0ccff; color: #8e44ad; }
+.hazard-oxidizer { background: #ccffcc; color: #27ae60; }
+.hazard-reactive { background: #cce0ff; color: #2980b9; }
+.hazard-non-hazardous { background: #e0e0e0; color: #666; }
+
+/* Inline form */
+.inline-form {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border, #ddd);
+}
+
+.inline-form h4 {
+    margin-bottom: 1rem;
+}
+
+.inline-form .form-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.inline-form .form-group {
+    flex: 1;
+    min-width: 120px;
+}
+
+.empty-message {
+    color: var(--text-muted, #666);
+    font-style: italic;
+}
+</style>
+
+<script>
+// Load precursors for the dropdown
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/api/dropdown/precursors')
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById('precursor_id');
+            data.precursors.forEach(p => {
+                const option = document.createElement('option');
+                option.value = p.id;
+                option.textContent = p.name + (p.chemical_formula ? ` (${p.chemical_formula})` : '');
+                select.appendChild(option);
+            });
+        });
+});
+</script>
+{% endblock %}

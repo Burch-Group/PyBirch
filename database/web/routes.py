@@ -3109,6 +3109,580 @@ def precursor_replace(precursor_id):
     )
 
 
+# -------------------- Waste --------------------
+
+@main_bp.route('/waste')
+def waste_list():
+    """Waste containers list page."""
+    page = request.args.get('page', 1, type=int)
+    search = request.args.get('search', '')
+    waste_type = request.args.get('type', '')
+    status = request.args.get('status', '')
+    fill_status = request.args.get('fill_status', '')
+    lab_id = request.args.get('lab_id', type=int) or session.get('current_lab_id')
+    
+    db = get_db_service()
+    wastes, total = db.get_wastes(
+        search=search,
+        waste_type=waste_type,
+        status=status,
+        fill_status=fill_status,
+        lab_id=lab_id,
+        page=page,
+        per_page=20
+    )
+    
+    # Get filter options
+    labs = db.get_labs_simple_list()
+    
+    # Waste type options
+    waste_types = ['chemical', 'biological', 'sharps', 'general', 'radioactive', 'electronic']
+    status_options = ['active', 'awaiting_collection', 'collected', 'disposed', 'closed']
+    fill_status_options = ['empty', 'partial', 'nearly_full', 'full', 'overfull']
+    
+    return render_template('waste_list.html',
+        wastes=wastes,
+        page=page,
+        total=total,
+        per_page=20,
+        search=search,
+        waste_type=waste_type,
+        status=status,
+        fill_status=fill_status,
+        lab_id=lab_id,
+        labs=labs,
+        waste_types=waste_types,
+        status_options=status_options,
+        fill_status_options=fill_status_options,
+    )
+
+
+@main_bp.route('/waste/<int:waste_id>')
+def waste_detail(waste_id):
+    """Waste container detail page."""
+    db = get_db_service()
+    waste = db.get_waste(waste_id)
+    
+    if not waste:
+        flash('Waste container not found', 'error')
+        return redirect(url_for('main.waste_list'))
+    
+    # Get linked precursors
+    linked_precursors = db.get_waste_precursors(waste_id)
+    
+    # Get images and files
+    images = db.get_entity_images('waste', waste_id)
+    files = db.get_attachments('waste', waste_id)
+    
+    # Get location
+    locations = db.get_object_locations('waste', waste_id)
+    
+    return render_template('waste_detail.html',
+        waste=waste,
+        linked_precursors=linked_precursors,
+        images=images,
+        files=files,
+        locations=locations,
+        entity_type='waste',
+        entity_id=waste_id,
+    )
+
+
+@main_bp.route('/waste/new', methods=['GET', 'POST'])
+@login_required
+def waste_new():
+    """Create a new waste container."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
+        owner_id = request.form.get('owner_id')
+        
+        data = {
+            'name': request.form.get('name'),
+            'waste_type': request.form.get('waste_type'),
+            'hazard_class': request.form.get('hazard_class'),
+            'container_type': request.form.get('container_type'),
+            'container_size': request.form.get('container_size'),
+            'current_fill_percent': float(request.form.get('current_fill_percent', 0) or 0),
+            'fill_status': request.form.get('fill_status', 'empty'),
+            'status': request.form.get('status', 'active'),
+            'contents_description': request.form.get('contents_description'),
+            'contains_chemicals': request.form.get('contains_chemicals'),
+            'ph_range': request.form.get('ph_range'),
+            'epa_waste_code': request.form.get('epa_waste_code'),
+            'un_number': request.form.get('un_number'),
+            'sds_reference': request.form.get('sds_reference'),
+            'special_handling': request.form.get('special_handling'),
+            'notes': request.form.get('notes'),
+            'lab_id': int(lab_id) if lab_id else session.get('current_lab_id'),
+            'project_id': int(project_id) if project_id else None,
+            'owner_id': int(owner_id) if owner_id else g.current_user['id'],
+            'created_by': g.current_user.get('name') or g.current_user.get('email'),
+        }
+        
+        # Handle dates
+        if request.form.get('opened_date'):
+            data['opened_date'] = request.form.get('opened_date')
+        
+        try:
+            item = db.create_waste(data)
+            flash(f'Waste container "{item["name"]}" created', 'success')
+            return redirect(url_for('main.waste_detail', waste_id=item['id']))
+        except Exception as e:
+            flash(f'Error creating waste container: {str(e)}', 'error')
+    
+    # Get dropdown options
+    labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
+    users = db.get_users_simple_list()
+    locations = db.get_locations_simple_list()
+    
+    # Waste options
+    waste_types = ['chemical', 'biological', 'sharps', 'general', 'radioactive', 'electronic']
+    hazard_classes = ['flammable', 'corrosive', 'toxic', 'oxidizer', 'reactive', 'non-hazardous']
+    container_types = ['bottle', 'drum', 'sharps_container', 'bag', 'box', 'other']
+    status_options = ['active', 'awaiting_collection', 'collected', 'disposed', 'closed']
+    fill_status_options = ['empty', 'partial', 'nearly_full', 'full', 'overfull']
+    
+    return render_template('waste_form.html',
+        waste=None,
+        action='Create',
+        labs=labs,
+        projects=projects,
+        users=users,
+        locations=locations,
+        waste_types=waste_types,
+        hazard_classes=hazard_classes,
+        container_types=container_types,
+        status_options=status_options,
+        fill_status_options=fill_status_options,
+        current_user_id=g.current_user['id'],
+    )
+
+
+@main_bp.route('/waste/<int:waste_id>/edit', methods=['GET', 'POST'])
+@login_required
+def waste_edit(waste_id):
+    """Edit an existing waste container."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    waste = db.get_waste(waste_id)
+    if not waste:
+        flash('Waste container not found', 'error')
+        return redirect(url_for('main.waste_list'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
+        owner_id = request.form.get('owner_id')
+        
+        data = {
+            'name': request.form.get('name'),
+            'waste_type': request.form.get('waste_type'),
+            'hazard_class': request.form.get('hazard_class'),
+            'container_type': request.form.get('container_type'),
+            'container_size': request.form.get('container_size'),
+            'current_fill_percent': float(request.form.get('current_fill_percent', 0) or 0),
+            'fill_status': request.form.get('fill_status', 'empty'),
+            'status': request.form.get('status', 'active'),
+            'contents_description': request.form.get('contents_description'),
+            'contains_chemicals': request.form.get('contains_chemicals'),
+            'ph_range': request.form.get('ph_range'),
+            'epa_waste_code': request.form.get('epa_waste_code'),
+            'un_number': request.form.get('un_number'),
+            'sds_reference': request.form.get('sds_reference'),
+            'special_handling': request.form.get('special_handling'),
+            'notes': request.form.get('notes'),
+            'disposal_vendor': request.form.get('disposal_vendor'),
+            'manifest_number': request.form.get('manifest_number'),
+            'lab_id': int(lab_id) if lab_id else session.get('current_lab_id'),
+            'project_id': int(project_id) if project_id else None,
+            'owner_id': int(owner_id) if owner_id else None,
+        }
+        
+        # Handle dates
+        for date_field in ['opened_date', 'full_date', 'collection_requested_date', 
+                           'collected_date', 'disposal_date']:
+            if request.form.get(date_field):
+                data[date_field] = request.form.get(date_field)
+            else:
+                data[date_field] = None
+        
+        try:
+            item = db.update_waste(waste_id, data)
+            flash(f'Waste container "{item["name"]}" updated', 'success')
+            return redirect(url_for('main.waste_detail', waste_id=waste_id))
+        except Exception as e:
+            flash(f'Error updating waste container: {str(e)}', 'error')
+    
+    # Get dropdown options
+    labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
+    users = db.get_users_simple_list()
+    locations = db.get_locations_simple_list()
+    
+    # Waste options
+    waste_types = ['chemical', 'biological', 'sharps', 'general', 'radioactive', 'electronic']
+    hazard_classes = ['flammable', 'corrosive', 'toxic', 'oxidizer', 'reactive', 'non-hazardous']
+    container_types = ['bottle', 'drum', 'sharps_container', 'bag', 'box', 'other']
+    status_options = ['active', 'awaiting_collection', 'collected', 'disposed', 'closed']
+    fill_status_options = ['empty', 'partial', 'nearly_full', 'full', 'overfull']
+    
+    return render_template('waste_form.html',
+        waste=waste,
+        action='Edit',
+        labs=labs,
+        projects=projects,
+        users=users,
+        locations=locations,
+        waste_types=waste_types,
+        hazard_classes=hazard_classes,
+        container_types=container_types,
+        status_options=status_options,
+        fill_status_options=fill_status_options,
+        current_user_id=g.current_user['id'],
+    )
+
+
+@main_bp.route('/waste/<int:waste_id>/duplicate', methods=['GET', 'POST'])
+@login_required
+def waste_duplicate(waste_id):
+    """Duplicate an existing waste container."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    original = db.get_waste(waste_id)
+    if not original:
+        flash('Waste container not found', 'error')
+        return redirect(url_for('main.waste_list'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
+        owner_id = request.form.get('owner_id')
+        
+        data = {
+            'name': request.form.get('name'),
+            'waste_type': request.form.get('waste_type'),
+            'hazard_class': request.form.get('hazard_class'),
+            'container_type': request.form.get('container_type'),
+            'container_size': request.form.get('container_size'),
+            'current_fill_percent': 0,  # Start empty
+            'fill_status': 'empty',
+            'status': 'active',
+            'contents_description': request.form.get('contents_description'),
+            'contains_chemicals': request.form.get('contains_chemicals'),
+            'ph_range': request.form.get('ph_range'),
+            'epa_waste_code': request.form.get('epa_waste_code'),
+            'un_number': request.form.get('un_number'),
+            'sds_reference': request.form.get('sds_reference'),
+            'special_handling': request.form.get('special_handling'),
+            'notes': request.form.get('notes'),
+            'lab_id': int(lab_id) if lab_id else session.get('current_lab_id'),
+            'project_id': int(project_id) if project_id else None,
+            'owner_id': int(owner_id) if owner_id else g.current_user['id'],
+            'created_by': g.current_user.get('name') or g.current_user.get('email'),
+        }
+        
+        try:
+            item = db.create_waste(data)
+            flash(f'Waste container "{item["name"]}" created', 'success')
+            return redirect(url_for('main.waste_detail', waste_id=item['id']))
+        except Exception as e:
+            flash(f'Error creating waste container: {str(e)}', 'error')
+    
+    # Pre-fill form with original data but reset fill level
+    duplicated = original.copy()
+    duplicated['name'] = f"{original['name']} (Copy)"
+    duplicated['current_fill_percent'] = 0
+    duplicated['fill_status'] = 'empty'
+    duplicated['status'] = 'active'
+    duplicated['opened_date'] = None
+    duplicated['full_date'] = None
+    duplicated['collection_requested_date'] = None
+    duplicated['collected_date'] = None
+    duplicated['disposal_date'] = None
+    
+    # Get dropdown options
+    labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
+    users = db.get_users_simple_list()
+    locations = db.get_locations_simple_list()
+    
+    # Waste options
+    waste_types = ['chemical', 'biological', 'sharps', 'general', 'radioactive', 'electronic']
+    hazard_classes = ['flammable', 'corrosive', 'toxic', 'oxidizer', 'reactive', 'non-hazardous']
+    container_types = ['bottle', 'drum', 'sharps_container', 'bag', 'box', 'other']
+    status_options = ['active', 'awaiting_collection', 'collected', 'disposed', 'closed']
+    fill_status_options = ['empty', 'partial', 'nearly_full', 'full', 'overfull']
+    
+    return render_template('waste_form.html',
+        waste=duplicated,
+        action='Duplicate',
+        labs=labs,
+        projects=projects,
+        users=users,
+        locations=locations,
+        waste_types=waste_types,
+        hazard_classes=hazard_classes,
+        container_types=container_types,
+        status_options=status_options,
+        fill_status_options=fill_status_options,
+        current_user_id=g.current_user['id'],
+    )
+
+
+@main_bp.route('/waste/<int:waste_id>/delete', methods=['POST'])
+@login_required
+def waste_delete(waste_id):
+    """Delete a waste container."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    waste = db.get_waste(waste_id)
+    if not waste:
+        flash('Waste container not found', 'error')
+        return redirect(url_for('main.waste_list'))
+    
+    name = waste['name']
+    if db.delete_waste(waste_id):
+        flash(f'Waste container "{name}" deleted', 'success')
+    else:
+        flash('Error deleting waste container', 'error')
+    
+    return redirect(url_for('main.waste_list'))
+
+
+@main_bp.route('/waste/<int:waste_id>/replace', methods=['GET', 'POST'])
+@login_required
+def waste_replace(waste_id):
+    """Replace a waste container with a new one, updating all template references."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        session.clear()
+        flash('Please log in again.', 'warning')
+        return redirect(url_for('main.login'))
+    
+    original = db.get_waste(waste_id)
+    if not original:
+        flash('Waste container not found', 'error')
+        return redirect(url_for('main.waste_list'))
+    
+    if request.method == 'POST':
+        lab_id = request.form.get('lab_id')
+        project_id = request.form.get('project_id')
+        owner_id = request.form.get('owner_id')
+        
+        data = {
+            'name': request.form.get('name'),
+            'waste_type': request.form.get('waste_type'),
+            'hazard_class': request.form.get('hazard_class'),
+            'container_type': request.form.get('container_type'),
+            'container_size': request.form.get('container_size'),
+            'current_fill_percent': 0,
+            'fill_status': 'empty',
+            'status': 'active',
+            'contents_description': request.form.get('contents_description'),
+            'contains_chemicals': request.form.get('contains_chemicals'),
+            'ph_range': request.form.get('ph_range'),
+            'epa_waste_code': request.form.get('epa_waste_code'),
+            'un_number': request.form.get('un_number'),
+            'sds_reference': request.form.get('sds_reference'),
+            'special_handling': request.form.get('special_handling'),
+            'notes': request.form.get('notes'),
+            'lab_id': int(lab_id) if lab_id else session.get('current_lab_id'),
+            'project_id': int(project_id) if project_id else None,
+            'owner_id': int(owner_id) if owner_id else g.current_user['id'],
+            'created_by': g.current_user.get('name') or g.current_user.get('email'),
+        }
+        
+        try:
+            item = db.create_waste(data)
+            templates_updated = db.replace_waste_in_templates(waste_id, item['id'])
+            
+            if templates_updated > 0:
+                flash(f'Waste container "{item["name"]}" created and replaced in {templates_updated} template(s)', 'success')
+            else:
+                flash(f'Waste container "{item["name"]}" created (no templates referenced the original)', 'success')
+            
+            return redirect(url_for('main.waste_detail', waste_id=item['id']))
+        except Exception as e:
+            flash(f'Error creating waste container: {str(e)}', 'error')
+    
+    # Pre-fill form with original data
+    replaced = original.copy()
+    replaced['name'] = f"{original['name']} (Replacement)"
+    replaced['current_fill_percent'] = 0
+    replaced['fill_status'] = 'empty'
+    replaced['status'] = 'active'
+    
+    # Get dropdown options
+    labs = db.get_labs_simple_list()
+    projects = db.get_projects_simple_list()
+    users = db.get_users_simple_list()
+    locations = db.get_locations_simple_list()
+    
+    # Waste options
+    waste_types = ['chemical', 'biological', 'sharps', 'general', 'radioactive', 'electronic']
+    hazard_classes = ['flammable', 'corrosive', 'toxic', 'oxidizer', 'reactive', 'non-hazardous']
+    container_types = ['bottle', 'drum', 'sharps_container', 'bag', 'box', 'other']
+    status_options = ['active', 'awaiting_collection', 'collected', 'disposed', 'closed']
+    fill_status_options = ['empty', 'partial', 'nearly_full', 'full', 'overfull']
+    
+    return render_template('waste_form.html',
+        waste=replaced,
+        action='Replace',
+        original_waste=original,
+        labs=labs,
+        projects=projects,
+        users=users,
+        locations=locations,
+        waste_types=waste_types,
+        hazard_classes=hazard_classes,
+        container_types=container_types,
+        status_options=status_options,
+        fill_status_options=fill_status_options,
+        current_user_id=g.current_user['id'],
+    )
+
+
+@main_bp.route('/waste/<int:waste_id>/precursors', methods=['POST'])
+@login_required
+def waste_add_precursor(waste_id):
+    """Add a precursor to a waste container."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        return jsonify({'success': False, 'error': 'Authentication required'}), 401
+    
+    precursor_id = request.form.get('precursor_id', type=int)
+    quantity = request.form.get('quantity', type=float)
+    quantity_unit = request.form.get('quantity_unit')
+    notes = request.form.get('notes')
+    
+    if not precursor_id:
+        flash('Please select a precursor', 'error')
+        return redirect(url_for('main.waste_detail', waste_id=waste_id))
+    
+    result = db.add_precursor_to_waste(waste_id, precursor_id, quantity, quantity_unit, notes)
+    
+    if result:
+        flash('Precursor added to waste container', 'success')
+    else:
+        flash('Precursor is already linked to this waste container', 'warning')
+    
+    return redirect(url_for('main.waste_detail', waste_id=waste_id))
+
+
+@main_bp.route('/waste/<int:waste_id>/precursors/<int:precursor_id>/remove', methods=['POST'])
+@login_required
+def waste_remove_precursor(waste_id, precursor_id):
+    """Remove a precursor from a waste container."""
+    db = get_db_service()
+    
+    if g.current_user is None:
+        return jsonify({'success': False, 'error': 'Authentication required'}), 401
+    
+    if db.remove_precursor_from_waste(waste_id, precursor_id):
+        flash('Precursor removed from waste container', 'success')
+    else:
+        flash('Precursor not found in waste container', 'error')
+    
+    return redirect(url_for('main.waste_detail', waste_id=waste_id))
+
+
+@main_bp.route('/waste/<int:waste_id>/qrcode')
+def waste_qrcode(waste_id):
+    """Generate and download QR code for a waste container."""
+    db = get_db_service()
+    waste = db.get_waste(waste_id)
+    
+    if not waste:
+        flash('Waste container not found', 'error')
+        return redirect(url_for('main.waste_list'))
+    
+    # Generate QR code URL
+    base_url = request.host_url.rstrip('/')
+    url = f"{base_url}/waste/{waste_id}"
+    
+    try:
+        import qrcode
+        from io import BytesIO
+        
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(url)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        buffer = BytesIO()
+        img.save(buffer, format='PNG')
+        buffer.seek(0)
+        
+        return send_file(
+            buffer,
+            mimetype='image/png',
+            as_attachment=True,
+            download_name=f'waste_{waste_id}_qrcode.png'
+        )
+    except ImportError:
+        flash('QR code library not installed', 'error')
+        return redirect(url_for('main.waste_detail', waste_id=waste_id))
+
+
+@main_bp.route('/waste/<int:waste_id>/qrcode/preview')
+def waste_qrcode_preview(waste_id):
+    """Generate QR code preview for a waste container."""
+    db = get_db_service()
+    waste = db.get_waste(waste_id)
+    
+    if not waste:
+        # Return a placeholder image
+        return '', 404
+    
+    base_url = request.host_url.rstrip('/')
+    url = f"{base_url}/waste/{waste_id}"
+    
+    try:
+        import qrcode
+        from io import BytesIO
+        
+        qr = qrcode.QRCode(version=1, box_size=5, border=2)
+        qr.add_data(url)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        buffer = BytesIO()
+        img.save(buffer, format='PNG')
+        buffer.seek(0)
+        
+        return send_file(buffer, mimetype='image/png')
+    except ImportError:
+        return '', 404
+
+
 # -------------------- Procedures --------------------
 
 @main_bp.route('/procedures')
@@ -6451,6 +7025,96 @@ def api_dropdown_precursors():
     return jsonify({'precursors': precursors})
 
 
+@api_bp.route('/dropdown/waste')
+def api_dropdown_waste():
+    """Get simple waste list for dropdowns."""
+    lab_id = request.args.get('lab_id', type=int)
+    db = get_db_service()
+    wastes = db.get_wastes_simple_list(lab_id=lab_id)
+    return jsonify({'wastes': wastes})
+
+
+# ==================== Waste API ====================
+
+@api_bp.route('/waste')
+def api_wastes():
+    """Get waste containers list."""
+    page = request.args.get('page', 1, type=int)
+    search = request.args.get('search', '')
+    waste_type = request.args.get('type', '')
+    status = request.args.get('status', '')
+    lab_id = request.args.get('lab_id', type=int)
+    
+    db = get_db_service()
+    wastes, total = db.get_wastes(
+        search=search if search else None,
+        waste_type=waste_type if waste_type else None,
+        status=status if status else None,
+        lab_id=lab_id,
+        page=page
+    )
+    
+    return jsonify({
+        'wastes': wastes,
+        'total': total,
+        'page': page,
+    })
+
+
+@api_bp.route('/waste/<int:waste_id>')
+def api_waste(waste_id):
+    """Get single waste container."""
+    db = get_db_service()
+    waste = db.get_waste(waste_id)
+    if not waste:
+        return jsonify({'error': 'Waste container not found'}), 404
+    return jsonify(waste)
+
+
+@api_bp.route('/waste/<int:waste_id>/precursors', methods=['GET'])
+def api_waste_precursors(waste_id):
+    """Get precursors linked to a waste container."""
+    db = get_db_service()
+    precursors = db.get_waste_precursors(waste_id)
+    return jsonify({'precursors': precursors})
+
+
+@api_bp.route('/waste/<int:waste_id>/precursors', methods=['POST'])
+@api_login_required
+def api_add_waste_precursor(waste_id):
+    """Add a precursor to a waste container."""
+    db = get_db_service()
+    data = request.get_json()
+    
+    if not data or 'precursor_id' not in data:
+        return jsonify({'error': 'precursor_id is required'}), 400
+    
+    result = db.add_precursor_to_waste(
+        waste_id,
+        data['precursor_id'],
+        data.get('quantity'),
+        data.get('quantity_unit'),
+        data.get('notes')
+    )
+    
+    if result:
+        return jsonify({'success': True, 'association': result})
+    else:
+        return jsonify({'error': 'Precursor already linked to this waste'}), 400
+
+
+@api_bp.route('/waste/<int:waste_id>/precursors/<int:precursor_id>', methods=['DELETE'])
+@api_login_required
+def api_remove_waste_precursor(waste_id, precursor_id):
+    """Remove a precursor from a waste container."""
+    db = get_db_service()
+    
+    if db.remove_precursor_from_waste(waste_id, precursor_id):
+        return jsonify({'success': True})
+    else:
+        return jsonify({'error': 'Precursor not found in waste'}), 404
+
+
 @api_bp.route('/templates')
 def api_templates():
     """Get sample templates list."""
@@ -6552,6 +7216,7 @@ def api_resolve_qr():
         'template': (r'/templates/(\d+)', 'get_template', lambda t: t.get('name') or f"Template #{t['id']}"),
         'driver': (r'/drivers/(\d+)', 'get_driver', lambda d: d.get('display_name') or d.get('class_name') or f"Driver #{d['id']}"),
         'user': (r'/users/(\d+)', 'get_user', lambda u: u.get('display_name') or u.get('username') or f"User #{u['id']}"),
+        'waste': (r'/waste/(\d+)', 'get_waste', lambda w: w.get('name') or f"Waste #{w['id']}"),
     }
     
     db = get_db_service()

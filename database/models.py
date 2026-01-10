@@ -243,6 +243,7 @@ class Project(TrashableMixin, ArchivableMixin, Base):
     queues: Mapped[List["Queue"]] = relationship("Queue", back_populates="project")
     procedures: Mapped[List["Procedure"]] = relationship("Procedure", back_populates="project")
     precursors: Mapped[List["Precursor"]] = relationship("Precursor", back_populates="project")
+    wastes: Mapped[List["Waste"]] = relationship("Waste", back_populates="project")
     
     __table_args__ = (
         UniqueConstraint('lab_id', 'code', name='uq_project_code'),
@@ -1268,6 +1269,115 @@ class PrecursorInventory(Base):
 
 
 # ============================================================
+# WASTE
+# ============================================================
+
+class Waste(TrashableMixin, ArchivableMixin, Base):
+    """
+    Waste containers and disposal tracking.
+    
+    Waste objects link to precursors (source materials) and locations.
+    They track the fill level and collection status of waste containers.
+    """
+    __tablename__ = "wastes"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lab_id: Mapped[int] = mapped_column(Integer, ForeignKey('labs.id'), nullable=False)
+    project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('projects.id'), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    waste_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'chemical', 'biological', 'sharps', 'general', 'radioactive', 'electronic'
+    hazard_class: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'flammable', 'corrosive', 'toxic', 'oxidizer', 'reactive', 'non-hazardous'
+    container_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 'bottle', 'drum', 'sharps_container', 'bag', 'box', 'other'
+    container_size: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # e.g., '4L', '20L', '55gal'
+    
+    # Fill level tracking
+    current_fill_percent: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True, default=0)  # 0-100%
+    fill_status: Mapped[str] = mapped_column(String(50), default='empty')  # 'empty', 'partial', 'nearly_full', 'full', 'overfull'
+    
+    # Status for lifecycle management
+    status: Mapped[str] = mapped_column(String(50), default='active')  # 'active', 'awaiting_collection', 'collected', 'disposed', 'closed'
+    
+    # Content information
+    contents_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Detailed description of waste contents
+    contains_chemicals: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # List of chemicals in the waste
+    ph_range: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # e.g., '2-4', 'neutral', '10-12'
+    
+    # Regulatory and safety
+    epa_waste_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # EPA hazardous waste code if applicable
+    un_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # UN identification number
+    sds_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Reference to safety data sheet
+    special_handling: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Special handling instructions
+    
+    # Dates
+    opened_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    full_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)  # When container became full
+    collection_requested_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    collected_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    disposal_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    
+    # Owner and tracking
+    owner_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('users.id'), nullable=True)  # Owner (defaults to creator)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    disposal_vendor: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    manifest_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Disposal manifest/tracking number
+    
+    # Additional data
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    template_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('templates.id'), nullable=True)
+    
+    # Relationships
+    lab: Mapped[Optional["Lab"]] = relationship("Lab", foreign_keys=[lab_id])
+    project: Mapped[Optional["Project"]] = relationship("Project", back_populates="wastes")
+    owner: Mapped[Optional["User"]] = relationship("User", foreign_keys=[owner_id])
+    template: Mapped[Optional["Template"]] = relationship("Template", foreign_keys=[template_id])
+    precursor_associations: Mapped[List["WastePrecursor"]] = relationship("WastePrecursor", back_populates="waste", cascade="all, delete-orphan")
+    
+    __table_args__ = (
+        Index('idx_wastes_lab', 'lab_id'),
+        Index('idx_wastes_status', 'status'),
+        Index('idx_wastes_fill_status', 'fill_status'),
+        Index('idx_wastes_owner', 'owner_id'),
+    )
+    
+    def __repr__(self):
+        return f"<Waste(id={self.id}, name='{self.name}', status='{self.status}', fill='{self.fill_status}')>"
+
+
+class WastePrecursor(Base):
+    """
+    Junction table linking waste containers to source precursors.
+    Tracks which precursors contributed to a waste container.
+    """
+    __tablename__ = "waste_precursors"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    waste_id: Mapped[int] = mapped_column(Integer, ForeignKey('wastes.id'), nullable=False)
+    precursor_id: Mapped[int] = mapped_column(Integer, ForeignKey('precursors.id'), nullable=False)
+    quantity: Mapped[Optional[float]] = mapped_column(Numeric(10, 4), nullable=True)
+    quantity_unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    added_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    waste: Mapped["Waste"] = relationship("Waste", back_populates="precursor_associations")
+    precursor: Mapped["Precursor"] = relationship("Precursor")
+    
+    __table_args__ = (
+        UniqueConstraint('waste_id', 'precursor_id', name='uq_waste_precursor'),
+        Index('idx_waste_precursors_waste', 'waste_id'),
+        Index('idx_waste_precursors_precursor', 'precursor_id'),
+    )
+    
+    def __repr__(self):
+        return f"<WastePrecursor(waste_id={self.waste_id}, precursor_id={self.precursor_id})>"
+
+
+# ============================================================
 # PROCEDURES
 # ============================================================
 
@@ -2161,13 +2271,13 @@ class Location(TrashableMixin, Base):
 class ObjectLocation(Base):
     """
     Links physical objects to their locations with optional notes/directions.
-    Supports Equipment, Instruments, Samples, Precursors, and Computers.
+    Supports Equipment, Instruments, Samples, Precursors, Computers, and Wastes.
     """
     __tablename__ = "object_locations"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     location_id: Mapped[int] = mapped_column(Integer, ForeignKey('locations.id'), nullable=False)
-    object_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'equipment', 'instrument', 'sample', 'precursor', 'computer'
+    object_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'equipment', 'instrument', 'sample', 'precursor', 'computer', 'waste'
     object_id: Mapped[int] = mapped_column(Integer, nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # e.g., "in the blue bottle", "top shelf on the left"
     placed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
